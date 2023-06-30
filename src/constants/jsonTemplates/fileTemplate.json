@@ -1,0 +1,12 @@
+{
+    "id": null,
+	"players": null,
+    "winner": null,
+    "stage": null,
+    "startedAt": null,
+    "lastFrame": null,
+    "path": null,
+    "isValid": null,
+    "isProcessed": null,
+    "info": null
+}
