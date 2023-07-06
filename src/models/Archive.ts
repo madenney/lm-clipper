@@ -4,16 +4,14 @@ import {
   ArchiveInterface,
   FileInterface,
   FilterInterface,
+  EventEmitterInterface,
+  ShallowArchiveInterface,
 } from 'constants/types'
-import File from './File'
+import File, { fileProcessor } from './File'
 import Filter from './Filter'
 // import { patternsConfig } from '../constants/config.js'
 
-// const fs = require('fs')
-// const File = require('./File').default
-// const Pattern = require('./Pattern').default
-// const { patternsConfig } = require('../constants/config.js')
-// const { getSlpFilePaths } = require('../lib').default
+const { getSlpFilePaths } = require('../lib').default
 // const fileTemplate = JSON.parse(
 //   fs.readFileSync(path.resolve('src/constants/jsonTemplates/fileTemplate.json'))
 // )
@@ -36,39 +34,49 @@ export default class Archive {
     )
   }
 
+  addFiles(_paths: string | string[], eventEmitter: EventEmitterInterface) {
+    const paths = Array.isArray(_paths) ? _paths : [_paths]
+    const filePaths = getSlpFilePaths(paths)
+    filePaths.forEach((path: string, index: number) => {
+      const fileJSON = fileProcessor(path)
+      this.files.push(new File(fileJSON))
+      eventEmitter({ current: index, total: filePaths.length })
+    })
+    return filePaths.length
+  }
+
   save() {
     const jsonToSave = {
       name: this.name,
+      path: this.path,
       createdAt: this.createdAt,
       updatedAt: new Date().getTime().toString(),
       files: this.files.map((file) => file.generateJSON()),
-      filters: this.filters.map((filter) => filter.generateJSON()),
+      filters: this.filters.map((filter) => {
+        if (!filter.generateJSON) throw Error('generateJSON not defined')
+        return filter.generateJSON()
+      }),
     }
     fs.writeFileSync(this.path, JSON.stringify(jsonToSave))
   }
+
+  shallowCopy() {
+    const shallowArchive: ShallowArchiveInterface = {
+      path: this.path,
+      name: this.name,
+      createdAt: this.createdAt,
+      updatedAt: this.updatedAt,
+      files: this.files.length,
+      filters: this.filters.map((filter) => {
+        return {
+          ...filter,
+          results: filter.results.length,
+        }
+      }),
+    }
+    return shallowArchive
+  }
 }
-// constructor(archivePath: String) {
-//   this.path = archivePath
-//   this.files = []
-//   this.patterns = []
-//   const archiveJSON = JSON.parse(fs.readFileSync(archivePath))
-//   if (!archiveJSON.name) throw 'Archive has no name'
-//   this.name = archiveJSON.name
-//   this.createdAt = archiveJSON.createdAt
-//     ? archiveJSON.createdAt
-//     : new Date().getTime().toString()
-//   this.updatedAt = archiveJSON.updatedAt
-//     ? archiveJSON.createdAt
-//     : new Date().getTime().toString()
-//   if (archiveJSON.files && archiveJSON.files.length > 0) {
-//     archiveJSON.files.forEach(file => this.files.push(new File(file)))
-//   }
-//   if (archiveJSON.patterns && archiveJSON.patterns.length > 0) {
-//     archiveJSON.patterns.forEach(pattern =>
-//       this.patterns.push(new Pattern(pattern))
-//     )
-//   }
-// }
 
 // addFiles (_paths) {
 //   const paths = Array.isArray(_paths) ? _paths : [_paths]

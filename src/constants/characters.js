@@ -204,19 +204,19 @@ const sortedCharacters = [{
   shortName: "Samus",
   colors: ["Default", "Pink", "Black", "Green", "Purple"],
   img: "character-icons/samus/"
-}, {
-  id: 7,
-  name: "Luigi",
-  shortName: "Luigi",
-  colors: ["Default", "White", "Blue", "Pink"],
-  img: "character-icons/luigi/"
 },{
   id: 17,
   name: "Yoshi",
   shortName: "Yoshi",
   colors: ["Default", "Red", "Blue", "Yellow", "Pink", "Cyan"],
   img: "character-icons/yoshi/"
-},{
+}, {
+  id: 7,
+  name: "Luigi",
+  shortName: "Luigi",
+  colors: ["Default", "White", "Blue", "Pink"],
+  img: "character-icons/luigi/"
+}, {
   id: 13,
   name: "Pikachu",
   shortName: "Pikachu",
@@ -317,4 +317,4 @@ const sortedCharacters = [{
 const fastFallers = [0,2,20]
 const lowTiers = [1,3,4,5,6,8,10,11,18,21,22,23,24,25]
 
-export { characters, sortedCharacters, fastFallers,lowTiers }
+export { characters, sortedCharacters, fastFallers, lowTiers }

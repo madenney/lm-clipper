@@ -25,7 +25,14 @@ export interface ConfigInterface {
   outputPath: string
 }
 
-export interface PlayerInterface {}
+export interface PlayerInterface {
+  playerIndex: number
+  port: number
+  characterId: number | null
+  characterColor: number | null
+  nametag: string
+  displayName: string
+}
 
 export interface FileInterface {
   id: string
@@ -45,29 +52,26 @@ export interface ClipInterface {
   startFrame: number
   endFrame: number
   path: string
-  recordingParams: {}
+  recordingParams: { [key: string]: any }
 }
 
 export interface FilterInterface {
-  id: string
-  params: {}
+  type: string
+  label: string
+  params: { [key: string]: any }
   results: ClipInterface[] | FileInterface[]
-  generateJSON(): void
+  generateJSON?(): void
 }
 
-export interface ArchiveInterface {
-  path: string
-  name: string
-  createdAt: number
-  updatedAt: number
-  files: FileInterface[]
-  filters: FilterInterface[]
-  save?(): void
+export interface EventEmitterInterface {
+  // eslint-disable-next-line no-unused-vars
+  (arg1: { current: number; total: number }): void
 }
 
 export interface ShallowFilterInterface {
-  id: string
-  params: {}
+  type: string
+  label: string
+  params: { [key: string]: any }
   results: number
 }
 
@@ -78,4 +82,23 @@ export interface ShallowArchiveInterface {
   updatedAt: number
   files: number
   filters: ShallowFilterInterface[]
+}
+
+export interface ArchiveInterface {
+  path: string
+  name: string
+  createdAt: number
+  updatedAt: number
+  files: FileInterface[]
+  filters: FilterInterface[]
+  save?(): void
+  shallowCopy?(): ShallowArchiveInterface
+  addFiles?(
+    // eslint-disable-next-line no-unused-vars
+    filePaths: string | string[],
+    // eslint-disable-next-line no-unused-vars
+    eventEmitter: EventEmitterInterface
+    // eslint-disable-next-line no-unused-vars
+    // eventEmitter: (arg1: { current: number; total: number }) => void
+  ): number
 }

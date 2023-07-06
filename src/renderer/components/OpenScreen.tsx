@@ -3,10 +3,12 @@
 import '../styles/OpenScreen.css'
 import { useState, Dispatch, SetStateAction } from 'react'
 import ipcBridge from '../ipcBridge'
-import { ArchiveInterface } from '../../constants/types'
+import { ShallowArchiveInterface } from '../../constants/types'
 
 type OpenScreenProps = {
-  setArchive: Dispatch<SetStateAction<ArchiveInterface | null | undefined>>
+  setArchive: Dispatch<
+    SetStateAction<ShallowArchiveInterface | null | undefined>
+  >
 }
 
 export default function OpenScreen({ setArchive }: OpenScreenProps) {
@@ -33,7 +35,7 @@ export default function OpenScreen({ setArchive }: OpenScreenProps) {
   if (createNew) {
     return (
       <div className="main">
-        <div className="title">New Project:</div>
+        <div className="openScreenTitle">New Project:</div>
         <form>
           <div className="label">Name</div>
           <input
