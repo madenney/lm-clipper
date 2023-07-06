@@ -10,6 +10,7 @@ module.exports = {
     'import/no-import-module-exports': 'off',
     'react/prop-types': 'off',
     'lines-between-class-members': 'off',
+    'class-methods-use-this': 'off',
   },
   parserOptions: {
     ecmaVersion: 2020,

@@ -29,7 +29,7 @@ export const archive = {
   files: [],
   filters: [],
   path: '',
-  name: 'default_archive',
+  name: 'default_project',
   createdAt: 1006329600,
   updatedAt: 1006329600,
 }

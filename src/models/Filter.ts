@@ -5,18 +5,21 @@ import {
 } from '../constants/types'
 
 export default class Filter {
-  id: string
+  label: string
+  type: string
   params: {}
   results: ClipInterface[] | FileInterface[]
   constructor(filterJSON: FilterInterface) {
-    this.id = filterJSON.id
+    this.label = filterJSON.label
+    this.type = filterJSON.type
     this.params = filterJSON.params
     this.results = filterJSON.results
   }
 
   generateJSON() {
     return {
-      id: this.id,
+      label: this.label,
+      type: this.type,
       params: this.params,
       results: this.results,
     }

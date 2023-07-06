@@ -203,14 +203,21 @@ export default class MenuBuilder {
           },
           {
             label: '&Close Project',
-            accelerator: 'Ctrl+O',
+            accelerator: 'Ctrl+W',
             click: () => {
               this.mainWindow.webContents.send('closeProject')
             },
           },
           {
+            label: '&Import Slippi Replays',
+            accelerator: 'Ctrl+I',
+            click: () => {
+              this.mainWindow.webContents.send('importSlpClicked')
+            },
+          },
+          {
             label: '&Quit Application',
-            accelerator: 'Ctrl+W',
+            accelerator: 'Ctrl+Q',
             click: () => {
               this.mainWindow.close()
             },

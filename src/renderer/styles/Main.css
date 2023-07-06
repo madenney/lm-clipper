@@ -1,0 +1,22 @@
+
+
+.content {
+  padding: 20px;
+}
+
+.noFilesMessageContainer {
+  text-align: center;
+  width: 50%;
+  margin: 10vw auto;
+}
+
+.noFilesMessage {
+  font-size: 30px;
+  margin-bottom: 25px;
+}
+
+.orClickHere {
+  font-size: 18px;
+}
+
+
