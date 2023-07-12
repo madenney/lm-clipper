@@ -1,7 +1,14 @@
 /* eslint-disable react/no-array-index-key */
 /* eslint-disable jsx-a11y/no-static-element-interactions */
 /* eslint-disable jsx-a11y/click-events-have-key-events */
-import { ReactElement, useState, Dispatch, SetStateAction } from 'react'
+import {
+  ReactElement,
+  useState,
+  Dispatch,
+  SetStateAction,
+  useEffect,
+} from 'react'
+import { cloneDeep } from 'lodash'
 import '../styles/Filters.css'
 import { filtersConfig } from 'constants/config'
 import ipcBridge from '../ipcBridge'
@@ -27,26 +34,73 @@ export default function Filters({
 }: FiltersProps) {
   const [isFiltersOpen, setFiltersOpen] = useState(false)
   const [showEditFilterModal, setShowEditFilterModal] = useState(false)
+  const [currentlyRunningFilter, setCurrentlyRunningFilter] = useState(0)
+  const [filterMsg, setFilterMsg] = useState('')
+  const [filterIndex, setFilterIndex] = useState(0)
   const [filterToEdit, setFilterToEdit] =
     useState<ShallowFilterInterface | null>(null)
 
-  function runFilter(filter: ShallowFilterInterface) {
-    console.log('RUN FILTER: ', filter)
-    // const filterIndex = archive.filters.indexOf(filter)
-    // if (filterIndex === 0) {
-    //   filter.run({ results: archive.files }, (e) => {
-    //     console.log(e.msg)
-    //   })
-    // } else {
-    //   filter.run(archive.filters[filterIndex - 1], (e) => {
-    //     console.log(e.msg)
-    //   })
-    // }
+  useEffect(() => {
+    setFilterToEdit(archive.filters[filterIndex])
+  }, [archive, filterIndex])
+
+  useEffect(() => {
+    window.electron.ipcRenderer.on(
+      'currentlyRunningFilter',
+      (event: { current: number }) => {
+        setCurrentlyRunningFilter(event.current)
+      }
+    )
+    window.electron.ipcRenderer.on(
+      'filterUpdate',
+      (event: { total: number; current: number }) => {
+        setFilterMsg(`${event.current}/${event.total}`)
+      }
+    )
+  }, [])
+
+  function run() {
+    ipcBridge
+      .runFilters()
+      .then((newArchive) => {
+        setArchive(newArchive)
+        setCurrentlyRunningFilter(0)
+        return setFilterMsg('')
+      })
+      .catch((error) => {
+        console.log('Error? ', error)
+      })
   }
+
+  // function runFilter(filter: ShallowFilterInterface) {
+  //   console.log('RUN FILTER: ', filter)
+  //   // const filterIndex = archive.filters.indexOf(filter)
+  //   // if (filterIndex === 0) {
+  //   //   filter.run({ results: archive.files }, (e) => {
+  //   //     console.log(e.msg)
+  //   //   })
+  //   // } else {
+  //   //   filter.run(archive.filters[filterIndex - 1], (e) => {
+  //   //     console.log(e.msg)
+  //   //   })
+  //   // }
+  // }
 
   async function addFilter(e: any) {
     if (!setArchive) return
     setArchive(await ipcBridge.addFilter(e.target.value))
+  }
+
+  async function updateFilter(newFilter: ShallowFilterInterface) {
+    if (!filterToEdit) throw Error('No selected filter?')
+    const prevFilterIndex = archive.filters.indexOf(filterToEdit)
+    setFilterIndex(prevFilterIndex)
+    setArchive(
+      await ipcBridge.updateFilter({
+        filterIndex: prevFilterIndex,
+        newFilter,
+      })
+    )
   }
 
   // function handleMultiChange(e, array) {
@@ -74,7 +128,9 @@ export default function Filters({
             <input
               className="modal-row-input"
               onChange={(e) => {
-                filterToEdit.params[option.id] = e.target.value
+                const filterClone = cloneDeep(filterToEdit)
+                filterClone.params[option.id] = e.target.value
+                updateFilter(filterClone)
               }}
               value={filterToEdit.params[option.id]}
             />
@@ -86,7 +142,9 @@ export default function Filters({
               value={filterToEdit.params[option.id]}
               className="modal-row-input"
               onChange={(e) => {
-                filterToEdit.params[option.id] = e.target.value
+                const filterClone = cloneDeep(filterToEdit)
+                filterClone.params[option.id] = e.target.value
+                updateFilter(filterClone)
               }}
             >
               <option value="">Any</option>
@@ -105,7 +163,9 @@ export default function Filters({
               type="checkbox"
               checked={filterToEdit.params[option.id]}
               onChange={(e) => {
-                filterToEdit.params[option.id] = e.target.checked
+                const filterClone = cloneDeep(filterToEdit)
+                filterClone.params[option.id] = e.target.checked
+                updateFilter(filterClone)
               }}
             />
           )
@@ -117,12 +177,14 @@ export default function Filters({
                 type="button"
                 className="add-nth-move-button"
                 onClick={() => {
-                  filterToEdit.params[option.id].push({
+                  const filterClone = cloneDeep(filterToEdit)
+                  filterClone.params[option.id].push({
                     moveId: '',
                     n: '',
                     d: '',
                     t: '',
                   })
+                  updateFilter(filterClone)
                 }}
               >
                 Add Move
@@ -139,7 +201,10 @@ export default function Filters({
                         className="nth-move-int-input"
                         value={move.n}
                         onChange={(e) => {
-                          move.n = e.target.value
+                          const filterClone = cloneDeep(filterToEdit)
+                          filterClone.params[option.id][index].n =
+                            e.target.value
+                          updateFilter(filterClone)
                         }}
                       />
                       <div className="nth-move-label">T:</div>
@@ -147,7 +212,10 @@ export default function Filters({
                         className="nth-move-int-input"
                         value={move.t}
                         onChange={(e) => {
-                          move.t = e.target.value
+                          const filterClone = cloneDeep(filterToEdit)
+                          filterClone.params[option.id][index].t =
+                            e.target.value
+                          updateFilter(filterClone)
                         }}
                       />
                       <div className="nth-move-label">D:</div>
@@ -155,7 +223,10 @@ export default function Filters({
                         className="nth-move-int-input"
                         value={move.d}
                         onChange={(e) => {
-                          move.d = e.target.value
+                          const filterClone = cloneDeep(filterToEdit)
+                          filterClone.params[option.id][index].d =
+                            e.target.value
+                          updateFilter(filterClone)
                         }}
                       />
                       <div className="nth-move-label-move">Move:</div>
@@ -163,7 +234,10 @@ export default function Filters({
                         className="nth-move-input"
                         value={move.moveId}
                         onChange={(e) => {
-                          move.moveId = e.target.value
+                          const filterClone = cloneDeep(filterToEdit)
+                          filterClone.params[option.id][index].moveId =
+                            e.target.value
+                          updateFilter(filterClone)
                         }}
                       >
                         {option.options?.map((o) => (
@@ -175,7 +249,9 @@ export default function Filters({
                       <div
                         className="nth-move-delete"
                         onClick={() => {
-                          filterToEdit.params[option.id].splice(index, 1)
+                          const filterClone = cloneDeep(filterToEdit)
+                          filterClone.params[option.id].splice(index, 1)
+                          updateFilter(filterClone)
                         }}
                       >
                         ✕
@@ -231,13 +307,13 @@ export default function Filters({
           >
             Edit
           </button>
-          <button
+          {/* <button
             type="button"
             className="filter-button"
             onClick={() => runFilter(filter)}
           >
             Run
-          </button>
+          </button> */}
           <button
             type="button"
             className="filter-button"
@@ -248,7 +324,21 @@ export default function Filters({
           >
             Show
           </button>
-          <div className="filter-results">{filter.results}</div>
+          <div className="filter-results">Results: {filter.results}</div>
+          {index === currentlyRunningFilter ? (
+            <div className="filterMsg">{filterMsg}</div>
+          ) : (
+            ''
+          )}
+          <div
+            className={`filterIsProcessed ${
+              filter.isProcessed || currentlyRunningFilter > index
+                ? 'greenCheck'
+                : ''
+            }`}
+          >
+            &#10004;
+          </div>
           <div
             className="filter-delete"
             onClick={async () => {
@@ -282,6 +372,9 @@ export default function Filters({
             </option>
           ))}
         </select>
+        <button type="button" className="runButton" onClick={run}>
+          Run &#9658;
+        </button>
         <div id="filters-list">{renderFilters()}</div>
       </div>
     )

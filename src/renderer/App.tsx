@@ -16,6 +16,9 @@ export default function App() {
   useEffect(() => {
     console.log('Archive: ', archive)
   }, [archive])
+  useEffect(() => {
+    console.log('Config: ', config)
+  }, [config])
 
   useEffect(() => {
     async function getInitialData() {
@@ -64,5 +67,12 @@ export default function App() {
   if (!archive) {
     return <OpenScreen setArchive={setArchive} />
   }
-  return <Main archive={archive} setArchive={setArchive} />
+  return (
+    <Main
+      archive={archive}
+      setArchive={setArchive}
+      config={config}
+      setConfig={setConfig}
+    />
+  )
 }

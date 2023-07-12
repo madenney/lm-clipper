@@ -9,9 +9,8 @@ import {
 } from 'constants/types'
 import File, { fileProcessor } from './File'
 import Filter from './Filter'
-// import { patternsConfig } from '../constants/config.js'
 
-const { getSlpFilePaths } = require('../lib').default
+const { getSlpFilePaths } = require('../lib/file')
 // const fileTemplate = JSON.parse(
 //   fs.readFileSync(path.resolve('src/constants/jsonTemplates/fileTemplate.json'))
 // )
@@ -40,7 +39,10 @@ export default class Archive {
     filePaths.forEach((path: string, index: number) => {
       const fileJSON = fileProcessor(path)
       this.files.push(new File(fileJSON))
-      eventEmitter({ current: index, total: filePaths.length })
+      eventEmitter({
+        current: index,
+        total: filePaths.length,
+      })
     })
     return filePaths.length
   }
@@ -66,7 +68,8 @@ export default class Archive {
       name: this.name,
       createdAt: this.createdAt,
       updatedAt: this.updatedAt,
-      files: this.files.length,
+      totalFiles: this.files.length,
+      validFiles: this.files.filter((file) => file.isValid).length,
       filters: this.filters.map((filter) => {
         return {
           ...filter,
@@ -75,6 +78,48 @@ export default class Archive {
       }),
     }
     return shallowArchive
+  }
+
+  runFilters(
+    currentFilterEventEmitter: EventEmitterInterface,
+    filterMsgEventEmitter: EventEmitterInterface
+  ) {
+    const firstUnprocessed = this.filters.find((filter) => !filter.isProcessed)
+    if (!firstUnprocessed) return false
+    const index = this.filters.indexOf(firstUnprocessed)
+    let prevResults = index === 0 ? this.files : this.filters[index - 1].results
+    this.filters.slice(index).forEach((filter) => {
+      if (!filter.run) throw Error('filter.run() not defined?')
+      currentFilterEventEmitter({
+        current: this.filters.indexOf(filter),
+        total: this.filters.length,
+      })
+      filter.run(prevResults, filterMsgEventEmitter)
+      prevResults = filter.results
+    })
+    return false
+  }
+
+  names() {
+    const namesObj: { [key: string]: number } = {}
+    this.files.forEach((file) => {
+      if (file.isValid) {
+        file.players.forEach((player) => {
+          const name = player.displayName
+          if (namesObj[name]) {
+            namesObj[name] += 1
+          } else {
+            namesObj[name] = 1
+          }
+        })
+      }
+    })
+    const names: { name: string; total: number }[] = []
+    Object.keys(namesObj).forEach((key) => {
+      names.push({ name: key, total: namesObj[key] })
+    })
+    const sortedNames = names.sort((a, b) => b.total - a.total)
+    return sortedNames
   }
 }
 

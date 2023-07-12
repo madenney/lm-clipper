@@ -37,7 +37,6 @@ export default function Navbar({ archive }: NavbarProps) {
       <div className="projectTitleContainer">
         Project: <span className="projectTitle">{`${archive.name}`}</span>
       </div>
-      <div className="files">{`Replays: ${archive.files}`}</div>
       <div className="importMsg">{importMsg}</div>
       <div
         onClick={saveArchive}

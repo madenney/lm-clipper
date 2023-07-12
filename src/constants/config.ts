@@ -7,7 +7,7 @@ import { deathDirections } from './deathDirections'
 export const filtersConfig = [
   {
     id: 'files',
-    label: 'Start Files',
+    label: 'Game Filter',
     options: [
       {
         name: 'Stage',
@@ -46,7 +46,7 @@ export const filtersConfig = [
   },
   {
     id: 'slpParser',
-    label: 'File Parser',
+    label: 'Combo Parser',
     options: [
       {
         name: 'Min Hits',
@@ -177,44 +177,44 @@ export const filtersConfig = [
       },
     ],
   },
-  {
-    id: 'edgeguards',
-    label: 'Edgeguards',
-    options: [
-      {
-        name: 'Max Files',
-        id: 'maxFiles',
-        type: 'int',
-        default: '',
-      },
-      {
-        name: 'Comboer Char',
-        id: 'comboerChar',
-        type: 'dropdown',
-        options: sortedCharacters,
-        default: '',
-      },
-      {
-        name: 'Comboee Char',
-        id: 'comboeeChar',
-        type: 'dropdown',
-        options: sortedCharacters,
-        default: '',
-      },
-      {
-        name: 'Comboer Tag',
-        id: 'comboerTag',
-        type: 'textInput',
-        default: '',
-      },
-      {
-        name: 'Comboee Tag',
-        id: 'comboeeTag',
-        type: 'textInput',
-        default: '',
-      },
-    ],
-  },
+  // {
+  //   id: 'edgeguards',
+  //   label: 'Edgeguards',
+  //   options: [
+  //     {
+  //       name: 'Max Files',
+  //       id: 'maxFiles',
+  //       type: 'int',
+  //       default: '',
+  //     },
+  //     {
+  //       name: 'Comboer Char',
+  //       id: 'comboerChar',
+  //       type: 'dropdown',
+  //       options: sortedCharacters,
+  //       default: '',
+  //     },
+  //     {
+  //       name: 'Comboee Char',
+  //       id: 'comboeeChar',
+  //       type: 'dropdown',
+  //       options: sortedCharacters,
+  //       default: '',
+  //     },
+  //     {
+  //       name: 'Comboer Tag',
+  //       id: 'comboerTag',
+  //       type: 'textInput',
+  //       default: '',
+  //     },
+  //     {
+  //       name: 'Comboee Tag',
+  //       id: 'comboeeTag',
+  //       type: 'textInput',
+  //       default: '',
+  //     },
+  //   ],
+  // },
   // {
   //     id: "actionStates",
   //     label: "Action State",
@@ -303,6 +303,30 @@ export const filtersConfig = [
   //         }
   //     ]
   // }
+  {
+    id: 'sort',
+    label: 'Sort',
+    options: [
+      {
+        name: 'Sort Function',
+        id: 'sortFunction',
+        type: 'textInput',
+        default: 'dps',
+      },
+      {
+        name: 'n',
+        id: 'n',
+        type: 'int',
+        default: 0,
+      },
+      {
+        name: 'Reverse',
+        id: 'reverse',
+        type: 'checkbox',
+        default: false,
+      },
+    ],
+  },
   {
     id: 'windowFilter',
     label: 'Window Filter',
@@ -400,30 +424,6 @@ export const filtersConfig = [
         id: 'frameWindow',
         type: 'int',
         default: '60',
-      },
-    ],
-  },
-  {
-    id: 'sort',
-    label: 'Sort',
-    options: [
-      {
-        name: 'Sort Function',
-        id: 'sortFunction',
-        type: 'textInput',
-        default: 'dps',
-      },
-      {
-        name: 'n',
-        id: 'n',
-        type: 'int',
-        default: 0,
-      },
-      {
-        name: 'Reverse',
-        id: 'reverse',
-        type: 'checkbox',
-        default: false,
       },
     ],
   },
@@ -621,17 +621,17 @@ export const videoConfig = [
     type: 'checkbox',
   },
   {
-    label: 'Hide Names',
+    label: 'Hide Netplay Names',
     default: false,
     id: 'hideNames',
     type: 'checkbox',
   },
-  {
-    label: 'Overlay Source',
-    default: false,
-    id: 'overlaySource',
-    type: 'checkbox',
-  },
+  // {
+  //   label: 'Overlay Source',
+  //   default: false,
+  //   id: 'overlaySource',
+  //   type: 'checkbox',
+  // },
   {
     label: 'Fixed Camera',
     default: false,
@@ -663,10 +663,59 @@ export const videoConfig = [
     type: 'checkbox',
   },
   {
-    label: 'Resolution (1x-6x)',
+    label: 'Does Nothing',
+    default: false,
+    id: 'nothing',
+    type: 'checkbox',
+  },
+  {
+    label: 'Resolution',
     default: '1x',
     id: 'resolution',
-    type: 'textInput',
+    type: 'dropdown',
+    options: [
+      {
+        label: '1x (640x528)',
+        value: 2,
+      },
+      {
+        label: '1.5x (960x792)',
+        value: 3,
+      },
+      {
+        label: '2x (1280x1056) - 720p',
+        value: 4,
+      },
+      {
+        label: '2.5x (1600x1320)',
+        value: 5,
+      },
+      {
+        label: '3x (1920x1584) - 1080p',
+        value: 6,
+      },
+
+      {
+        label: '4x (2560x2112)',
+        value: 7,
+      },
+      {
+        label: '5x (3200x2640)',
+        value: 8,
+      },
+      {
+        label: '6x (3640x3168) - 4K',
+        value: 9,
+      },
+      {
+        label: '7x (4480x3696)',
+        value: 10,
+      },
+      {
+        label: '8x (5120x4224)',
+        value: 11,
+      },
+    ],
   },
   {
     label: 'Bitrate',
@@ -693,7 +742,7 @@ export const videoConfig = [
     type: 'int',
   },
   {
-    label: 'Num CPUs',
+    label: 'Concurrent Processes',
     default: 1,
     id: 'numCPUs',
     type: 'int',
@@ -704,12 +753,12 @@ export const videoConfig = [
     id: 'slice',
     type: 'int',
   },
-  {
-    label: 'Dolphin Cutoff',
-    default: 300,
-    id: 'dolphinCutoff',
-    type: 'int',
-  },
+  // {
+  //   label: 'Dolphin Cutoff',
+  //   default: 300,
+  //   id: 'dolphinCutoff',
+  //   type: 'int',
+  // },
   {
     label: 'ISO Path',
     default: '',

@@ -1,3 +1,5 @@
+import { ShallowFilterInterface } from 'constants/types'
+
 export default {
   getConfig() {
     return new Promise<any>((resolve) => {
@@ -73,6 +75,45 @@ export default {
     return new Promise<any>((resolve) => {
       window.electron.ipcRenderer.sendMessage('getResults', params)
       window.electron.ipcRenderer.once('getResults', resolve)
+    })
+  },
+  getNames() {
+    return new Promise<any>((resolve) => {
+      window.electron.ipcRenderer.sendMessage('getNames', {})
+      window.electron.ipcRenderer.once('getNames', resolve)
+    })
+  },
+  updateFilter(params: {
+    filterIndex: number
+    newFilter: ShallowFilterInterface
+  }) {
+    return new Promise<any>((resolve) => {
+      window.electron.ipcRenderer.sendMessage('updateFilter', params)
+      window.electron.ipcRenderer.once('updateFilter', resolve)
+    })
+  },
+  runFilters() {
+    return new Promise<any>((resolve) => {
+      window.electron.ipcRenderer.sendMessage('runFilters', {})
+      window.electron.ipcRenderer.once('runFilters', resolve)
+    })
+  },
+  updateConfig(config: { key: string; value: string | number | boolean }) {
+    return new Promise<any>((resolve) => {
+      window.electron.ipcRenderer.sendMessage('updateConfig', config)
+      window.electron.ipcRenderer.once('updateConfig', resolve)
+    })
+  },
+  getPath(type: string) {
+    return new Promise<any>((resolve) => {
+      window.electron.ipcRenderer.sendMessage('getPath', type)
+      window.electron.ipcRenderer.once('getPath', resolve)
+    })
+  },
+  generateVideo() {
+    return new Promise<any>((resolve) => {
+      window.electron.ipcRenderer.sendMessage('generateVideo', {})
+      window.electron.ipcRenderer.once('generateVideo', resolve)
     })
   },
 }

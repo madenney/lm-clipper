@@ -19,7 +19,7 @@ const characters = [{
 }, {
   id: 3,
   name: "Mr. Game & Watch",
-  shortName: "G&W",
+  shortName: "GnW",
   colors: ["Default", "Red", "Blue", "Green"],
   img: "character-icons/gnw/"
 }, {
@@ -231,7 +231,7 @@ const sortedCharacters = [{
 }, {
   id: 3,
   name: "Mr. Game & Watch",
-  shortName: "G&W",
+  shortName: "GnW",
   colors: ["Default", "Red", "Blue", "Green"],
   img: "character-icons/gnw/"
 }, {
@@ -318,3 +318,7 @@ const fastFallers = [0,2,20]
 const lowTiers = [1,3,4,5,6,8,10,11,18,21,22,23,24,25]
 
 export { characters, sortedCharacters, fastFallers, lowTiers }
+
+// module.exports = {
+//   characters
+// }
