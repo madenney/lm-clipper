@@ -1,6 +1,6 @@
 .main-content {
 
-  max-width: 800px;
+  width: 800px;
   margin: auto;
 }
 
@@ -136,8 +136,22 @@
 .filter-results {
   padding: 5px;
   display: inline-block;
-  width: 90px;
+  width: 160px;
   border-radius: 3px;
+}
+
+.filterMsg {
+  padding: 5px;
+  display: inline-block;
+  width: 160px;
+}
+
+.filterIsProcessed {
+  position: absolute;
+  top: 8px;
+  right: 42px;
+  font-size: 31px;
+  color:  gray;
 }
 
 .filter-delete {
@@ -311,7 +325,7 @@
 .result {
   position: relative;
   display: inline-block;
-  width: 350px;
+  width: 340px;
   padding: 10px;
   margin: 5px;
   background-color: #383838
@@ -384,6 +398,13 @@
   width: 100px;
 }
 
+.video-row-input-dropdown {
+  font-size: 20px;
+  width: 108px;
+  height: 30px;
+  border-radius: 3px;
+}
+
 .video-row-checkbox {
   transform: scale(1.7);
   width: 40px;
@@ -397,4 +418,33 @@
   font-size: 15px;
   color: red;
 
+}
+
+.runButton {
+  border: solid 2px #686868;
+  border-radius: 5px;
+  background-color: #383838;
+  color: #FAFFFD;
+  font-size: 20px;
+  padding: 5px;
+  width: 150px;
+  height: 50px;
+  margin: 10px;
+  float: right;
+  margin-right: 10px;
+}
+
+.runButton:hover {
+  cursor: pointer;
+  background-color: #282828;
+}
+
+.greenCheck {
+  color: green;
+}
+
+.videoMessage {
+  display: inline-block;
+  margin-left: 55px;
+  font-size: 21px;
 }

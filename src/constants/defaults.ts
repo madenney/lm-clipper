@@ -26,10 +26,59 @@ export const config = {
 }
 
 export const archive = {
-  files: [],
-  filters: [],
   path: '',
   name: 'default_project',
   createdAt: 1006329600,
   updatedAt: 1006329600,
+  files: [],
+  filters: [
+    {
+      label: 'Game Filter',
+      type: 'files',
+      isProcessed: false,
+      params: {
+        stage: '',
+        char1: '',
+        char2: '',
+        player1: '',
+        player2: '',
+      },
+      results: [],
+    },
+    {
+      label: 'Combo Parser',
+      type: 'slpParser',
+      isProcessed: false,
+      params: {
+        minHits: '4',
+        maxHits: '',
+        maxFiles: '100',
+        comboerChar: '',
+        comboeeChar: '',
+        comboerTag: '',
+        comboeeTag: '',
+        didKill: false,
+      },
+      results: [],
+    },
+    {
+      label: 'Combo Filter',
+      type: 'comboFilter',
+      isProcessed: false,
+      params: {
+        minHits: '4',
+        maxHits: '',
+        minDamage: '',
+        comboerChar: '',
+        comboeeChar: '',
+        comboerTag: '',
+        comboeeTag: '',
+        comboStage: '',
+        didKill: false,
+        excludeICs: false,
+        nthMoves: [],
+      },
+      results: [],
+    },
+  ],
 }

@@ -1,15 +1,11 @@
-// import fs from 'fs'
-// import Header from "./Header"
-// import Files from "./Files"
-// import Patterns from "./Patterns"
-// import { Archive } from '../models/Archive'
-// import NoArchive from './NoArchive'
 import { useState, Dispatch, SetStateAction } from 'react'
 import {
+  ConfigInterface,
   ShallowArchiveInterface,
   ShallowFilterInterface,
 } from '../../constants/types'
 import Navbar from './Navbar'
+import Replays from './Replays'
 import Filters from './Filters'
 import Results from './Results'
 import Video from './Video'
@@ -20,79 +16,38 @@ type MainProps = {
   setArchive: Dispatch<
     SetStateAction<ShallowArchiveInterface | null | undefined>
   >
+  config: ConfigInterface
+  setConfig: Dispatch<SetStateAction<ConfigInterface>>
 }
 
-export default function Main({ archive, setArchive }: MainProps) {
+export default function Main({
+  archive,
+  setArchive,
+  config,
+  setConfig,
+}: MainProps) {
   const [isResultsOpen, setResultsOpen] = useState(false)
   const [selectedFilter, setSelectedFilter] =
     useState<ShallowFilterInterface | null>(null)
   return (
     <div className="page">
       <Navbar archive={archive} />
-      {archive.files === 0 ? (
-        <div className="noFilesMessageContainer">
-          <div className="noFilesMessage">
-            Import Slippi Replays by dropping them anywhere in this window
-          </div>
-          <div className="orClickHere">
-            {'(or click File -> Import Slippi Replays)'}
-          </div>
-        </div>
-      ) : (
-        <div className="main-content">
-          <Filters
-            archive={archive}
-            setArchive={setArchive}
-            setResultsOpen={setResultsOpen}
-            setSelectedFilter={setSelectedFilter}
-          />
-          <Results
-            archive={archive}
-            isResultsOpen={isResultsOpen}
-            setResultsOpen={setResultsOpen}
-            selectedFilter={selectedFilter}
-          />
-          <Video archive={archive} />
-        </div>
-      )}
+      <div className="main-content">
+        <Replays archive={archive} setArchive={setArchive} />
+        <Filters
+          archive={archive}
+          setArchive={setArchive}
+          setResultsOpen={setResultsOpen}
+          setSelectedFilter={setSelectedFilter}
+        />
+        <Results
+          archive={archive}
+          isResultsOpen={isResultsOpen}
+          setResultsOpen={setResultsOpen}
+          selectedFilter={selectedFilter}
+        />
+        <Video archive={archive} config={config} setConfig={setConfig} />
+      </div>
     </div>
   )
 }
-
-// class App extends React.Component {
-
-// 	constructor(props){
-// 		super(props)
-// 		this.state = {
-// 			archive: null
-// 		}
-// 	  }
-
-// 	componentDidMount(){
-// 		if(localStorage.last_archive && fs.existsSync(localStorage.last_archive)){
-// 			this.setState({
-// 				archive: new Archive(localStorage.last_archive)
-// 			})
-// 		}
-// 	}
-
-// 	closeArchive() {
-// 		this.setState({ archive: null })
-// 	}
-
-// 	render(){
-// 		const { archive } = this.state
-// 		console.log("render-archive:", archive)
-// 		if(archive){
-// 			return (
-// 				<div className='main-content'>
-// 					<Header archive={archive} closeArchive={this.closeArchive.bind(this)}/>
-// 					<Files archive={archive}/>
-// 					<Patterns archive={archive}/>
-// 				</div>
-// 			)
-// 		} else {
-// 			return <NoArchive setArchive={(archive) => this.setState({archive})}/>
-// 		}
-// 	}
-// }

@@ -1,3 +1,4 @@
+/* eslint-disable no-unused-vars */
 export interface ConfigInterface {
   lastArchivePath: string
   hideHud: boolean
@@ -23,13 +24,14 @@ export interface ConfigInterface {
   ssbmIsoPath: string
   dolphinPath: string
   outputPath: string
+  [key: string]: any
 }
 
 export interface PlayerInterface {
   playerIndex: number
   port: number
-  characterId: number | null
-  characterColor: number | null
+  characterId: number
+  characterColor: number
   nametag: string
   displayName: string
 }
@@ -45,6 +47,8 @@ export interface FileInterface {
   isValid: boolean
   isProcessed: boolean
   info: string
+  startFrame?: number
+  endFrame?: number
   generateJSON(): void
 }
 
@@ -52,25 +56,46 @@ export interface ClipInterface {
   startFrame: number
   endFrame: number
   path: string
-  recordingParams: { [key: string]: any }
+  stage: number
+  comboer?: PlayerInterface
+  comboee?: PlayerInterface
+  players?: PlayerInterface[]
+  combo?: {
+    startPercent: number
+    endPercent: number | null | undefined
+    didKill: boolean
+    moves?: {
+      playerIndex: number
+      frame: number
+      moveId: number
+      hitCount: number
+      damage: number
+    }[]
+  }
+  recordingParams?: { [key: string]: any }
+}
+
+export interface EventEmitterInterface {
+  (arg1: { current: number; total: number }): void
 }
 
 export interface FilterInterface {
   type: string
   label: string
+  isProcessed: boolean
   params: { [key: string]: any }
   results: ClipInterface[] | FileInterface[]
+  run?(
+    arg1: ClipInterface[] | FileInterface[],
+    arg2: EventEmitterInterface
+  ): void
   generateJSON?(): void
-}
-
-export interface EventEmitterInterface {
-  // eslint-disable-next-line no-unused-vars
-  (arg1: { current: number; total: number }): void
 }
 
 export interface ShallowFilterInterface {
   type: string
   label: string
+  isProcessed: boolean
   params: { [key: string]: any }
   results: number
 }
@@ -80,7 +105,8 @@ export interface ShallowArchiveInterface {
   name: string
   createdAt: number
   updatedAt: number
-  files: number
+  totalFiles: number
+  validFiles: number
   filters: ShallowFilterInterface[]
 }
 
@@ -92,13 +118,21 @@ export interface ArchiveInterface {
   files: FileInterface[]
   filters: FilterInterface[]
   save?(): void
+  runFilters?(
+    currentFilterEventEmitter: EventEmitterInterface,
+    filterMsgEventEmitter: EventEmitterInterface
+  ): void
+  names?(): { name: string; total: number }[]
   shallowCopy?(): ShallowArchiveInterface
   addFiles?(
-    // eslint-disable-next-line no-unused-vars
     filePaths: string | string[],
-    // eslint-disable-next-line no-unused-vars
     eventEmitter: EventEmitterInterface
-    // eslint-disable-next-line no-unused-vars
-    // eventEmitter: (arg1: { current: number; total: number }) => void
   ): number
+}
+
+export interface ReplayInterface {
+  index: number
+  path: string
+  startFrame: number
+  endFrame: number
 }
