@@ -58,22 +58,25 @@ export default function Results({
 
   function renderStats() {
     if (!results) return <div>no results</div>
-    const time = (
-      results.reduce((n, c) => {
-        const a = c.endFrame - c.startFrame
-        return n + a
-      }, 0) / 60
-    ).toFixed(1)
+    // const time = (
+    //   results.reduce((n, c) => {
+    //     const a = c.endFrame - c.startFrame
+    //     return n + a
+    //   }, 0) / 60
+    // ).toFixed(1)
 
     return (
       <div className="results-stats">
         <div className="results-stats-row">
           <div className="results-label">Total: </div>
-          <div className="results-data">{results.length}</div>
+          <div className="results-data">
+            {selectedFilter ? selectedFilter.results : 'N/A'}
+          </div>
         </div>
         <div className="results-stats-row">
           <div className="results-label">Time: </div>
-          <div className="results-data">{time}</div>
+          {/* <div className="results-data">N/A</div> */}
+          <div className="results-data">N/A</div>
         </div>
       </div>
     )
@@ -147,9 +150,10 @@ export default function Results({
             )}
             {result.startFrame && result.endFrame ? (
               <div className="result-info-row">
-                <div className="result-info-label">Time:</div>
+                <div className="result-info-label">Length:</div>
                 <div className="result-info-data">
-                  {((result.endFrame - result.startFrame) / 60).toFixed(1)}
+                  {/* eslint-disable-next-line prettier/prettier */}
+                  {`${((result.endFrame - result.startFrame) / 60).toFixed(1)} s`}
                 </div>
               </div>
             ) : (
@@ -173,7 +177,8 @@ export default function Results({
           </div>
         )}
         <div className="current-page">{currentPage}</div>
-        {numPerPage * (currentPage + 1) > results.length ? (
+        {selectedFilter &&
+        numPerPage * (currentPage + 1) > selectedFilter.results ? (
           <div className="next disabled">Next</div>
         ) : (
           <div className="next" onClick={() => setCurrentPage(currentPage + 1)}>
@@ -194,7 +199,9 @@ export default function Results({
           {results ? (
             <div className="results-section">
               {renderStats()}
-              {results.length > numPerPage ? renderPagination() : ''}
+              {selectedFilter && selectedFilter.results > numPerPage
+                ? renderPagination()
+                : ''}
               <div className="results-list">{renderList()}</div>
             </div>
           ) : (

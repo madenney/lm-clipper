@@ -66,7 +66,7 @@ const createWindow = async () => {
 
   mainWindow = new BrowserWindow({
     show: false,
-    width: 1024,
+    width: process.env.NODE_ENV === 'development' ? 1200 : 875,
     height: 728,
     icon: getAssetPath('icon.png'),
     webPreferences: {
@@ -74,6 +74,7 @@ const createWindow = async () => {
         ? path.join(__dirname, 'preload.js')
         : path.join(__dirname, '../../.erb/dll/preload.js'),
     },
+    resizable: process.env.NODE_ENV === 'development',
   })
 
   const controller = new Controller(mainWindow)

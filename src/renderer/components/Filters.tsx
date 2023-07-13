@@ -16,6 +16,7 @@ import {
   ShallowArchiveInterface,
   ShallowFilterInterface,
 } from '../../constants/types'
+import { sortOptions } from '../../models/methods/sort'
 
 type FiltersProps = {
   archive: ShallowArchiveInterface
@@ -140,7 +141,7 @@ export default function Filters({
           input = (
             <select
               value={filterToEdit.params[option.id]}
-              className="modal-row-input"
+              className="modal-row-input-select"
               onChange={(e) => {
                 const filterClone = cloneDeep(filterToEdit)
                 filterClone.params[option.id] = e.target.value
@@ -159,7 +160,7 @@ export default function Filters({
         case 'checkbox':
           input = (
             <input
-              className="modal-row-input modal-row-checkbox"
+              className="modal-row-checkbox"
               type="checkbox"
               checked={filterToEdit.params[option.id]}
               onChange={(e) => {

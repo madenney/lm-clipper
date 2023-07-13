@@ -40,7 +40,7 @@ export default function Replays({ archive, setArchive }: ReplaysProps) {
         <div className="replayModal" onClick={(e) => e.stopPropagation()}>
           <div className="replayNamesList">
             <div className="nameRowTitle">
-              <div className="nameKey">Name</div>
+              <div className="nameKeyTitle">Netplay Name</div>
               <span className="nameValue"># Occurences</span>
             </div>
             {names.map((name) => {
@@ -90,18 +90,14 @@ export default function Replays({ archive, setArchive }: ReplaysProps) {
               </div>
             </div>
           ) : (
-            <div>
-              <div className="replaysInfo">
-                <div className="replaysInfoRow">
-                  Total:
-                  <span className="replayInfoData">{archive.totalFiles}</span>
-                </div>
+            <div className="replaysInfoSection">
+              <div className="replaysInfoRow">
+                Total:
+                <span className="replayInfoData">{archive.totalFiles}</span>
               </div>
-              <div className="replaysInfo">
-                <div className="replaysInfoRow">
-                  Valid:
-                  <span className="replayInfoData">{archive.validFiles}</span>
-                </div>
+              <div className="replaysInfoRow">
+                Valid:
+                <span className="replayInfoData">{archive.validFiles}</span>
               </div>
             </div>
           )}
@@ -112,15 +108,15 @@ export default function Replays({ archive, setArchive }: ReplaysProps) {
             >
               Import Replays
             </div>
-            <div
+            {/* <div
               onClick={() => setShowConfigEditModal(true)}
               className="replaySectionButton"
             >
               Edit Config
-            </div>
+            </div> */}
             {archive.totalFiles > 0 ? (
               <div onClick={showNames} className="replaySectionButton">
-                Show Names
+                Netplay Names
               </div>
             ) : (
               ''
