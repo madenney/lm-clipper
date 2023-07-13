@@ -388,13 +388,13 @@ const configureDolphin = async (
   newSettings = []
   // eslint-disable-next-line no-restricted-syntax
   for await (const line of rl) {
-    if (line.startsWith('DumpFrames')) {
+    if (line.startsWith('DumpFrames ')) {
       newSettings.push(`DumpFrames = True`)
-    } else if (line.startsWith('DumpFramesSilent')) {
+    } else if (line.startsWith('DumpFramesSilent ')) {
       newSettings.push(`DumpFramesSilent = True`)
-    } else if (line.startsWith('DumpAudio')) {
+    } else if (line.startsWith('DumpAudio ')) {
       newSettings.push(`DumpAudio = True`)
-    } else if (line.startsWith('DumpAudioSilent')) {
+    } else if (line.startsWith('DumpAudioSilent ')) {
       newSettings.push(`DumpAudioSilent = True`)
     } else {
       newSettings.push(line)

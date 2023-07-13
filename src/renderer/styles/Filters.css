@@ -188,15 +188,15 @@
   margin: auto;
   margin-top: 140px;
   overflow: hidden;
-  overflow-y: scroll;
+  overflow-y: auto;
 }
 
 .modal-row {
-  margin-right: 65px;
+  width: 300px;
   display: inline-block;
   padding: 5px;
   font-size: 20px;
-  margin-bottom: 10px;
+  margin: 4px 12px;
 }
 .modal-row-label {
   display: inline-block;
@@ -209,13 +209,26 @@
   padding: 5px;
 }
 
+.modal-row-input-select {
+  display: inline-block;
+  width: 114px;
+  font-size: 20px;
+  padding: 5px;
+  height: 36px;
+}
+
 .modal-row-checkbox {
+  display: inline-block;
+  width: 21px;
+  font-size: 20px;
+  padding: 5px;
   transform: scale(1.7);
   cursor: pointer;
 }
 
 .nth-move {
   margin: 10px;
+  width: 670px;
 }
 
 .add-nth-move-button {
@@ -382,7 +395,7 @@
 
 .video-row {
   font-size: 20px;
-  margin: 5px;
+  margin: 5px 20px;
   width: 315px;
   display: inline-block;
 }
@@ -407,7 +420,7 @@
 
 .video-row-checkbox {
   transform: scale(1.7);
-  width: 40px;
+  width: 20px;
   cursor: pointer;
 }
 

@@ -224,6 +224,9 @@ export default class Controller {
       return event.reply({ error: 'archive undefined' })
 
     this.archive.filters.splice(index, 1)
+    this.archive.filters.forEach((filter) => {
+      filter.isProcessed = false
+    })
     return event.reply('removeFilter', this.archive.shallowCopy())
   }
 

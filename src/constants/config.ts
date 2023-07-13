@@ -3,6 +3,7 @@ import { sortedCharacters } from './characters'
 import { moves } from './moves'
 import { actionStates } from './actionStates'
 import { deathDirections } from './deathDirections'
+import { sortOptions } from '../models/methods/sort'
 
 export const filtersConfig = [
   {
@@ -310,14 +311,9 @@ export const filtersConfig = [
       {
         name: 'Sort Function',
         id: 'sortFunction',
-        type: 'textInput',
-        default: 'dps',
-      },
-      {
-        name: 'n',
-        id: 'n',
-        type: 'int',
-        default: 0,
+        type: 'dropdown',
+        options: sortOptions,
+        default: '',
       },
       {
         name: 'Reverse',
@@ -328,8 +324,8 @@ export const filtersConfig = [
     ],
   },
   {
-    id: 'windowFilter',
-    label: 'Window Filter',
+    id: 'actionStateFilter',
+    label: 'Action State',
     options: [
       {
         name: 'Max Files',
@@ -375,29 +371,61 @@ export const filtersConfig = [
         type: 'checkbox',
         default: false,
       },
-      {
-        name: 'Comboer Y Pos',
-        id: 'comboerYPos',
-        type: 'int',
-        default: '',
-      },
-      {
-        name: 'Comboer X Pos',
-        id: 'comboerXPos',
-        type: 'int',
-        default: '',
-      },
-      {
-        name: 'Comboee Y Pos',
-        id: 'comboeeYPos',
-        type: 'int',
-        default: '',
-      },
+      // {
+      //   name: 'Comboer Y Pos',
+      //   id: 'comboerYPos',
+      //   type: 'int',
+      //   default: '',
+      // },
+      // {
+      //   name: 'Comboer X Pos',
+      //   id: 'comboerXPos',
+      //   type: 'int',
+      //   default: '',
+      // },
+      // {
+      //   name: 'Comboee Y Pos',
+      //   id: 'comboeeYPos',
+      //   type: 'int',
+      //   default: '',
+      // },
     ],
   },
+  // {
+  //   id: 'endOfStock',
+  //   label: 'End Of Stock',
+  //   options: [
+  //     {
+  //       name: 'Max Files',
+  //       id: 'maxFiles',
+  //       type: 'int',
+  //       default: '',
+  //     },
+  //     {
+  //       name: 'Comboer Char',
+  //       id: 'comboerChar',
+  //       type: 'dropdown',
+  //       options: sortedCharacters,
+  //       default: '',
+  //     },
+  //     {
+  //       name: 'Comboee Char',
+  //       id: 'comboeeChar',
+  //       type: 'dropdown',
+  //       options: sortedCharacters,
+  //       default: '',
+  //     },
+  //     {
+  //       name: 'Frame Window',
+  //       id: 'frameWindow',
+  //       type: 'int',
+  //       default: '60',
+  //     },
+  //   ],
+  // },
   {
-    id: 'endOfStock',
-    label: 'End Of Stock',
+    id: 'removeStarKOFrames',
+    label: 'Cut Star KO',
     options: [
       {
         name: 'Max Files',
@@ -405,32 +433,7 @@ export const filtersConfig = [
         type: 'int',
         default: '',
       },
-      {
-        name: 'Comboer Char',
-        id: 'comboerChar',
-        type: 'dropdown',
-        options: sortedCharacters,
-        default: '',
-      },
-      {
-        name: 'Comboee Char',
-        id: 'comboeeChar',
-        type: 'dropdown',
-        options: sortedCharacters,
-        default: '',
-      },
-      {
-        name: 'Frame Window',
-        id: 'frameWindow',
-        type: 'int',
-        default: '60',
-      },
     ],
-  },
-  {
-    id: 'removeStarKOFrames',
-    label: 'Cut Star KO',
-    options: [],
   },
   {
     id: 'reverse',
@@ -487,22 +490,28 @@ export const filtersConfig = [
       },
     ],
   },
+  // {
+  //   id: 'comboStats',
+  //   label: 'Combo Stats',
+  //   options: [
+  //     {
+  //       name: 'Depth',
+  //       id: 'depth',
+  //       type: 'int',
+  //       default: 0,
+  //     },
+  //   ],
+  // },
   {
-    id: 'comboStats',
-    label: 'Combo Stats',
+    id: 'koDirection',
+    label: 'KO Direction',
     options: [
       {
-        name: 'Depth',
-        id: 'depth',
+        name: 'Max Files',
+        id: 'maxFiles',
         type: 'int',
-        default: 0,
+        default: '',
       },
-    ],
-  },
-  {
-    id: 'deathDirection',
-    label: 'Death Direction',
-    options: [
       {
         name: 'Direction',
         id: 'direction',
@@ -736,7 +745,7 @@ export const videoConfig = [
     type: 'int',
   },
   {
-    label: 'Last Clip Offset',
+    label: 'Final End Frames',
     default: 0,
     id: 'lastClipOffset',
     type: 'int',
@@ -748,7 +757,7 @@ export const videoConfig = [
     type: 'int',
   },
   {
-    label: 'Slice',
+    label: 'Max Clips',
     default: 0,
     id: 'slice',
     type: 'int',
