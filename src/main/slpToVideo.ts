@@ -1,3 +1,4 @@
+/* eslint-disable no-unused-vars */
 /* eslint-disable no-await-in-loop */
 /* eslint-disable no-cond-assign */
 /* eslint-disable no-underscore-dangle */
@@ -10,6 +11,7 @@ https://github.com/kevinsung/slp-to-video
 */
 
 import { ChildProcessWithoutNullStreams, spawn } from 'child_process'
+import { app } from 'electron'
 import crypto from 'crypto'
 import fs, { promises as fsPromises } from 'fs'
 import path from 'path'
@@ -17,12 +19,11 @@ import readline from 'readline'
 import { SlippiGame } from '@slippi/slippi-js'
 import { pad } from '../lib'
 import { ConfigInterface, ReplayInterface } from '../constants/types'
-import { EventEmitter } from 'stream'
 
 const generateDolphinConfigs = async (
   replays: ReplayInterface[],
   config: ConfigInterface,
-  eventEmitter
+  eventEmitter: (msg: string) => void
 ) => {
   eventEmitter('Generating Dolphin config files')
   await Promise.all(
@@ -63,7 +64,7 @@ const executeCommandsInQueue = async (
   argsArray: string[][],
   numWorkers: number,
   options: { [key: string]: any },
-  eventEmitter,
+  eventEmitter: (msg: string) => void,
   // eslint-disable-next-line no-unused-vars
   onSpawn?: (process_: ChildProcessWithoutNullStreams) => void
 ) => {
@@ -90,7 +91,6 @@ const executeCommandsInQueue = async (
   while (workers.length > 0) {
     await workers.pop()
   }
-  if (process.stdout.isTTY) process.stdout.write('\n')
 }
 
 const killDolphinOnEndFrame = (process: ChildProcessWithoutNullStreams) => {
@@ -113,7 +113,7 @@ const killDolphinOnEndFrame = (process: ChildProcessWithoutNullStreams) => {
 const processReplays = async (
   replays: ReplayInterface[],
   config: ConfigInterface,
-  eventEmitter
+  eventEmitter: (msg: string) => void
 ) => {
   const dolphinArgsArray: string[][] = []
   const ffmpegMergeArgsArray: string[][] = []
@@ -299,29 +299,36 @@ const processReplays = async (
   }, 2000)
 }
 
-const configureDolphin = async (config: ConfigInterface, eventEmitter) => {
+const configureDolphin = async (
+  config: ConfigInterface,
+  eventEmitter: (msg: string) => void
+) => {
   eventEmitter('Configuring Dolphin...')
-  // const dolphinDirname = path.dirname(config.dolphinPath)
-  // const gameSettingsFilename = path.join(
-  //   dolphinDirname,
-  //   'User',
-  //   'GameSettings',
-  //   'GALE01.ini'
-  // )
-  // const graphicsSettingsFilename = path.join(
-  //   dolphinDirname,
-  //   'User',
-  //   'Config',
-  //   'GFX.ini'
-  // )
-
-  const playbackDir = '/home/matt/.config/SlippiPlayback/'
-  const gameSettingsFilename = path.join(
-    playbackDir,
+  const dolphinDirname = path.dirname(config.dolphinPath)
+  let gameSettingsPath = path.join(
+    dolphinDirname,
+    'User',
     'GameSettings',
     'GALE01.ini'
   )
-  const graphicsSettingsFilename = path.join(playbackDir, 'Config', 'GFX.ini')
+  let graphicsSettingsPath = path.join(
+    dolphinDirname,
+    'User',
+    'Config',
+    'GFX.ini'
+  )
+  let dolphinSettingsPath = path.join(
+    dolphinDirname,
+    'User',
+    'Config',
+    'Dolphin.ini'
+  )
+  if (!fs.existsSync(gameSettingsPath)) {
+    const altDir = path.resolve(app.getPath('appData'), 'SlippiPlayback')
+    gameSettingsPath = path.join(altDir, 'GameSettings', 'GALE01.ini')
+    graphicsSettingsPath = path.join(altDir, 'Config', 'GFX.ini')
+    dolphinSettingsPath = path.join(altDir, 'Config', 'Dolphin.ini')
+  }
 
   // Game settings
   let newSettings = ['[Gecko]', '[Gecko_Enabled]']
@@ -348,14 +355,13 @@ const configureDolphin = async (config: ConfigInterface, eventEmitter) => {
   newSettings.push('[Gecko_Disabled]')
   if (config.hideNames) newSettings.push('$Optional: Show Player Names')
 
-  await fsPromises.writeFile(gameSettingsFilename, newSettings.join('\n'))
+  await fsPromises.writeFile(gameSettingsPath, newSettings.join('\n'))
 
   // Graphics settings
-  const rl = readline.createInterface({
-    input: fs.createReadStream(graphicsSettingsFilename),
+  let rl = readline.createInterface({
+    input: fs.createReadStream(graphicsSettingsPath),
     crlfDelay: Infinity,
   })
-
   newSettings = []
   const aspectRatioSetting = config.widescreenOff ? 5 : 6
   // eslint-disable-next-line no-restricted-syntax
@@ -372,7 +378,29 @@ const configureDolphin = async (config: ConfigInterface, eventEmitter) => {
       newSettings.push(line)
     }
   }
-  await fsPromises.writeFile(graphicsSettingsFilename, newSettings.join('\n'))
+  await fsPromises.writeFile(graphicsSettingsPath, newSettings.join('\n'))
+
+  // Dolphin settings
+  rl = readline.createInterface({
+    input: fs.createReadStream(dolphinSettingsPath),
+    crlfDelay: Infinity,
+  })
+  newSettings = []
+  // eslint-disable-next-line no-restricted-syntax
+  for await (const line of rl) {
+    if (line.startsWith('DumpFrames')) {
+      newSettings.push(`DumpFrames = True`)
+    } else if (line.startsWith('DumpFramesSilent')) {
+      newSettings.push(`DumpFramesSilent = True`)
+    } else if (line.startsWith('DumpAudio')) {
+      newSettings.push(`DumpAudio = True`)
+    } else if (line.startsWith('DumpAudioSilent')) {
+      newSettings.push(`DumpAudioSilent = True`)
+    } else {
+      newSettings.push(line)
+    }
+  }
+  await fsPromises.writeFile(dolphinSettingsPath, newSettings.join('\n'))
 }
 
 const slpToVideo = async (
