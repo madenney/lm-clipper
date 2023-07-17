@@ -19,7 +19,7 @@ import {
 } from '../constants/types'
 import Archive from '../models/Archive'
 import Filter from '../models/Filter'
-import slpToVideo from './slpToVideo'
+import slpToVideo from './slpToVideo2'
 
 export default class Controller {
   mainWindow: BrowserWindow
@@ -224,7 +224,7 @@ export default class Controller {
       return event.reply({ error: 'archive undefined' })
 
     this.archive.filters.splice(index, 1)
-    this.archive.filters.forEach((filter) => {
+    this.archive.filters.slice(index).forEach((filter) => {
       filter.isProcessed = false
     })
     return event.reply('removeFilter', this.archive.shallowCopy())
