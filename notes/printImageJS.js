@@ -1,10 +1,10 @@
-
+// wrote this to generate the absurd list of image imports in Results.tsx
 
 const fs = require('fs')
-const { characters } = require('./src/constants/characters')
-const { stages } = require('./src/constants/stages')
+const { characters } = require('../src/constants/characters')
+const { stages } = require('../src/constants/stages')
 
-const outputfile = "./test.txt"
+const outputfile = './imageCode.txt'
 
 characters.forEach((character) => {
   character.colors.forEach((color) => {

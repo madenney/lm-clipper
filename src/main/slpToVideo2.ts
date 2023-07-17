@@ -211,10 +211,8 @@ const processReplays = async (
   console.log('Merging video and audio...')
   eventEmitter('Merging video and audio...')
   eventEmitter(ffmpegPath.path)
-  console.log(ffmpegPath.path)
   await executeCommandsInQueue(
     ffmpegPath,
-    //'ffmpeg',
     ffmpegMergeArgsArray,
     config.numProcesses,
     { stdio: 'ignore' },
@@ -416,7 +414,6 @@ const slpToVideo = async (
   config: ConfigInterface,
   eventEmitter: (msg: string) => void
 ) => {
-
   await fsPromises
     .access(config.ssbmIsoPath)
     .catch((err) => {
