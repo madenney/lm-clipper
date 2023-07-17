@@ -34,7 +34,7 @@ const configuration: webpack.Configuration = {
       type: 'umd',
     },
   },
-
+  
   optimization: {
     minimizer: [
       new TerserPlugin({

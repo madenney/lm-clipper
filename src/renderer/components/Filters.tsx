@@ -16,7 +16,6 @@ import {
   ShallowArchiveInterface,
   ShallowFilterInterface,
 } from '../../constants/types'
-import { sortOptions } from '../../models/methods/sort'
 
 type FiltersProps = {
   archive: ShallowArchiveInterface
