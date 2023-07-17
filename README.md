@@ -6,11 +6,10 @@ See this page for slp -> mp4 conversion:
 https://github.com/kevinsung/slp-to-video
 
 ## Requirements
-- [playback build of Ishiiruka Dolphin](https://github.com/project-slippi/Ishiiruka)
-- node version >16
+- Slippi Dolphin
 
 
-## Usage (this section needs work)
+## Usage
 - Add slippi files
 - Parse files using a series of filters
 - Check results 

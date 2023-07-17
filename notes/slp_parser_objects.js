@@ -1,3 +1,6 @@
+// this file is for quick reference
+// all objects are output from SlippiGame
+
 // Get Stats:
 const stats = {
   lastFrame: 8624,

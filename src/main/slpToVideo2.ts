@@ -210,7 +210,6 @@ const processReplays = async (
   // Merge video and audio files
   console.log('Merging video and audio...')
   eventEmitter('Merging video and audio...')
-  eventEmitter(ffmpegPath.path)
   await executeCommandsInQueue(
     ffmpegPath,
     ffmpegMergeArgsArray,
