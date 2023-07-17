@@ -1,6 +1,7 @@
-/* eslint import/prefer-default-export: off */
 import { URL } from 'url'
 import path from 'path'
+import os from 'os'
+import { app } from 'electron'
 
 export function resolveHtmlPath(htmlFileName: string) {
   if (process.env.NODE_ENV === 'development') {
@@ -10,4 +11,18 @@ export function resolveHtmlPath(htmlFileName: string) {
     return url.href
   }
   return `file://${path.resolve(__dirname, '../renderer/', htmlFileName)}`
+}
+
+export function getFFMPEGPath() {
+  const appPath = app.getAppPath()
+  const type = os.type()
+  switch (type) {
+    case 'Linux':
+      return path.resolve(appPath, 'ffmpeg', 'ffmpeg-linux-x64')
+    case 'Windows_NT':
+      return path.resolve(appPath, 'ffmpeg', 'ffmpeg-win32-x64')
+    case 'Darwin':
+    default:
+      throw new Error('no os?')
+  }
 }
