@@ -11,6 +11,6 @@ printf "\n cd release/app"
 cd release/app
 
 printf "\n conveyor make site"
-conveyor make site
+conveyor make site --overwrite
 
 printf "\n Done."
