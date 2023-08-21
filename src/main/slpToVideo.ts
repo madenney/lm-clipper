@@ -17,8 +17,12 @@ import fs, { promises as fsPromises } from 'fs'
 import path from 'path'
 import readline from 'readline'
 import { SlippiGame } from '@slippi/slippi-js'
+
 import { pad } from '../lib'
+import { getFFMPEGPath } from './util'
 import { ConfigInterface, ReplayInterface } from '../constants/types'
+
+const ffmpegPath = getFFMPEGPath()
 
 const generateDolphinConfigs = async (
   replays: ReplayInterface[],
@@ -206,7 +210,7 @@ const processReplays = async (
   console.log('Merging video and audio...')
   eventEmitter('Merging video and audio...')
   await executeCommandsInQueue(
-    'ffmpeg',
+    ffmpegPath,
     ffmpegMergeArgsArray,
     config.numProcesses,
     { stdio: 'ignore' },
@@ -219,7 +223,7 @@ const processReplays = async (
   console.log('Trimming off buffer frames...')
   eventEmitter('Trimming off buffer frames...')
   await executeCommandsInQueue(
-    'ffmpeg',
+    ffmpegPath,
     ffmpegTrimArgsArray,
     config.numProcesses,
     { stdio: 'ignore' },
@@ -433,7 +437,8 @@ const slpToVideo = async (
     .then(() => generateDolphinConfigs(replays, config, eventEmitter))
     .then(() => processReplays(replays, config, eventEmitter))
     .catch((err) => {
-      console.error(err)
+      eventEmitter(`Error Occurred :( ${err}`)
+      throw new Error(err)
     })
 }
 

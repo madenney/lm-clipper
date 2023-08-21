@@ -19,7 +19,7 @@ import {
 } from '../constants/types'
 import Archive from '../models/Archive'
 import Filter from '../models/Filter'
-import slpToVideo from './slpToVideo2'
+import slpToVideo from './slpToVideo'
 
 export default class Controller {
   mainWindow: BrowserWindow
@@ -284,7 +284,6 @@ export default class Controller {
   }
 
   async generateVideo(event: IpcMainEvent) {
-    console.log('GENERATING VIDEO')
     const selectedResults =
       this.archive?.filters[this.archive.filters.length - 1].results
     if (!selectedResults) return event.reply('generateVideo')
