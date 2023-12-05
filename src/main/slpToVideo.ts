@@ -309,19 +309,17 @@ const configureDolphin = async (
 ) => {
   eventEmitter('Configuring Dolphin...')
   const dolphinDirname = path.dirname(config.dolphinPath)
-  let gameSettingsPath = path.join(
+  let gameSettingsPath = null
+  let graphicsSettingsPath = null
+  let dolphinSettingsPath = null
+  gameSettingsPath = path.join(
     dolphinDirname,
     'User',
     'GameSettings',
     'GALE01.ini'
   )
-  let graphicsSettingsPath = path.join(
-    dolphinDirname,
-    'User',
-    'Config',
-    'GFX.ini'
-  )
-  let dolphinSettingsPath = path.join(
+  graphicsSettingsPath = path.join(dolphinDirname, 'User', 'Config', 'GFX.ini')
+  dolphinSettingsPath = path.join(
     dolphinDirname,
     'User',
     'Config',
@@ -332,6 +330,11 @@ const configureDolphin = async (
     gameSettingsPath = path.join(altDir, 'GameSettings', 'GALE01.ini')
     graphicsSettingsPath = path.join(altDir, 'Config', 'GFX.ini')
     dolphinSettingsPath = path.join(altDir, 'Config', 'Dolphin.ini')
+  }
+
+  if (!fs.existsSync(gameSettingsPath)) {
+    eventEmitter('Error: could not find game settings file')
+    throw new Error('Error: could not find game settings file')
   }
 
   // Game settings
