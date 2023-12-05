@@ -25,7 +25,7 @@ export default function Video({ archive, config, setConfig }: VideoProps) {
   }, [setVideoMsg])
 
   async function generateVideo() {
-    await ipcBridge.generateVideo()
+    ipcBridge.generateVideo()
   }
 
   function handleChange(key: string, value: string | number | boolean) {
