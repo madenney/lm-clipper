@@ -15,9 +15,10 @@ coverage
 # https://www.npmjs.org/doc/misc/npm-faq.html#should-i-check-my-node_modules-folder-into-git
 node_modules
 
-release/*
 release/app/dist
-release/build
+release/app/node_modules
+release/app/output
+release/app/package-lock.json
 .erb/dll
 
 .idea
