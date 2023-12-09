@@ -6,9 +6,6 @@ import {
 } from '../constants/types'
 import { Worker } from 'worker_threads'
 
-import methods from './methods'
-import { exit } from 'process'
-
 export default class Filter {
   label: string
   type: string
@@ -27,15 +24,12 @@ export default class Filter {
     prevResults: ClipInterface[] | FileInterface[],
     eventEmitter: any
   ): Promise<ClipInterface[] | FileInterface[]> {
-    console.log('running: ', this.type)
-
     const thread_count = 5
     const maxFiles = this.params.maxFiles ?? prevResults.length
 
-    const splitPrevResults = []
+    // split previous results into sections, one for each thread
+    const splitPrevResults: (ClipInterface[] | FileInterface[])[] = []
     const completeds: number[] = []
-    // const results: FileInterface[][] | ClipInterface[][] = []
-    const results: any[][] = []
     for (let i = 0; i < thread_count; i++) {
       const len = maxFiles
       splitPrevResults.push(
@@ -45,11 +39,19 @@ export default class Filter {
         )
       )
       completeds.push(0)
-      results.push([])
     }
 
     const promises = splitPrevResults.map((prevResultsSection, i) => {
-      console.error('About to start worker' + i)
+      const resultsSoFar = splitPrevResults.slice(0, i).reduce((acc, c) => {
+        return acc + c.length
+      }, 0)
+      console.log(
+        'starting worker for ' +
+          resultsSoFar +
+          ' to ' +
+          (resultsSoFar + prevResultsSection.length - 1)
+      )
+
       const worker = new Worker('./src/models/worker.ts', {
         workerData: {
           type: this.type,
@@ -59,19 +61,16 @@ export default class Filter {
         execArgv: ['--require', 'ts-node/register'],
       })
 
-      const promise: Promise<any> = new Promise((resolve, reject) => {
+      //TODO make this not any
+      const promise: Promise<any> = new Promise((resolve) => {
         worker.addListener('message', (e: WorkerMessage) => {
           if (e.type == 'progress') {
             completeds[i] = e.current
-            //TODO total maybe should also update
-            // console.log('cteds' + completeds)
             eventEmitter({
               current: completeds.reduce((a, b) => a + b, 0),
               total: maxFiles,
             })
           } else if (e.type == 'results') {
-            results[i] = e.results
-            // console.log( 'results: ', results.map((r) => r?.length))
             resolve(e.results)
           }
         })
@@ -79,22 +78,7 @@ export default class Filter {
       return promise
     })
 
-    console.log('before the promise.all')
-    //TODO make this better (not any)
-    // this.results = (await Promise.all(promises)).flat()
-
     return (await Promise.all(promises)).flat()
-
-    // this.results = methods[this.type](prevResults, this.params, eventEmitter)
-    // this.isProcessed = true
-    /*
-    (eventUpdate: { current: number; total: number }) => {
-        const { total, current } = eventUpdate
-        this.mainWindow.webContents.send('filterUpdate', {
-        total,
-        current,
-    })
-      */
   }
 
   generateJSON() {
