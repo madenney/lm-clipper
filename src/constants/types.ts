@@ -88,7 +88,7 @@ export interface FilterInterface {
   run?(
     arg1: ClipInterface[] | FileInterface[],
     arg2: EventEmitterInterface
-  ): void
+  ): Promise<FileInterface[] | ClipInterface[]>
   generateJSON?(): void
 }
 
@@ -135,4 +135,17 @@ export interface ReplayInterface {
   path: string
   startFrame: number
   endFrame: number
+}
+
+export type WorkerMessage = WorkerMessageProgress | WorkerMessageResults
+
+interface WorkerMessageProgress {
+  type: 'progress'
+  current: number
+  total: number
+}
+
+interface WorkerMessageResults {
+  type: 'results'
+  results: FileInterface[] | ClipInterface[]
 }
