@@ -86,9 +86,7 @@ export default class Archive {
   ) {
     const firstUnprocessed = this.filters.find((filter) => !filter.isProcessed)
     if (!firstUnprocessed) return false
-
     const index = this.filters.indexOf(firstUnprocessed)
-
     let prevResults = index === 0 ? this.files : this.filters[index - 1].results
 
     for (const filter of this.filters.slice(index)) {
@@ -96,11 +94,10 @@ export default class Archive {
       currentFilterEventEmitter({
         current: this.filters.indexOf(filter),
         total: this.filters.length,
+        numPrevResults: prevResults.length,
       })
-      console.log('before results')
+
       filter.results = await filter.run(prevResults, filterMsgEventEmitter)
-      console.log('after results')
-      console.log('shallow copy filter: ', this.shallowCopy().filters)
       filter.isProcessed = true
       prevResults = filter.results
     }
