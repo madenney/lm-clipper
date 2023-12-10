@@ -54,10 +54,12 @@ export default (
         if (!comboer) return false
         const comboee = players.find((p) => p.playerIndex === combo.playerIndex)
         if (!comboee) return false
-        if (comboerChar && comboerChar !== comboer.characterId) return false
+        if (comboerChar && comboerChar !== comboer.characterId.toString())
+          return false
         if (comboerTag && comboerTag !== comboer.displayName.toLowerCase())
           return false
-        if (comboeeChar && comboeeChar !== comboee.characterId) return false
+        if (comboeeChar && comboeeChar !== comboee.characterId.toString())
+          return false
         if (comboeeTag && comboeeTag !== comboee.displayName.toLowerCase())
           return false
         if (didKill && !combo.didKill) return false

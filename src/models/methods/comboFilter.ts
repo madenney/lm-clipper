@@ -95,7 +95,6 @@ export default (
       )
         return false
     }
-    console.log("TRUE")
     return true
   })
 }
