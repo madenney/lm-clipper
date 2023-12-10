@@ -76,7 +76,7 @@ export interface ClipInterface {
 }
 
 export interface EventEmitterInterface {
-  (arg1: { current: number; total: number; numLrevResults: number }): void
+  (arg1: { current: number; total: number; numPrevResults: number }): void
 }
 
 export interface FilterInterface {
