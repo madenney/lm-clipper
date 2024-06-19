@@ -17,6 +17,7 @@ import fs, { promises as fsPromises } from 'fs'
 import path from 'path'
 import readline from 'readline'
 import { SlippiGame } from '@slippi/slippi-js'
+import os from 'os'
 
 import { pad } from '../lib'
 import { getFFMPEGPath } from './util'
@@ -303,33 +304,40 @@ const processReplays = async (
   }, 2000)
 }
 
+
 const configureDolphin = async (
   config: ConfigInterface,
   eventEmitter: (msg: string) => void
 ) => {
+
   eventEmitter('Configuring Dolphin...')
-  const dolphinDirname = path.dirname(config.dolphinPath)
   let gameSettingsPath = null
   let graphicsSettingsPath = null
   let dolphinSettingsPath = null
-  gameSettingsPath = path.join(
-    dolphinDirname,
-    'User',
-    'GameSettings',
-    'GALE01.ini'
-  )
-  graphicsSettingsPath = path.join(dolphinDirname, 'User', 'Config', 'GFX.ini')
-  dolphinSettingsPath = path.join(
-    dolphinDirname,
-    'User',
-    'Config',
-    'Dolphin.ini'
-  )
-  if (!fs.existsSync(gameSettingsPath)) {
-    const altDir = path.resolve(app.getPath('appData'), 'SlippiPlayback')
-    gameSettingsPath = path.join(altDir, 'GameSettings', 'GALE01.ini')
-    graphicsSettingsPath = path.join(altDir, 'Config', 'GFX.ini')
-    dolphinSettingsPath = path.join(altDir, 'Config', 'Dolphin.ini')
+
+  // Linux 
+  if(os.type() == "Linux"){
+    const dolphinDirname = path.resolve(app.getPath('appData'), 'SlippiPlayback')
+    gameSettingsPath = path.join(dolphinDirname, 'GameSettings', 'GALE01.ini')
+    graphicsSettingsPath = path.join(dolphinDirname, 'Config', 'GFX.ini')
+    dolphinSettingsPath = path.join(dolphinDirname, 'Config', 'Dolphin.ini')
+
+  // Windows
+  } else { 
+    const dolphinDirname = path.dirname(config.dolphinPath)
+    gameSettingsPath = path.join( dolphinDirname, 'User', 'GameSettings', 'GALE01.ini' )
+    graphicsSettingsPath = path.join(dolphinDirname, 'User', 'Config', 'GFX.ini')
+    dolphinSettingsPath = path.join(dolphinDirname, 'User', 'Config', 'Dolphin.ini' )
+
+    if (!fs.existsSync(gameSettingsPath)) {
+      eventEmitter('Creating game settings file');
+      try {
+        const fd = fs.openSync(gameSettingsPath, 'a');
+        fs.closeSync(fd); 
+      } catch (err) {
+        throw err;
+      }
+    }
   }
 
   if (!fs.existsSync(gameSettingsPath)) {
