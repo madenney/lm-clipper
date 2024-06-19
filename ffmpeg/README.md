@@ -1,9 +1,25 @@
 
-Downloaded ffmpeg binaries from:
+# Instructions on packaging ffmpeg binaries
 
-https://github.com/eugeneware/ffmpeg-static/tree/master
+Clone this repo in a /sandbox
 
-ffmpeg-linux-arm    ffmpeg-win32-ia32    ffprobe-linux-ia32  README.md
-ffmpeg-linux-arm64  ffmpeg-win32-x64     ffprobe-linux-x64
-ffmpeg-linux-ia32   ffprobe-linux-arm    ffprobe-win32-ia32
-ffmpeg-linux-x64    ffprobe-linux-arm64  ffprobe-win32-x64
+https://github.com/eugeneware/ffmpeg-static.git
+
+
+Just 'npm install' and then run './download-binaries/index.sh'
+
+- npm install
+- ./download-binaries/index.sh
+
+^ That should create a "bin" folder which will contain the binaries.
+
+
+You need two files:
+- ffmpeg-win32-x64.exe
+- ffmpeg-linux-x64
+
+Put them into "/lm-clipper/release/app/ffmpeg/"
+
+Final file paths should be:
+- lm-clipper/release/app/ffmpeg/ffmpeg-win32-x64.exe
+- lm-clipper/release/app/ffmpeg/ffmpeg-linux-x64

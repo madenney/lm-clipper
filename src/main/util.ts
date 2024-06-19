@@ -14,6 +14,11 @@ export function resolveHtmlPath(htmlFileName: string) {
 }
 
 export function getFFMPEGPath() {
+
+  if (process.env.NODE_ENV === 'development') {
+    return 'ffmpeg'
+  }
+
   const appPath = app.getAppPath()
   const type = os.type()
   switch (type) {
