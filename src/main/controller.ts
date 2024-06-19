@@ -239,7 +239,7 @@ export default class Controller {
     }
   ) {
     const { selectedFilterIndex, numPerPage, currentPage } = params
-    console.log("SElected filter: ", selectedFilterIndex)
+    console.log("Selected filter: ", selectedFilterIndex)
     const slicedResults = this.archive?.filters[
       selectedFilterIndex
     ].results.slice(

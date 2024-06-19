@@ -339,16 +339,21 @@ export default function Filters({
           >
             &#10004;
           </div>
-          <div
-            className="filter-delete"
-            onClick={async () => {
-              setArchive(
-                await ipcBridge.removeFilter(archive.filters.indexOf(filter))
-              )
-            }}
-          >
-            ✕
-          </div>
+          {
+            index == 0 ? ("") : (
+            <div
+              className="filter-delete"
+              onClick={async () => {
+                setArchive(
+                  await ipcBridge.removeFilter(archive.filters.indexOf(filter))
+                )
+              }}
+            >
+              ✕
+            </div>
+            )
+          }
+
         </div>
       )
     })
