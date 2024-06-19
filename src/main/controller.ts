@@ -239,7 +239,7 @@ export default class Controller {
     }
   ) {
     const { selectedFilterIndex, numPerPage, currentPage } = params
-    console.log("Selected filter: ", selectedFilterIndex)
+    console.log('Selected filter: ', selectedFilterIndex)
     const slicedResults = this.archive?.filters[
       selectedFilterIndex
     ].results.slice(
@@ -258,11 +258,13 @@ export default class Controller {
   async runFilters(event: IpcMainEvent) {
     if (!this.archive || !this.archive.shallowCopy || !this.archive.runFilters)
       return event.reply({ error: 'archive undefined' })
-    this.archive.runFilters(
-      (eventUpdate: { current: number }) => {
-        const { current } = eventUpdate
+
+    await this.archive.runFilters(
+      (eventUpdate: { current: number; numPrevResults: number }) => {
+        const { current, numPrevResults } = eventUpdate
         this.mainWindow.webContents.send('currentlyRunningFilter', {
           current,
+          numPrevResults,
         })
       },
       (eventUpdate: { current: number; total: number }) => {

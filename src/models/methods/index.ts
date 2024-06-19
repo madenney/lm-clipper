@@ -3,14 +3,19 @@ import slpParser from './slpParser'
 import comboFilter from './comboFilter'
 import actionStateFilter from './actionStateFilter'
 import removeStarKOFrames from './removeStarKOFrames'
-import { sortOptions, sort } from './sort'
+import { sort } from './sort'
 
-export default {
+type Methods = {
+  [key: string]: Function
+}
+
+const methods: Methods = {
   files,
   slpParser,
   comboFilter,
-  sortOptions,
   sort,
   actionStateFilter,
   removeStarKOFrames,
 }
+
+export default methods

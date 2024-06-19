@@ -47,8 +47,13 @@ export default function Filters({
   useEffect(() => {
     window.electron.ipcRenderer.on(
       'currentlyRunningFilter',
-      (event: { current: number }) => {
+      (event: { current: number, numPrevResults: number }) => {
         setCurrentlyRunningFilter(event.current)
+        if (event.current > 0) {
+            const newArchive = { ...archive }
+            newArchive.filters[event.current - 1].results = event.numPrevResults
+            setArchive(newArchive)
+        }
       }
     )
     window.electron.ipcRenderer.on(

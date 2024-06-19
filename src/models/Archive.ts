@@ -80,7 +80,7 @@ export default class Archive {
     return shallowArchive
   }
 
-  runFilters(
+  async runFilters(
     currentFilterEventEmitter: EventEmitterInterface,
     filterMsgEventEmitter: EventEmitterInterface
   ) {
@@ -88,15 +88,19 @@ export default class Archive {
     if (!firstUnprocessed) return false
     const index = this.filters.indexOf(firstUnprocessed)
     let prevResults = index === 0 ? this.files : this.filters[index - 1].results
-    this.filters.slice(index).forEach((filter) => {
+
+    for (const filter of this.filters.slice(index)) {
       if (!filter.run) throw Error('filter.run() not defined?')
       currentFilterEventEmitter({
         current: this.filters.indexOf(filter),
         total: this.filters.length,
+        numPrevResults: prevResults.length,
       })
-      filter.run(prevResults, filterMsgEventEmitter)
+
+      filter.results = await filter.run(prevResults, filterMsgEventEmitter)
+      filter.isProcessed = true
       prevResults = filter.results
-    })
+    }
     return false
   }
 
