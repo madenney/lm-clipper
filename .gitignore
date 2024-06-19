@@ -16,6 +16,7 @@ coverage
 node_modules
 
 release/app/dist
+release/app/ffmpeg
 release/app/node_modules
 release/app/output
 release/app/package-lock.json
