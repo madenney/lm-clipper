@@ -22,15 +22,17 @@ Compatible with Windows and Linux.
     - Generates video at whatever video quality your computer can handle
         - You can run 24 concurrent instances of Slippi Dolphin and watch your computer melt :)
 
-## Tech Stack and Architecture
+## Architecture
 - Mainly written in Typescript
-- ffmpeg for video/audio merging and cutting
-- Built starting with Electron React Boilerplate 
+- ffmpeg for video/audio editing
+- Started with Electron React Boilerplate 
     - https://github.com/electron-react-boilerplate/electron-react-boilerplate
+- Packaged with Hydrualic Conveyor
+    - https://conveyor.hydraulic.dev
 
 ## Development version
-
- - clone this repo
+ - ```git clone https://github.com/madenney/lm-clipper.git```
+ - ```cd lm-clipper```
  - ```npm install```
  - ```npm run start```
 
