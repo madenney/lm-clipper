@@ -28,7 +28,7 @@ Compatible with Windows and Linux.
 - Built starting with Electron React Boilerplate 
     - https://github.com/electron-react-boilerplate/electron-react-boilerplate
 
-## Development version:
+## Development version
 
  - clone this repo
  - ```npm install```
