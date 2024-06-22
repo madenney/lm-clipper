@@ -24,7 +24,7 @@ export default class Filter {
     prevResults: ClipInterface[] | FileInterface[],
     eventEmitter: any
   ): Promise<ClipInterface[] | FileInterface[]> {
-    const thread_count = 5
+    const thread_count = 10
     const maxFiles = this.params.maxFiles ?? prevResults.length
 
     // split previous results into sections, one for each thread
@@ -52,7 +52,7 @@ export default class Filter {
           (resultsSoFar + prevResultsSection.length - 1)
       )
 
-      const worker = new Worker('./src/models/worker.ts', {
+      const worker = new Worker(new URL('./worker.ts', import.meta.url), {
         workerData: {
           type: this.type,
           prevResults: prevResultsSection,
