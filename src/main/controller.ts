@@ -1,6 +1,6 @@
 import { app, ipcMain, dialog, IpcMainEvent, BrowserWindow } from 'electron'
 import path from 'path'
-import fs from 'fs'
+import fs, { promises as fsPromises }from 'fs'
 import { getSlpFilePaths } from '../lib/file'
 import { shuffleArray } from '../lib'
 import {
@@ -290,7 +290,11 @@ export default class Controller {
   async generateVideo(event: IpcMainEvent) {
     const selectedResults =
       this.archive?.filters[this.archive.filters.length - 1].results
-    if (!selectedResults) return event.reply('generateVideo')
+    if (!selectedResults || selectedResults.length == 0) {
+      this.mainWindow.webContents.send('videoMsg', 'No clips to generate.')
+      return event.reply('generateVideo')
+    }
+
     const {
       numCPUs,
       dolphinPath,
@@ -316,6 +320,22 @@ export default class Controller {
       disableMagnifyingGlass,
       overlaySource,
     } = this.config
+
+
+    // check if output directory exists
+    console.log("checkign for ", outputPath);
+    try {
+      await fsPromises.access(outputPath)
+    } catch(err){
+      console.log("WHAT")
+      this.mainWindow.webContents.send('videoMsg',`Error: Could not access given output path ${outputPath} `)
+      return event.reply('generateVideo')
+    }
+
+    console.log(
+
+      "HOWOOWOWO"
+    )
 
     // make directory
     let outputDirectoryName = 'output'
