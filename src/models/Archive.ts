@@ -98,7 +98,6 @@ export default class Archive {
         current: this.filters.indexOf(filter),
         total: this.filters.length
       })
-      console.log("Prev Results: ", prevResults.length)
       terminated = await filter.run(prevResults, filterMsgEventEmitter)
       prevResults = filter.results
     }

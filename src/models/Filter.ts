@@ -30,10 +30,11 @@ export default class Filter {
 
     const methodsThatNeedMultithread = ['slpParser', 'removeStarKOFrames', 'actionStateFilter']
     let terminated = false
+    const savedResults = this.results
 
     if(methodsThatNeedMultithread.indexOf(this.type) > -1 ){
 
-      const thread_count = 4
+      const thread_count = 12
 
       let maxFiles = prevResults.length
       if(this.params.maxFiles && this.params.maxFiles < prevResults.length){
@@ -93,12 +94,13 @@ export default class Filter {
         return promise
       })
 
-      this.results = (await Promise.all(promises)).flat()
+      const newResults = (await Promise.all(promises)).flat()
       if( terminated ){
         this.isProcessed = false
         return true
       } else {
         this.isProcessed = true
+        this.results = newResults
         return false
       }
 
