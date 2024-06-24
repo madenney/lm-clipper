@@ -5,6 +5,7 @@
 /*
 
 Where the magic happens.
+
 If you're here to see how to convert slp to mp4, I recommend starting here:
 https://github.com/kevinsung/slp-to-video
 
@@ -428,7 +429,7 @@ const slpToVideo = async (
     .catch((err) => {
       if (err.code === 'ENOENT') {
         throw new Error(
-          `Could not read SSBM iso from path ${config.ssbmIsoPath}. `
+          `Error: Could not read SSBM iso from path ${config.ssbmIsoPath}. `
         )
       } else {
         throw err
@@ -438,7 +439,7 @@ const slpToVideo = async (
     .catch((err) => {
       if (err.code === 'ENOENT') {
         throw new Error(
-          `Could not open Dolphin from path ${config.dolphinPath}. `
+          `Error: Could not open Dolphin from path ${config.dolphinPath}. `
         )
       } else {
         throw err
@@ -448,7 +449,7 @@ const slpToVideo = async (
     .then(() => generateDolphinConfigs(replays, config, eventEmitter))
     .then(() => processReplays(replays, config, eventEmitter))
     .catch((err) => {
-      eventEmitter(`Error Occurred :( ${err}`)
+      eventEmitter(`${err}`)
       throw new Error(err)
     })
 }
