@@ -75,7 +75,8 @@ const createWindow = async () => {
         : path.join(__dirname, '../../.erb/dll/preload.js'),
       nodeIntegrationInWorker: true,
     },
-    resizable: process.env.NODE_ENV === 'development',
+    resizable: true
+    //resizable: process.env.NODE_ENV === 'development',
   })
 
   const controller = new Controller(mainWindow)
