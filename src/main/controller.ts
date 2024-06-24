@@ -322,20 +322,13 @@ export default class Controller {
     } = this.config
 
 
-    // check if output directory exists
-    console.log("checkign for ", outputPath);
+    // check if output directory exist
     try {
       await fsPromises.access(outputPath)
     } catch(err){
-      console.log("WHAT")
       this.mainWindow.webContents.send('videoMsg',`Error: Could not access given output path ${outputPath} `)
       return event.reply('generateVideo')
     }
-
-    console.log(
-
-      "HOWOOWOWO"
-    )
 
     // make directory
     let outputDirectoryName = 'output'
