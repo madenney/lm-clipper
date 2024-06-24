@@ -98,6 +98,12 @@ export default {
       window.electron.ipcRenderer.once('runFilters', resolve)
     })
   },
+  cancelRunningFilters() {
+    return new Promise<any>((resolve) => {
+      window.electron.ipcRenderer.sendMessage('terminateWorkers', {})
+      window.electron.ipcRenderer.once('cancelRunningFilters', resolve)
+    })
+  },
   updateConfig(config: { key: string; value: string | number | boolean }) {
     return new Promise<any>((resolve) => {
       window.electron.ipcRenderer.sendMessage('updateConfig', config)
