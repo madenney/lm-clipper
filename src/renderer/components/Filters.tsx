@@ -8,7 +8,7 @@ import {
   SetStateAction,
   useEffect,
 } from 'react'
-import { cloneDeep } from 'lodash'
+import { cloneDeep, stubFalse } from 'lodash'
 import '../styles/Filters.css'
 import { filtersConfig } from 'constants/config'
 import ipcBridge from '../ipcBridge'
@@ -289,6 +289,10 @@ export default function Filters({
       >
         <div className="modal" onClick={(e) => e.stopPropagation()}>
           {renderEditOptions()}
+          <div 
+              className="modal-close"
+              onClick={() => setShowEditFilterModal(stubFalse)}
+          >✕</div>
         </div>
       </div>
     )
