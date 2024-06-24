@@ -1,6 +1,7 @@
 import { WorkerMessage } from 'constants/types'
 import { parentPort, workerData } from 'worker_threads'
 
+
 import methods from './methods'
 
 function postMessage(message: WorkerMessage) {

@@ -76,7 +76,7 @@ export interface ClipInterface {
 }
 
 export interface EventEmitterInterface {
-  (arg1: { current: number; total: number; numPrevResults: number }): void
+  (arg1: { current: number; total: number }): void
 }
 
 export interface FilterInterface {
@@ -88,7 +88,7 @@ export interface FilterInterface {
   run?(
     arg1: ClipInterface[] | FileInterface[],
     arg2: EventEmitterInterface
-  ): Promise<FileInterface[] | ClipInterface[]>
+  ): boolean
   generateJSON?(): void
 }
 
@@ -121,7 +121,7 @@ export interface ArchiveInterface {
   runFilters?(
     currentFilterEventEmitter: EventEmitterInterface,
     filterMsgEventEmitter: EventEmitterInterface
-  ): Promise<void>
+  ): void
   names?(): { name: string; total: number }[]
   shallowCopy?(): ShallowArchiveInterface
   addFiles?(

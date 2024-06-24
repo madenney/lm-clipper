@@ -215,6 +215,7 @@ export default class Controller {
     })
     this.archive.filters.slice(filterIndex).forEach((filter) => {
       filter.isProcessed = false
+      filter.results = []
     })
     return event.reply('updateFilter', this.archive.shallowCopy())
   }
@@ -226,6 +227,7 @@ export default class Controller {
     this.archive.filters.splice(index, 1)
     this.archive.filters.slice(index).forEach((filter) => {
       filter.isProcessed = false
+      filter.results = []
     })
     return event.reply('removeFilter', this.archive.shallowCopy())
   }
@@ -260,11 +262,10 @@ export default class Controller {
       return event.reply({ error: 'archive undefined' })
 
     await this.archive.runFilters(
-      (eventUpdate: { current: number; numPrevResults: number }) => {
-        const { current, numPrevResults } = eventUpdate
+      (eventUpdate: { current: number }) => {
+        const { current } = eventUpdate
         this.mainWindow.webContents.send('currentlyRunningFilter', {
-          current,
-          numPrevResults,
+          current
         })
       },
       (eventUpdate: { current: number; total: number }) => {

@@ -84,21 +84,22 @@ export default class Archive {
     currentFilterEventEmitter: EventEmitterInterface,
     filterMsgEventEmitter: EventEmitterInterface
   ) {
-    const firstUnprocessed = this.filters.find((filter) => !filter.isProcessed)
-    if (!firstUnprocessed) return false
-    const index = this.filters.indexOf(firstUnprocessed)
-    let prevResults = index === 0 ? this.files : this.filters[index - 1].results
+    let firstUnprocessed = this.filters.find((filter) => !filter.isProcessed)
+    if (!firstUnprocessed) firstUnprocessed = this.filters[0]
+    const firstUnprocessedIndex = this.filters.indexOf(firstUnprocessed)
+    let prevResults = firstUnprocessedIndex === 0 ? this.files : this.filters[firstUnprocessedIndex - 1].results
 
-    for (const filter of this.filters.slice(index)) {
+    
+    let terminated = false
+    for (const filter of this.filters.slice(firstUnprocessedIndex)) {
       if (!filter.run) throw Error('filter.run() not defined?')
+      if(terminated) return 
       currentFilterEventEmitter({
         current: this.filters.indexOf(filter),
-        total: this.filters.length,
-        numPrevResults: prevResults.length,
+        total: this.filters.length
       })
-
-      filter.results = await filter.run(prevResults, filterMsgEventEmitter)
-      filter.isProcessed = true
+      console.log("Prev Results: ", prevResults.length)
+      terminated = await filter.run(prevResults, filterMsgEventEmitter)
       prevResults = filter.results
     }
     return false

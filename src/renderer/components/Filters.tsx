@@ -34,7 +34,7 @@ export default function Filters({
 }: FiltersProps) {
   const [isFiltersOpen, setFiltersOpen] = useState(false)
   const [showEditFilterModal, setShowEditFilterModal] = useState(false)
-  const [currentlyRunningFilter, setCurrentlyRunningFilter] = useState(0)
+  const [currentlyRunningFilter, setCurrentlyRunningFilter] = useState(-1)
   const [filterMsg, setFilterMsg] = useState('')
   const [filterIndex, setFilterIndex] = useState(0)
   const [filterToEdit, setFilterToEdit] =
@@ -47,13 +47,10 @@ export default function Filters({
   useEffect(() => {
     window.electron.ipcRenderer.on(
       'currentlyRunningFilter',
-      (event: { current: number, numPrevResults: number }) => {
+      async (event: { current: number }) => {
+        setFilterMsg(``)
         setCurrentlyRunningFilter(event.current)
-        if (event.current > 0) {
-            const newArchive = { ...archive }
-            newArchive.filters[event.current - 1].results = event.numPrevResults
-            setArchive(newArchive)
-        }
+        setArchive(await ipcBridge.getArchive())
       }
     )
     window.electron.ipcRenderer.on(
@@ -67,14 +64,18 @@ export default function Filters({
   function run() {
     ipcBridge
       .runFilters()
-      .then((newArchive) => {
-        setArchive(newArchive)
-        setCurrentlyRunningFilter(0)
-        return setFilterMsg('')
+      .then(async () => {
+        setCurrentlyRunningFilter(-1)
+        setFilterMsg('')
+        setArchive(await ipcBridge.getArchive())
       })
       .catch((error) => {
         console.log('Error? ', error)
       })
+  }
+
+  function cancel(){
+    ipcBridge.cancelRunningFilters()
   }
 
   // function runFilter(filter: ShallowFilterInterface) {
@@ -100,12 +101,11 @@ export default function Filters({
     if (!filterToEdit) throw Error('No selected filter?')
     const prevFilterIndex = archive.filters.indexOf(filterToEdit)
     setFilterIndex(prevFilterIndex)
-    setArchive(
-      await ipcBridge.updateFilter({
-        filterIndex: prevFilterIndex,
-        newFilter,
-      })
-    )
+    await ipcBridge.updateFilter({
+      filterIndex: prevFilterIndex,
+      newFilter,
+    })
+    setArchive(await ipcBridge.getArchive())
   }
 
   // function handleMultiChange(e, array) {
@@ -329,7 +329,7 @@ export default function Filters({
           >
             Show
           </button>
-          <div className="filter-results">Results: {filter.results}</div>
+          <div className="filter-results">Results: {index === currentlyRunningFilter ? "---/---" : filter.results}</div>
           {index === currentlyRunningFilter ? (
             <div className="filterMsg">{filterMsg}</div>
           ) : (
@@ -349,9 +349,8 @@ export default function Filters({
             <div
               className="filter-delete"
               onClick={async () => {
-                setArchive(
-                  await ipcBridge.removeFilter(archive.filters.indexOf(filter))
-                )
+                await ipcBridge.removeFilter(archive.filters.indexOf(filter))
+                setArchive( await ipcBridge.getArchive())
               }}
             >
               ✕
@@ -382,9 +381,15 @@ export default function Filters({
             </option>
           ))}
         </select>
-        <button type="button" className="runButton" onClick={run}>
-          Run &#9658;
-        </button>
+        { currentlyRunningFilter == -1 ?
+          <button type="button" className="runButton" onClick={run}>
+            Run &#9658;
+          </button>
+          :
+          <button type="button" className="cancelButton" onClick={cancel}>
+            Cancel
+          </button>
+        }
         <div id="filters-list">{renderFilters()}</div>
       </div>
     )
