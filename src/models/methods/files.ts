@@ -16,14 +16,14 @@ export default (
       const stageArray = Array.isArray(stage) ? stage : [stage]
       if (stageArray.indexOf(file.stage.toString()) === -1) return false
     }
-
+  
     if (char1 || char2) {
       let c1 = char1
       let c2 = char2
       if (char1 && !Array.isArray(char1)) c1 = [char1]
       if (char2 && !Array.isArray(char2)) c2 = [char2]
-      if (!file.players[0].characterId) return false
-      if (!file.players[1].characterId) return false
+      if (file.players[0].characterId == null) return false
+      if (file.players[1].characterId == null) return false
       const p1 = file.players[0].characterId.toString()
       const p2 = file.players[1].characterId.toString()
       if (c1 && c2) {

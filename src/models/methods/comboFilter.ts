@@ -31,10 +31,10 @@ export default (
       return false
     if (excludeICs && comboer.characterId == 14) return false
     if (comboerChar && comboerChar != comboer.characterId) return false
-    if (comboerTag && comboerTag !== comboer.displayName.toLowerCase())
+    if (comboerTag && comboerTag.toLowerCase() !== comboer.displayName.toLowerCase())
       return false
     if (comboeeChar && comboeeChar != comboee.characterId) return false
-    if (comboeeTag && comboeeTag !== comboee.displayName.toLowerCase())
+    if (comboeeTag && comboeeTag.toLowerCase() !== comboee.displayName.toLowerCase())
       return false
     if (comboStage && comboStage !== stage) return false
     if (didKill && !clip.combo.didKill) return false
