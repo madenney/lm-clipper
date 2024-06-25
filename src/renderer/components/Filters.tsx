@@ -32,6 +32,7 @@ export default function Filters({
   setSelectedFilter,
   setArchive,
 }: FiltersProps) {
+  const [resultsData, setResultsData] = useState([])
   const [isFiltersOpen, setFiltersOpen] = useState(false)
   const [showEditFilterModal, setShowEditFilterModal] = useState(false)
   const [currentlyRunningFilter, setCurrentlyRunningFilter] = useState(-1)
@@ -39,6 +40,14 @@ export default function Filters({
   const [filterIndex, setFilterIndex] = useState(0)
   const [filterToEdit, setFilterToEdit] =
     useState<ShallowFilterInterface | null>(null)
+
+
+    useEffect(() => {
+      async function getResults() {
+        setResultsData( await ipcBridge.getResults({selectedFilterIndex: archive.filters.length-1 }) )
+      }
+      getResults()
+    }, [archive, setResultsData])
 
   useEffect(() => {
     setFilterToEdit(archive.filters[filterIndex])
@@ -323,7 +332,7 @@ export default function Filters({
           >
             Run
           </button> */}
-          <button
+          {/* <button
             type="button"
             className="filter-button"
             onClick={() => {
@@ -332,7 +341,7 @@ export default function Filters({
             }}
           >
             Show
-          </button>
+          </button> */}
           <div className="filter-results">Results: {index === currentlyRunningFilter ? "---/---" : filter.results}</div>
           {index === currentlyRunningFilter ? (
             <div className="filterMsg">{filterMsg}</div>
@@ -367,6 +376,44 @@ export default function Filters({
     })
   }
 
+  function renderResultsData(){
+    const lastFilter = archive.filters[archive.filters.length-1]
+    const isFiles = lastFilter.type == 'files'
+
+    let totalFrames = 0
+
+    if( resultsData[0] && resultsData[0].startFrame ){
+      totalFrames = resultsData.reduce((acc,current) => {
+        return acc + current.endFrame - current.startFrame
+      }, 0)
+    } else {
+      totalFrames = resultsData.reduce((acc,current) => {
+        return acc + current.lastFrame + 123
+      }, 0)
+
+    }
+    
+    const totalSeconds = totalFrames/60
+    const totalTime = convertSecondsToFullString(totalSeconds)
+    const averageLength = lastFilter.results == 0 ? "N/A" : convertSecondsToFullString(totalSeconds/lastFilter.results)
+
+    return <div>
+      <div className={'results-row'}>
+        <div className={'last-results-label'}>Current results: </div>
+        <div className={'last-results-data'}>{lastFilter.results} </div>
+        <div className={'last-results-data-2'}>{isFiles ? " replays" : " clips"}</div>
+      </div>
+      <div className={'results-row'}>
+        <div className={'last-results-label'}>Total length: </div>
+        <div className={'last-results-data'}>{totalTime} </div>
+      </div>
+      <div className={'results-row'}>
+        <div className={'last-results-label'}>Average length: </div>
+        <div className={'last-results-data'}>{averageLength} </div>
+      </div>
+    </div>
+  }
+
   function renderSection() {
     return (
       <div className="section-content">
@@ -395,6 +442,7 @@ export default function Filters({
           </button>
         }
         <div id="filters-list">{renderFilters()}</div>
+        <div id="results">{ renderResultsData()  }</div>
       </div>
     )
   }
@@ -411,4 +459,20 @@ export default function Filters({
       </div>
     </div>
   )
+}
+
+
+function convertSecondsToFullString(seconds: number) {
+  const days = Math.floor(seconds / (3600 * 24));
+  const hours = Math.floor((seconds % (3600 * 24)) / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const remainingSeconds = Math.floor(seconds % 60);  // Ensure no decimals
+
+  let result = "";
+  if (days > 0) result += `${days} day${days > 1 ? 's' : ''}, `;
+  if (hours > 0) result += `${hours} hour${hours > 1 ? 's' : ''}, `;
+  if (minutes > 0) result += `${minutes} minute${minutes > 1 ? 's' : ''}, `;
+  result += `${remainingSeconds} second${remainingSeconds !== 1 ? 's' : ''}`;
+
+  return result;
 }

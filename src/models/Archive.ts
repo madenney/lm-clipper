@@ -81,6 +81,7 @@ export default class Archive {
   }
 
   async runFilters(
+    numFilterThreads: number,
     currentFilterEventEmitter: EventEmitterInterface,
     filterMsgEventEmitter: EventEmitterInterface
   ) {
@@ -98,7 +99,7 @@ export default class Archive {
         current: this.filters.indexOf(filter),
         total: this.filters.length
       })
-      terminated = await filter.run(prevResults, filterMsgEventEmitter)
+      terminated = await filter.run(prevResults, numFilterThreads, filterMsgEventEmitter)
       prevResults = filter.results
     }
     return false

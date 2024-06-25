@@ -244,10 +244,12 @@ export default class Controller {
     console.log('Selected filter: ', selectedFilterIndex)
     const slicedResults = this.archive?.filters[
       selectedFilterIndex
-    ].results.slice(
-      currentPage * numPerPage,
-      currentPage * numPerPage + numPerPage
-    )
+    ].results
+    
+    //.slice(
+    //   currentPage * numPerPage,
+    //   currentPage * numPerPage + numPerPage
+    // )
     event.reply('getResults', slicedResults)
   }
 
@@ -261,7 +263,10 @@ export default class Controller {
     if (!this.archive || !this.archive.shallowCopy || !this.archive.runFilters)
       return event.reply({ error: 'archive undefined' })
 
+    const { numFilterThreads } = this.config
+
     await this.archive.runFilters(
+      numFilterThreads,
       (eventUpdate: { current: number }) => {
         const { current } = eventUpdate
         this.mainWindow.webContents.send('currentlyRunningFilter', {
@@ -297,6 +302,7 @@ export default class Controller {
 
     const {
       numCPUs,
+      numFilterThreads,
       dolphinPath,
       ssbmIsoPath,
       gameMusic,

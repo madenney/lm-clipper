@@ -87,6 +87,7 @@ export interface FilterInterface {
   results: ClipInterface[] | FileInterface[]
   run?(
     arg1: ClipInterface[] | FileInterface[],
+    numFilterThreads: number,
     arg2: EventEmitterInterface
   ): boolean
   generateJSON?(): void
@@ -119,6 +120,7 @@ export interface ArchiveInterface {
   filters: FilterInterface[]
   save?(): void
   runFilters?(
+    numFilterThreads: number,
     currentFilterEventEmitter: EventEmitterInterface,
     filterMsgEventEmitter: EventEmitterInterface
   ): void

@@ -1,5 +1,6 @@
 
 .navbar {
+  position: relative;
   display: flex;
   flex-direction: row;
   font-size: 20px;
@@ -24,14 +25,61 @@
   margin: 5px;
 }
 
-.saveButton {
-  margin-left: auto;
-  padding: 5px;
+.gear-icon {
+  position: absolute;
+  right: 5px;
+  top: 0px;
+  font-size: 28px;
   cursor: pointer;
 }
+
+.gear-icon:hover {
+  color: green;
+}
+
+.saveButton {
+  position: absolute;
+  right: 48px;
+  top: 1px;
+  margin-left: auto;
+  cursor: pointer;
+  font-size: 27px;
+}
 .saveButton:hover {
-  background-color: #181818	;
+  color: green;
 }
 .green {
   color: green;
+}
+
+
+.config-options {
+  margin: 5px 10px;
+}
+
+.config-title {
+  font-size: 30px;
+
+}
+
+
+.settings-row {
+  font-size: 20px;
+  margin: 5px 20px;
+  width: 100%;
+  display: inline-block;
+}
+
+.settings-row-label {
+  font-size: 20px;
+  width: 90%;
+  display: inline-block;
+}
+
+.settings-row-input {
+  margin-top: 5px;
+  margin-bottom: 15px;
+  padding: 3px;
+  font-size: 20px;
+  width: 90%;
 }
