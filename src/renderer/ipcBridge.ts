@@ -69,8 +69,8 @@ export default {
   },
   getResults(params: {
     selectedFilterIndex: number
-    currentPage: number
-    numPerPage: number
+    currentPage?: number
+    numPerPage?: number
   }) {
     return new Promise<any>((resolve) => {
       window.electron.ipcRenderer.sendMessage('getResults', params)

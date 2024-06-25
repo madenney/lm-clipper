@@ -130,6 +130,7 @@
     "mini-css-extract-plugin": "^2.7.2",
     "prettier": "^2.8.4",
     "python-shell": "^5.0.0",
+    "react-icons": "^5.2.1",
     "react-refresh": "^0.14.0",
     "react-test-renderer": "^18.2.0",
     "rimraf": "^4.1.2",

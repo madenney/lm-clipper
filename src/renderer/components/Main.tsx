@@ -31,7 +31,7 @@ export default function Main({
     useState<ShallowFilterInterface | null>(null)
   return (
     <div className="page">
-      <Navbar archive={archive} />
+      <Navbar archive={archive} config={config} setConfig={setConfig}/>
       <div className="main-content">
         <Replays archive={archive} setArchive={setArchive} />
         <Filters
@@ -40,12 +40,15 @@ export default function Main({
           setResultsOpen={setResultsOpen}
           setSelectedFilter={setSelectedFilter}
         />
+        
+        {/* TODO: Make this available in dev mode
+        
         <Results
           archive={archive}
           isResultsOpen={isResultsOpen}
           setResultsOpen={setResultsOpen}
           selectedFilter={selectedFilter}
-        />
+        /> */}
         <Video archive={archive} config={config} setConfig={setConfig} />
       </div>
     </div>

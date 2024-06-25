@@ -16,6 +16,7 @@ type VideoProps = {
 export default function Video({ archive, config, setConfig }: VideoProps) {
   const [isVideoOpen, setVideoOpen] = useState(false)
   const [videoMsg, setVideoMsg] = useState('')
+  const [advancedOptionsOpen, setAdvancedOptionsOpen] = useState(false)
 
   useEffect(() => {
     window.electron.ipcRenderer.on('videoMsg', async (msg) => {
@@ -102,6 +103,25 @@ export default function Video({ archive, config, setConfig }: VideoProps) {
     }
   }
 
+
+  // TODO: this seems pretty dumb
+  const unwantedKeys = ['outputPath', 'dolphinPath', 'ssbmIsoPath', 'cpuThreads', 'resolution', 'numCPUs', 'slice', 'shuffle']
+  const simpleVideoOptionKeys = ['slice', 'numCPUs', 'resolution', 'shuffle']
+  const advancedVideoOptionKeys = ['hideHud', 'gameMusic', 'enableChants', 'disableScreenShake', 'hideTags', 'hideNames', 
+    'fixedCamera', 'noElectricSFX', 'noCrowdNoise', 'disableMagnifyingGlass','addStartFrames', 'addEndFrames', 'lastClipOffset', 'bitrateKbps']
+
+  const simpleVideoOptions: any[] = []
+  simpleVideoOptionKeys.forEach(key => {
+    const option = videoConfig.find(c => c.id == key)
+    if(option) simpleVideoOptions.push(option)
+  })
+
+  const advancedVideoOptions: any[] = []
+  advancedVideoOptionKeys.forEach(key => {
+    const option = videoConfig.find(c => c.id == key)
+    if(option) advancedVideoOptions.push(option)
+  })
+
   return (
     <div className="section">
       <div className="title" onClick={() => setVideoOpen(!isVideoOpen)}>
@@ -116,20 +136,37 @@ export default function Video({ archive, config, setConfig }: VideoProps) {
                 className="normal-button"
                 onClick={() => generateVideo()}
               >
-                Generate
+                Generate Video
               </button>
               {videoMsg ? <div className="videoMessage">{videoMsg}</div> : ''}
             </div>
-            <div className="video-config-options">
-              {videoConfig.map((c: any) => {
+            <div className="simple-video-config-options">
+                {simpleVideoOptions.map((c: any) => {
+                  return (
+                    <div className="simple-video-row" key={c.id}>
+                      <div className="simple-video-row-label">{c.label}</div>
+                      {renderInput(c)}
+                    </div>
+                  )
+              })}
+            </div>
+            <button 
+              type="button"
+              className="advanced-options-button"
+              onClick={()=> setAdvancedOptionsOpen(!advancedOptionsOpen)}
+            >{advancedOptionsOpen ? "Close More Options" : "Show More Options"}</button>
+            { advancedOptionsOpen ?
+            <div className="advanced-video-config-options">
+              {advancedVideoOptions.map((c: any) => {
                 return (
-                  <div className="video-row" key={c.id}>
-                    <div className="video-row-label">{c.label}</div>
+                  <div className="advanced-video-row" key={c.id}>
+                    <div className="advanced-video-row-label">{c.label}</div>
                     {renderInput(c)}
                   </div>
                 )
               })}
             </div>
+            : "" }
           </div>
         </div>
       ) : (

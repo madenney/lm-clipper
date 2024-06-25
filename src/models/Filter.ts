@@ -25,6 +25,7 @@ export default class Filter {
 
   async run(
     prevResults: ClipInterface[] | FileInterface[],
+    numFilterThreads: number,
     eventEmitter: EventEmitterInterface
   ) {
 
@@ -34,7 +35,7 @@ export default class Filter {
 
     if(methodsThatNeedMultithread.indexOf(this.type) > -1 ){
 
-      const thread_count = 12
+      const thread_count = numFilterThreads
 
       let maxFiles = prevResults.length
       if(this.params.maxFiles && this.params.maxFiles < prevResults.length){

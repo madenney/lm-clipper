@@ -53,7 +53,7 @@ export const filtersConfig = [
         name: 'Min Hits',
         id: 'minHits',
         type: 'int',
-        default: '',
+        default: '2',
       },
       {
         name: 'Max Hits',
@@ -65,7 +65,7 @@ export const filtersConfig = [
         name: 'Max Files',
         id: 'maxFiles',
         type: 'int',
-        default: '',
+        default: '100',
       },
       {
         name: 'Comboer Char',
@@ -97,7 +97,7 @@ export const filtersConfig = [
         name: 'Did Kill',
         id: 'didKill',
         type: 'checkbox',
-        default: false,
+        default: true,
       },
     ],
   },
@@ -109,7 +109,7 @@ export const filtersConfig = [
         name: 'Min Hits',
         id: 'minHits',
         type: 'int',
-        default: '',
+        default: '2',
       },
       {
         name: 'Max Hits',
@@ -160,7 +160,7 @@ export const filtersConfig = [
         name: 'Did Kill',
         id: 'didKill',
         type: 'checkbox',
-        default: false,
+        default: true,
       },
       {
         name: 'Exclude ICs',
@@ -672,12 +672,6 @@ export const videoConfig = [
     type: 'checkbox',
   },
   {
-    label: 'Does Nothing',
-    default: false,
-    id: 'nothing',
-    type: 'checkbox',
-  },
-  {
     label: 'Resolution',
     default: '1x',
     id: 'resolution',
@@ -703,7 +697,6 @@ export const videoConfig = [
         label: '3x (1920x1584) - 1080p',
         value: 6,
       },
-
       {
         label: '4x (2560x2112)',
         value: 7,
@@ -727,12 +720,6 @@ export const videoConfig = [
     ],
   },
   {
-    label: 'Bitrate',
-    default: 15000,
-    id: 'bitrateKbps',
-    type: 'textInput',
-  },
-  {
     label: 'Add Start Frames',
     default: 0,
     id: 'addStartFrames',
@@ -751,14 +738,20 @@ export const videoConfig = [
     type: 'int',
   },
   {
-    label: 'Concurrent Processes',
+    label: 'Bitrate',
+    default: 15000,
+    id: 'bitrateKbps',
+    type: 'textInput',
+  },
+  {
+    label: '# Dolphins',
     default: 1,
     id: 'numCPUs',
     type: 'int',
   },
   {
-    label: 'Max Clips',
-    default: 0,
+    label: '# Clips',
+    default: 1,
     id: 'slice',
     type: 'int',
   },
@@ -769,7 +762,7 @@ export const videoConfig = [
   //   type: 'int',
   // },
   {
-    label: 'ISO Path',
+    label: 'Melee .iso Path',
     default: '',
     id: 'ssbmIsoPath',
     type: 'openFile',
@@ -785,5 +778,11 @@ export const videoConfig = [
     default: '',
     id: 'outputPath',
     type: 'openDirectory',
+  },
+  {
+    label: '# CPU Threads for Filters',
+    default: 1,
+    id: 'numFilterThreads',
+    type: 'int',
   },
 ]
