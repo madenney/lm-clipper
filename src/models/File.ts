@@ -49,7 +49,7 @@ export function fileProcessor(path: string) {
     winner: 0,
     stage: 0,
     startedAt: '',
-    lastFrame: 0,
+    lastFrame: -123,
     isValid: false,
     isProcessed: true,
     info: '',
@@ -99,26 +99,40 @@ export function fileProcessor(path: string) {
 
   // check metadata for indicators of invalid game
   const metadata = game.getMetadata()
-  if (!metadata || !metadata.lastFrame || !metadata.startAt) {
+
+  if(!metadata){
     fileJSON.isValid = false
     fileJSON.info = 'Bad metadata'
     return fileJSON
   }
-  const length = metadata.lastFrame / 60
-  if (Number.isNaN(length)) {
-    fileJSON.isValid = false
-    fileJSON.info = 'No length'
-    return fileJSON
-  }
-  if (length < 20) {
-    fileJSON.isValid = false
-    fileJSON.info = 'Game Length < 20 seconds'
-    return fileJSON
+
+  const emptyObject = {}
+  if(JSON.stringify(emptyObject) == JSON.stringify(metadata)){
+    fileJSON.info = 'Metadata removed'
+
+  } else {
+    if (!metadata.lastFrame || !metadata.startAt) {
+      fileJSON.isValid = false
+      fileJSON.info = 'No lastFrame in metadata'
+      return fileJSON
+    }
+    const length = metadata.lastFrame / 60
+    if (Number.isNaN(length)) {
+      fileJSON.isValid = false
+      fileJSON.info = 'No length'
+      return fileJSON
+    }
+    if (length < 20) {
+      fileJSON.isValid = false
+      fileJSON.info = 'Game Length < 20 seconds'
+      return fileJSON
+    }
+
+    fileJSON.startedAt = metadata.startAt
+    fileJSON.lastFrame = metadata.lastFrame
   }
 
   fileJSON.isValid = true
-  fileJSON.startedAt = metadata.startAt
-  fileJSON.lastFrame = metadata.lastFrame
   fileJSON.stage = settings.stageId
   fileJSON.players = [
     {
