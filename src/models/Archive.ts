@@ -37,6 +37,14 @@ export default class Archive {
     const paths = Array.isArray(_paths) ? _paths : [_paths]
     const filePaths = getSlpFilePaths(paths)
     filePaths.forEach((path: string, index: number) => {
+
+      // check if it already exists in this archive
+      const existingFile = this.files.find(file => file.path == path)
+      if(existingFile){
+        console.log(path)
+        return
+      }
+
       const fileJSON = fileProcessor(path)
       this.files.push(new File(fileJSON))
       eventEmitter({

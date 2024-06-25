@@ -41,14 +41,23 @@ const generateDolphinConfigs = async (
         console.log('Broken file: ', replay.path)
         return false
       }
+
+      let endFrame = 0
       const metadata = game.getMetadata()
-      if (!metadata || !metadata.lastFrame) return false
+      const emptyObject = {}
+      if(JSON.stringify(emptyObject) == JSON.stringify(metadata)){
+        if(!replay.endFrame) throw new Error("Cannot record full length games without metadata")
+        endFrame = replay.endFrame
+      } else {
+        if (!metadata || !metadata.lastFrame) return false
+        endFrame = Math.min(replay.endFrame, metadata.lastFrame - 1)
+      }
       const dolphinConfig = {
         mode: 'normal',
         replay: replay.path,
         startFrame:
           replay.startFrame - 60 < -123 ? -123 : replay.startFrame - 60,
-        endFrame: Math.min(replay.endFrame, metadata.lastFrame - 1),
+        endFrame: endFrame,
         isRealTimeMode: false,
         commandId: `${crypto.randomBytes(12).toString('hex')}`,
       }
