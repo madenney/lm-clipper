@@ -17,13 +17,10 @@ export default function Replays({ archive, setArchive }: ReplaysProps) {
   const [showNamesOpen, setNamesModalOpen] = useState(false)
   const [names, setNames] = useState<{ name: string; total: number }[]>([])
 
-  async function importReplays() {
-    const newArchive = await ipcBridge.importSlpFiles()
-    if (newArchive && !newArchive.error) {
-      console.log(newArchive)
-      return setArchive(newArchive)
-    }
-    return console.log('Error', newArchive.error)
+  function importReplays() {
+    ipcBridge.importSlpFiles().then((newArchive) => {
+      setArchive(newArchive)
+    })
   }
 
   async function showNames() {

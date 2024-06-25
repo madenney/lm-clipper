@@ -4,8 +4,6 @@ export const sortOptions = [
     shortName: 'DPS',
     method: (reverse: boolean) => {
       return (resultA: any, resultB: any) => {
-        console.log("resultA: ", resultA)
-        console.log("resultB: ", resultB)
         const totalDamageA = resultA.combo.moves.reduce((total: number, move) => {
           return total + move.damage
         }, 0)

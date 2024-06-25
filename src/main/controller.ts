@@ -131,6 +131,8 @@ export default class Controller {
       )
       if (!this.archive || !this.archive.shallowCopy)
         throw new Error('Something went wrong :(')
+      this.config.lastArchivePath = this.archive.path
+      fs.writeFileSync(this.configPath, JSON.stringify(this.config, null, 2))
       return event.reply('openExistingArchive', this.archive.shallowCopy())
     } catch (error) {
       return event.reply('openExistingArchive', { error })
