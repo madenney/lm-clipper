@@ -1,0 +1,10 @@
+Melee HD team members: David V. Kimball, Alecks, Radzo73, Tyleto, Quarantine_Zone, Kirbeast
+Playtesters: MetalLegacy, Vianny, Liva, Carldacious, Readek, Stache, Zapfy
+Melee Cosmetic Standardization Project team: Efisio with support from Cjag, Radzo73, Cahalan
+
+Thanks to UnclePunch and Stache for all of their work getting together the original pack.
+Also thank you to all of the hard working talent over at meleehd.boards.net / MeleeHD on GitHub. 
+The SD Remix crew, the Faster Melee folks, Karmo1, solidturnip and the many others who have created Melee HD Packs in the past. 
+And thank you to AlGeorgeRomo and the Smash 2 team for creating the amazing models upon which the original pack was based.
+Neil and ! C O for helping us with fonts.
+Thank you to Efisio and his team for the new Melee-accurate CSPs. 
