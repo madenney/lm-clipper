@@ -36,7 +36,10 @@ export default (
     if (comboeeChar && comboeeChar != comboee.characterId) return false
     if (comboeeTag && comboeeTag.toLowerCase() !== comboee.displayName.toLowerCase())
       return false
-    if (comboStage && comboStage !== stage) return false
+    if (comboStage && comboStage != stage) {
+      console.log("WHAT: ", comboStage, ' - ', stage)
+      return false
+    }
     if (didKill && !clip.combo.didKill) return false
     if (nthMoves && nthMoves.length > 0) {
       if (

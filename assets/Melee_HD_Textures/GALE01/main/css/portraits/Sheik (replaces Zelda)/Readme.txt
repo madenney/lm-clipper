@@ -1,0 +1,1 @@
+To replace Sheik's portraits over Zelda's, rename the files in this folder to remove the "_Sheik" suffix from each. Then go to the Zelda folder, and either delete the files or change the name of each file within the folder, for example adding "_Zelda" suffix to the file name.
