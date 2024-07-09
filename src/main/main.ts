@@ -15,6 +15,7 @@ import { app, BrowserWindow, shell } from 'electron'
 import MenuBuilder from './menu'
 import { resolveHtmlPath } from './util'
 import Controller from './controller'
+import { startDB } from './db'
 
 // class AppUpdater {
 //   constructor() {
@@ -53,7 +54,7 @@ const installExtensions = async () => {
 
 const createWindow = async () => {
   if (isDebug) {
-    await installExtensions()
+    //await installExtensions()
   }
 
   const RESOURCES_PATH = app.isPackaged
@@ -78,6 +79,9 @@ const createWindow = async () => {
     resizable: true
     //resizable: process.env.NODE_ENV === 'development',
   })
+
+
+  const db = startDB()
 
   const controller = new Controller(mainWindow)
   controller.initiateListeners()
