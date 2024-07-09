@@ -98,8 +98,8 @@ const createWindow = async () => {
     shell.openExternal(edata.url)
     return { action: 'deny' }
   })
-
 }
+
 /**
  * Add event listeners...
  */
