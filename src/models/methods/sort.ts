@@ -33,42 +33,42 @@ export const sortOptions = [
       }
     },
   },
-  {
-    id: 'x',
-    shortName: 'x',
-    method: (reverse: boolean) => {
-      return (resultA: any, resultB: any) => {
-        if (reverse) {
-          return resultB.x - resultA.x
-        }
-        return resultA.x - resultB.x
-      }
-    },
-  },
-  {
-    id: 'absX',
-    shortName: 'abs(x)',
-    method: (reverse: boolean) => {
-      return (resultA: any, resultB: any) => {
-        if (reverse) {
-          return Math.abs(resultB.x) - Math.abs(resultA.x)
-        }
-        return Math.abs(resultA.x) - Math.abs(resultB.x)
-      }
-    },
-  },
-  {
-    id: 'y',
-    shortName: 'y',
-    method: (reverse: boolean) => {
-      return (resultA: any, resultB: any) => {
-        if (reverse) {
-          return resultB.y - resultA.y
-        }
-        return resultA.y - resultB.y
-      }
-    },
-  },
+  // {
+  //   id: 'x',
+  //   shortName: 'x',
+  //   method: (reverse: boolean) => {
+  //     return (resultA: any, resultB: any) => {
+  //       if (reverse) {
+  //         return resultB.x - resultA.x
+  //       }
+  //       return resultA.x - resultB.x
+  //     }
+  //   },
+  // },
+  // {
+  //   id: 'absX',
+  //   shortName: 'abs(x)',
+  //   method: (reverse: boolean) => {
+  //     return (resultA: any, resultB: any) => {
+  //       if (reverse) {
+  //         return Math.abs(resultB.x) - Math.abs(resultA.x)
+  //       }
+  //       return Math.abs(resultA.x) - Math.abs(resultB.x)
+  //     }
+  //   },
+  // },
+  // {
+  //   id: 'y',
+  //   shortName: 'y',
+  //   method: (reverse: boolean) => {
+  //     return (resultA: any, resultB: any) => {
+  //       if (reverse) {
+  //         return resultB.y - resultA.y
+  //       }
+  //       return resultA.y - resultB.y
+  //     }
+  //   },
+  // },
 ]
 
 export const sort = (prevResults, params) => {
