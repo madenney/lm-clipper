@@ -37,7 +37,6 @@ export default (
     if (comboeeTag && comboeeTag.toLowerCase() !== comboee.displayName.toLowerCase())
       return false
     if (comboStage && comboStage != stage) {
-      console.log("WHAT: ", comboStage, ' - ', stage)
       return false
     }
     if (didKill && !clip.combo.didKill) return false
