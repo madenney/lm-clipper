@@ -161,7 +161,7 @@ export default function Filters({
                 updateFilter(filterClone)
               }}
             >
-              <option value="">Any</option>
+              { filterToEdit.type == "sort" ? "" : <option value="">Any</option> }
               {option.options?.map((o) => (
                 <option key={o.id} value={o.id}>
                   {o.shortName}
@@ -181,6 +181,16 @@ export default function Filters({
                 filterClone.params[option.id] = e.target.checked
                 updateFilter(filterClone)
               }}
+            />
+          )
+          break
+        case 'checkbox-disabled':
+          input = (
+            <input
+              className="modal-row-checkbox"
+              type="checkbox"
+              checked={filterToEdit.params[option.id]}
+              disabled={true}
             />
           )
           break

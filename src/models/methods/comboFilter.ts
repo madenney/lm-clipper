@@ -19,23 +19,38 @@ export default (
       comboStage,
       didKill,
       excludeICs,
+      countPummels,
       nthMoves,
     } = params
     const { comboer, comboee, stage } = clip
     if (!comboer || !comboee) return false
     if (!clip.combo || !clip.combo.moves) return false
     const { moves } = clip.combo
-    if (minHits && moves.length < minHits) return false
-    if (maxHits && moves.length > maxHits) return false
+    if (minHits){
+      const numHits = countPummels ? moves.length : moves.filter(move => move.moveId != 52).length
+      if(numHits < minHits) return false
+    } 
+    if (maxHits){
+      const numHits = countPummels ? moves.length : moves.filter(move => move.moveId != 52).length
+      if(numHits > maxHits) return false
+    } 
     if (minDamage && !(moves.reduce((n, m) => n + m.damage, 0) >= minDamage))
       return false
     if (excludeICs && comboer.characterId == 14) return false
     if (comboerChar && comboerChar != comboer.characterId) return false
-    if (comboerTag && comboerTag.toLowerCase() !== comboer.displayName.toLowerCase())
-      return false
+    if (comboerTag){
+      const splitComboerTag = comboerTag.toLowerCase().split(";")
+      if(splitComboerTag.indexOf(comboer.displayName.toLowerCase()) == -1){
+        return false
+      }
+    }
     if (comboeeChar && comboeeChar != comboee.characterId) return false
-    if (comboeeTag && comboeeTag.toLowerCase() !== comboee.displayName.toLowerCase())
-      return false
+    if (comboeeTag){
+      const splitComboeeTag = comboeeTag.toLowerCase().split(";")
+      if(splitComboeeTag.indexOf(comboee.displayName.toLowerCase()) == -1){
+        return false
+      }
+    }
     if (comboStage && comboStage != stage) {
       return false
     }

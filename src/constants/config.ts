@@ -163,9 +163,21 @@ export const filtersConfig = [
         default: true,
       },
       {
+        name: 'Count Pummels',
+        id: 'countPummels',
+        type: 'checkbox',
+        default: false,
+      },
+      {
         name: 'Exclude ICs',
         id: 'excludeICs',
         type: 'checkbox',
+        default: false,
+      },
+      {
+        name: 'Coming Soon',
+        id: 'nothingYet',
+        type: 'checkbox-disabled',
         default: false,
       },
       {
@@ -313,7 +325,7 @@ export const filtersConfig = [
         id: 'sortFunction',
         type: 'dropdown',
         options: sortOptions,
-        default: '',
+        default: 'dps',
       },
       {
         name: 'Reverse',
@@ -678,43 +690,43 @@ export const videoConfig = [
     type: 'dropdown',
     options: [
       {
-        label: '1x (640x528)',
+        label: '1x - Low Quality (fast)',
         value: 2,
       },
       {
-        label: '1.5x (960x792)',
+        label: '1.5x',
         value: 3,
       },
       {
-        label: '2x (1280x1056) - 720p',
+        label: '2x - Normal Quality',
         value: 4,
       },
       {
-        label: '2.5x (1600x1320)',
+        label: '2.5x',
         value: 5,
       },
       {
-        label: '3x (1920x1584) - 1080p',
+        label: '3x',
         value: 6,
       },
       {
-        label: '4x (2560x2112)',
+        label: '4x - High Quality',
         value: 7,
       },
       {
-        label: '5x (3200x2640)',
+        label: '5x',
         value: 8,
       },
       {
-        label: '6x (3640x3168) - 4K',
+        label: '6x - Very High Quality',
         value: 9,
       },
       {
-        label: '7x (4480x3696)',
+        label: '7x',
         value: 10,
       },
       {
-        label: '8x (5120x4224)',
+        label: '8x - Too High Quality',
         value: 11,
       },
     ],
