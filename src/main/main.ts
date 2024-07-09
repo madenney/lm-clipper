@@ -99,7 +99,7 @@ const createWindow = async () => {
     return { action: 'deny' }
   })
 
-
+}
 /**
  * Add event listeners...
  */
@@ -123,4 +123,4 @@ app
     })
   })
   .catch(console.log)
-}
+
