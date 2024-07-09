@@ -123,3 +123,4 @@ app
     })
   })
   .catch(console.log)
+}
