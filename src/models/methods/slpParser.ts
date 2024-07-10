@@ -56,12 +56,20 @@ export default (
         if (!comboee) return false
         if (comboerChar && comboerChar !== comboer.characterId.toString())
           return false
-        if (comboerTag && comboerTag !== comboer.displayName.toLowerCase())
-          return false
+        if (comboerTag){
+          const splitComboerTag = comboerTag.toLowerCase().split(";")
+          if(splitComboerTag.indexOf(comboer.displayName.toLowerCase()) == -1){
+            return false
+          }
+        }
         if (comboeeChar && comboeeChar !== comboee.characterId.toString())
           return false
-        if (comboeeTag && comboeeTag !== comboee.displayName.toLowerCase())
-          return false
+        if (comboeeTag){
+          const splitComboeeTag = comboeeTag.toLowerCase().split(";")
+          if(splitComboeeTag.indexOf(comboee.displayName.toLowerCase()) == -1){
+            return false
+          }
+        }
         if (didKill && !combo.didKill) return false
 
         return filteredCombos.push({
