@@ -65,7 +65,7 @@ export async function createDB(path: string, name: string){
       fileID INTEGER,
       filePath TEXT,
       startFrame INTEGER,
-      endFrame INTEGER,
+      endFrame INTEGER
     );`
     await runSqliteCommand([path, sql])
   })
@@ -132,8 +132,8 @@ export async function insertFile(path: string, fileJSON: FileInterface){
     isProcessed,
     info
   ) VALUES (
-    '${fileJSON.path}',             
-    '${JSON.stringify(fileJSON.players)}',             
+    '${fileJSON.path.replace(/\|/g, '')}',             
+    '${JSON.stringify(fileJSON.players).replace(/\|/g, '')}',             
     ${fileJSON.winner},                               
     ${fileJSON.startedAt ? fileJSON.startedAt : 0},                     
     ${fileJSON.lastFrame},                            
@@ -146,6 +146,11 @@ export async function insertFile(path: string, fileJSON: FileInterface){
   console.log("RESPONSE: ", response)
 }
 
+export async function getValidFiles(path: string){
+  const sql = 'SELECT * FROM files WHERE isValid = 1'
+  const response = await runSqliteCommand([path, sql])
+  return response
+}
 
 export function startDB(){
 

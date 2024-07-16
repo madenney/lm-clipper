@@ -11,8 +11,7 @@ import File, { fileProcessor } from './File'
 import Filter from './Filter'
 
 const { getSlpFilePaths } = require('../lib/file')
-
-import { dbExists, createDB, getMetaData, getFileByPath, insertFile } from '../main/db'
+import { dbExists, createDB, getMetaData, getFileByPath, insertFile, getValidFiles } from '../main/db'
 import { asyncForEach } from 'lib'
 
 // const fileTemplate = JSON.parse(
@@ -181,19 +180,21 @@ export default class Archive {
     return false
   }
 
-  names() {
+  async getNames() {
+
+    const files = await getValidFiles(this.path)
+
     const namesObj: { [key: string]: number } = {}
-    this.files.forEach((file) => {
-      if (file.isValid) {
-        file.players.forEach((player) => {
-          const name = player.displayName
-          if (namesObj[name]) {
-            namesObj[name] += 1
-          } else {
-            namesObj[name] = 1
-          }
-        })
-      }
+    files.forEach((file) => {
+      const players = JSON.parse(file[2])
+      players.forEach((player) => {
+        const name = player.displayName
+        if (namesObj[name]) {
+          namesObj[name] += 1
+        } else {
+          namesObj[name] = 1
+        }
+      })
     })
     const names: { name: string; total: number }[] = []
     Object.keys(namesObj).forEach((key) => {
@@ -201,6 +202,28 @@ export default class Archive {
     })
     const sortedNames = names.sort((a, b) => b.total - a.total)
     return sortedNames
+
+
+    
+    // const namesObj: { [key: string]: number } = {}
+    // this.files.forEach((file) => {
+    //   if (file.isValid) {
+    //     file.players.forEach((player) => {
+    //       const name = player.displayName
+    //       if (namesObj[name]) {
+    //         namesObj[name] += 1
+    //       } else {
+    //         namesObj[name] = 1
+    //       }
+    //     })
+    //   }
+    // })
+    // const names: { name: string; total: number }[] = []
+    // Object.keys(namesObj).forEach((key) => {
+    //   names.push({ name: key, total: namesObj[key] })
+    // })
+    // const sortedNames = names.sort((a, b) => b.total - a.total)
+    // return sortedNames
   }
 }
 

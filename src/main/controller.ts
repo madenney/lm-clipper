@@ -197,7 +197,7 @@ export default class Controller {
   }
 
   async addFilter(event: IpcMainEvent, type: string) {
-    if (!this.archive || !this.archive.addFiles || !this.archive.shallowCopy)
+    if (!this.archive)
       return event.reply('addFilter', { error: 'archive undefined' })
     const template = filtersConfig.find((p) => p.id === type)
     if (!template) {
@@ -270,9 +270,11 @@ export default class Controller {
   }
 
   async getNames(event: IpcMainEvent) {
-    if (!this.archive || !this.archive.names)
+    if (!this.archive)
       return event.reply({ error: 'archive undefined' })
-    return event.reply('getNames', this.archive.names())
+    const names = await this.archive.getNames()
+    
+    return event.reply('getNames', names)
   }
 
   async runFilters(event: IpcMainEvent) {
