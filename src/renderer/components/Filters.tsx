@@ -87,19 +87,19 @@ export default function Filters({
     ipcBridge.cancelRunningFilters()
   }
 
-  // function runFilter(filter: ShallowFilterInterface) {
-  //   console.log('RUN FILTER: ', filter)
-  //   // const filterIndex = archive.filters.indexOf(filter)
-  //   // if (filterIndex === 0) {
-  //   //   filter.run({ results: archive.files }, (e) => {
-  //   //     console.log(e.msg)
-  //   //   })
-  //   // } else {
-  //   //   filter.run(archive.filters[filterIndex - 1], (e) => {
-  //   //     console.log(e.msg)
-  //   //   })
-  //   // }
-  // }
+  function runFilter(filter: ShallowFilterInterface) {
+    console.log('RUN FILTER: ', filter)
+    const filterIndex = archive.filters.indexOf(filter)
+    if (filterIndex === 0) {
+      filter.run({ results: archive.files }, (e) => {
+        console.log(e.msg)
+      })
+    } else {
+      filter.run(archive.filters[filterIndex - 1], (e) => {
+        console.log(e.msg)
+      })
+    }
+  }
 
   async function addFilter(e: any) {
     if (!setArchive) return
@@ -335,13 +335,13 @@ export default function Filters({
           >
             Edit
           </button>
-          {/* <button
+          <button
             type="button"
             className="filter-button"
             onClick={() => runFilter(filter)}
           >
             Run
-          </button> */}
+          </button>
           {/* <button
             type="button"
             className="filter-button"

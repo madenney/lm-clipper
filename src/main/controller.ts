@@ -278,7 +278,7 @@ export default class Controller {
   }
 
   async runFilters(event: IpcMainEvent) {
-    if (!this.archive || !this.archive.shallowCopy || !this.archive.runFilters)
+    if (!this.archive || !this.archive.runFilters || !this.archive.shallowCopy)
       return event.reply({ error: 'archive undefined' })
 
     const { numFilterThreads } = this.config
@@ -299,7 +299,10 @@ export default class Controller {
         })
       }
     )
-    return event.reply('runFilters', this.archive.shallowCopy())
+
+    const metadata = await this.archive.shallowCopy()
+
+    return event.reply('runFilters', metadata)
   }
 
   async getPath(event: IpcMainEvent, type: 'openFile' | 'openDirectory') {
