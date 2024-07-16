@@ -5,7 +5,7 @@ export default class File {
   path: string
   id: string
   players: PlayerInterface[]
-  startedAt: string
+  startedAt: number
   winner: number
   stage: number
   lastFrame: number
@@ -48,7 +48,7 @@ export function fileProcessor(path: string) {
     players: [],
     winner: 0,
     stage: 0,
-    startedAt: '',
+    startedAt: 0,
     lastFrame: -123,
     isValid: false,
     isProcessed: true,
@@ -128,7 +128,7 @@ export function fileProcessor(path: string) {
       return fileJSON
     }
 
-    fileJSON.startedAt = metadata.startAt
+    fileJSON.startedAt = Math.floor(new Date(metadata.startAt).getTime()/1000)
     fileJSON.lastFrame = metadata.lastFrame
   }
 

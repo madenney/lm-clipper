@@ -30,6 +30,7 @@ export default function App() {
     window.electron.ipcRenderer.on('closeProject', async () => {
       setArchive(null)
       await ipcBridge.closeArchive()
+      await ipcBridge.updateConfig({ key: "lastArchivePath", value: null })
     })
   }, [])
 

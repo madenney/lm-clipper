@@ -1,6 +1,6 @@
 /* eslint-disable no-unused-vars */
 export interface ConfigInterface {
-  lastArchivePath: string
+  lastArchivePath: string|null
   hideHud: boolean
   gameMusic: boolean
   enableChants: boolean
@@ -39,7 +39,7 @@ export interface PlayerInterface {
 export interface FileInterface {
   id: string
   players: PlayerInterface[]
-  startedAt: string
+  startedAt: number
   winner: number
   stage: number
   lastFrame: number
@@ -105,7 +105,6 @@ export interface ShallowArchiveInterface {
   path: string
   name: string
   createdAt: number
-  updatedAt: number
   totalFiles: number
   validFiles: number
   filters: ShallowFilterInterface[]
@@ -115,7 +114,6 @@ export interface ArchiveInterface {
   path: string
   name: string
   createdAt: number
-  updatedAt: number
   files: FileInterface[]
   filters: FilterInterface[]
   save?(): void

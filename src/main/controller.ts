@@ -20,6 +20,7 @@ import {
 import Archive from '../models/Archive'
 import Filter from '../models/Filter'
 import slpToVideo from './slpToVideo'
+import { getMetaData } from './db'
 
 export default class Controller {
   mainWindow: BrowserWindow
@@ -27,21 +28,28 @@ export default class Controller {
   configPath: string
   archive: ArchiveInterface | null
   config: ConfigInterface
+
   constructor(mainWindow: BrowserWindow) {
     this.mainWindow = mainWindow
     this.configDir = path.resolve(app.getPath('appData'), 'lm-clipper')
-    this.configPath = path.resolve(this.configDir, 'lm-clipper.json')
     if (!fs.existsSync(this.configDir)) fs.mkdirSync(this.configDir)
+    this.configPath = path.resolve(this.configDir, 'lm-clipper.json')
     if (!fs.existsSync(this.configPath))
       fs.writeFileSync(this.configPath, JSON.stringify(defaultConfig, null, 2))
 
     this.config = JSON.parse(fs.readFileSync(this.configPath).toString())
-    if (this.config.lastArchivePath) {
-      this.archive = new Archive(
-        JSON.parse(fs.readFileSync(this.config.lastArchivePath).toString())
-      )
+    this.archive = null
+
+    if (this.config.lastArchivePath && fs.existsSync(this.config.lastArchivePath)) {
+      try {
+        this.archive = new Archive(this.config.lastArchivePath)
+        this.archive.init()
+      } catch(e){
+        console.log('error fetching from last archive path')
+        this.archive = null
+      }
     } else {
-      this.archive = new Archive(defaultArchive)
+      this.archive = null
     }
   }
 
@@ -64,8 +72,9 @@ export default class Controller {
   }
 
   async getArchive(event: IpcMainEvent) {
-    if (this.archive && this.archive.shallowCopy) {
-      event.reply('archive', this.archive.shallowCopy())
+    if (this.archive ) {
+      const metadata = await getMetaData(this.archive.path)
+      event.reply('archive', metadata)
     } else {
       event.reply('archive')
     }
@@ -78,21 +87,24 @@ export default class Controller {
     try {
       const newArchivePath = path.resolve(
         payload.location || app.getPath('documents'),
-        `${payload.name}.lmc`
+        `${payload.name}`
       )
-      const newArchiveJSON = {
-        ...defaultArchive,
-        path: newArchivePath,
-        name: payload.name,
-      }
-      fs.writeFileSync(newArchivePath, JSON.stringify(newArchiveJSON))
-      this.archive = new Archive(newArchiveJSON)
+      // const newArchiveJSON = {
+      //   ...defaultArchive,
+      //   path: newArchivePath,
+      //   name: payload.name,
+      // }
+      //fs.writeFileSync(newArchivePath, JSON.stringify(newArchiveJSON))
+
+      this.archive = new Archive(newArchivePath)
+      const metadata = await this.archive.init(payload.name)
+
       // update config
       const newConfig = JSON.parse(fs.readFileSync(this.configPath).toString())
       newConfig.lastArchivePath = newArchivePath
       fs.writeFileSync(this.configPath, JSON.stringify(newConfig, null, 2))
-      if (!this.archive || !this.archive.shallowCopy) throw Error('how?')
-      event.reply('createNewArchive', this.archive.shallowCopy())
+      
+      event.reply('createNewArchive', metadata)
     } catch (error) {
       event.reply('createNewArchive', { error: true, info: error })
     }
@@ -147,31 +159,36 @@ export default class Controller {
       properties: ['openFile', 'multiSelections'],
       filters: [{ name: 'slp files', extensions: ['slp'] }],
     })
-    if (canceled)
-      return event.reply('addFilesManual', this.archive.shallowCopy())
+    if (canceled){
+      const archive = await this.archive.shallowCopy()
+      return event.reply('addFilesManual', archive)
+    }
 
-    this.archive.addFiles(filePaths, ({ current, total }) => {
+    await this.archive.addFiles(filePaths, ({ current, total }) => {
       this.mainWindow.webContents.send('importingFileUpdate', {
         total,
         current,
       })
     })
+    const archive = await this.archive.shallowCopy()
     this.mainWindow.webContents.send('importingFileUpdate', { finished: true })
-    return event.reply('addFilesManual', this.archive.shallowCopy())
+    return event.reply('addFilesManual', archive)
   }
+
 
   async addDroppedFiles(event: IpcMainEvent, filePaths: string[]) {
     if (!this.archive || !this.archive.addFiles || !this.archive.shallowCopy)
       return event.reply('addDroppedFiles', { error: 'archive undefined' })
     const slpFilePaths = getSlpFilePaths(filePaths)
-    this.archive.addFiles(slpFilePaths, ({ current, total }) => {
+    await this.archive.addFiles(slpFilePaths, ({ current, total }) => {
       this.mainWindow.webContents.send('importingFileUpdate', {
         total,
         current,
       })
     })
+    const archive = await this.archive.shallowCopy()
     this.mainWindow.webContents.send('importingFileUpdate', { finished: true })
-    return event.reply('addDroppedFiles', this.archive.shallowCopy())
+    return event.reply('addDroppedFiles', archive)
   }
 
   async closeArchive(event: IpcMainEvent) {
@@ -244,15 +261,12 @@ export default class Controller {
   ) {
     const { selectedFilterIndex, numPerPage, currentPage } = params
     console.log('Selected filter: ', selectedFilterIndex)
-    const slicedResults = this.archive?.filters[
-      selectedFilterIndex
-    ].results
+    // const slicedResults = this.archive?.filters[
+    //   selectedFilterIndex
+    // ].results
     
-    //.slice(
-    //   currentPage * numPerPage,
-    //   currentPage * numPerPage + numPerPage
-    // )
-    event.reply('getResults', slicedResults)
+    // event.reply('getResults', slicedResults)
+    event.reply('getResults',)
   }
 
   async getNames(event: IpcMainEvent) {

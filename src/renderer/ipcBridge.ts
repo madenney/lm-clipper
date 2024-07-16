@@ -104,7 +104,7 @@ export default {
       window.electron.ipcRenderer.once('cancelRunningFilters', resolve)
     })
   },
-  updateConfig(config: { key: string; value: string | number | boolean }) {
+  updateConfig(config: { key: string; value: string | number | boolean | null }) {
     return new Promise<any>((resolve) => {
       window.electron.ipcRenderer.sendMessage('updateConfig', config)
       window.electron.ipcRenderer.once('updateConfig', resolve)

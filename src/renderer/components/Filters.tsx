@@ -42,12 +42,12 @@ export default function Filters({
     useState<ShallowFilterInterface | null>(null)
 
 
-    useEffect(() => {
-      async function getResults() {
-        setResultsData( await ipcBridge.getResults({selectedFilterIndex: archive.filters.length-1 }) )
-      }
-      getResults()
-    }, [archive, setResultsData])
+  // useEffect(() => {
+  //   async function getResults() {
+  //     setResultsData( await ipcBridge.getResults({selectedFilterIndex: archive.filters.length-1 }) )
+  //   }
+  //   getResults()
+  // }, [archive, setResultsData])
 
   useEffect(() => {
     setFilterToEdit(archive.filters[filterIndex])
@@ -452,7 +452,7 @@ export default function Filters({
           </button>
         }
         <div id="filters-list">{renderFilters()}</div>
-        <div id="results">{ renderResultsData()  }</div>
+        {/*<div id="results">{ renderResultsData()  }</div>*/}
       </div>
     )
   }

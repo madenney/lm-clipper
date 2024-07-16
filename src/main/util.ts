@@ -31,3 +31,23 @@ export function getFFMPEGPath() {
       throw new Error('no os?')
   }
 }
+
+
+export function getSqlitePath() {
+
+  if (process.env.NODE_ENV === 'development') {
+    return path.resolve(app.getAppPath(), 'bin', 'sqlite3')
+  }
+
+  const appPath = app.getAppPath()
+  const type = os.type()
+  switch (type) {
+    case 'Linux':
+      return path.resolve(appPath, 'sqlite3', 'sqlite3')
+    case 'Windows_NT':
+      return path.resolve(appPath, 'sqlite3', 'sqlite3.exe')
+    case 'Darwin':
+    default:
+      throw new Error('no os?')
+  }
+}

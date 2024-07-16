@@ -24,6 +24,7 @@ Compatible with Windows and Linux.
 
 ## Architecture
 - Mainly written in Typescript
+- sqlite3 for local database
 - ffmpeg for video/audio editing
 - Started with Electron React Boilerplate 
     - https://github.com/electron-react-boilerplate/electron-react-boilerplate
