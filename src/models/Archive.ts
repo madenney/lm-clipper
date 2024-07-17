@@ -41,15 +41,14 @@ export default class Archive {
 
   async init(archiveName: string){
     console.log("Archive.init()")
-    const isDB = fs.existsSync(this.path)
-    console.log("DB exists - ", isDB)
+    const fileExists = fs.existsSync(this.path)
     let metadata
-    if(isDB){
+    if(fileExists){
       try {
         metadata = await getMetaData(this.path)
       } catch(e){
         console.log("Error fetching metadata from ", this.path)
-        // TODO: Throw serious error here
+        throw new Error("Failed to open given db filepath")
       }
     } else {
       await createDB(this.path, archiveName)
@@ -59,6 +58,9 @@ export default class Archive {
     console.log("METADATA: ", metadata)
     this.name = metadata.name 
     this.createdAt = metadata.createdAt
+    this.filters = metadata.filters.map(
+      (filterJSON: FilterInterface) => new Filter(filterJSON)
+    )
     return metadata
   }
 
@@ -80,12 +82,14 @@ export default class Archive {
       }
 
       const fileJSON = fileProcessor(path)
-      try {
-        await insertFile(this.path, fileJSON)
-      } catch(e){
-        console.log("Error inserting file :(")
-        console.log(path)
-        console.log(e)
+      if(fileJSON.isValid){
+        try {
+          await insertFile(this.path, fileJSON)
+        } catch(e){
+          console.log("Error inserting file :(")
+          console.log(path)
+          console.log(e)
+        }
       }
       //this.files.push(new File(fileJSON))
       eventEmitter({
@@ -154,6 +158,30 @@ export default class Archive {
     // }
     // return shallowArchive
   }
+
+
+  async runFilter(
+    filterId: string, 
+    numFilterThreads: number, 
+    filterMsgEventEmitter: EventEmitterInterface ){
+
+    const filter = this.filters.find(filter => filter.id == filterId)
+    
+    const filterIndex = this.filters.indexOf(filter)
+    console.log("Filter Index: ", filterIndex)
+
+
+    
+    // get prev results
+    let prevResultsTable
+    if(filterIndex == 0){
+      prevResultsTable = 'files'
+    } else {
+      prevResultsTable = this.archive.filters[filterIndex-1].id
+    }
+    console.log("Prev Results Table: ", prevResultsTable)
+  }
+
 
   async runFilters(
     numFilterThreads: number,

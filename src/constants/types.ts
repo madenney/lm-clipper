@@ -47,9 +47,9 @@ export interface FileInterface {
   isValid: boolean
   isProcessed: boolean
   info: string
-  startFrame?: number
-  endFrame?: number
-  generateJSON(): void
+  startFrame: number
+  endFrame: number
+  generateJSON?(): void
 }
 
 export interface ClipInterface {
@@ -80,11 +80,17 @@ export interface EventEmitterInterface {
 }
 
 export interface FilterInterface {
+  id: string
   type: string
   label: string
   isProcessed: boolean
   params: { [key: string]: any }
   results: ClipInterface[] | FileInterface[]
+  run2?(
+    prevTable: string,
+    numFilterThreads: number,
+    arg2: EventEmitterInterface
+  ): void
   run?(
     arg1: ClipInterface[] | FileInterface[],
     numFilterThreads: number,
@@ -94,6 +100,7 @@ export interface FilterInterface {
 }
 
 export interface ShallowFilterInterface {
+  id: string
   type: string
   label: string
   isProcessed: boolean
@@ -117,6 +124,11 @@ export interface ArchiveInterface {
   files: FileInterface[]
   filters: FilterInterface[]
   save?(): void
+  runFilter?(
+    filterId: string,
+    numFilterThreads: number,
+    filterMsgEventEmitter: EventEmitterInterface
+  ): void
   runFilters?(
     numFilterThreads: number,
     currentFilterEventEmitter: EventEmitterInterface,

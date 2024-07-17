@@ -87,18 +87,26 @@ export default function Filters({
     ipcBridge.cancelRunningFilters()
   }
 
-  function runFilter(filter: ShallowFilterInterface) {
-    console.log('RUN FILTER: ', filter)
-    const filterIndex = archive.filters.indexOf(filter)
-    if (filterIndex === 0) {
-      filter.run({ results: archive.files }, (e) => {
-        console.log(e.msg)
-      })
-    } else {
-      filter.run(archive.filters[filterIndex - 1], (e) => {
-        console.log(e.msg)
-      })
+  async function runFilter(filter: ShallowFilterInterface) {
+    console.log('RUN FILTER: ', filter.id)
+
+    const response = await ipcBridge.runFilter(filter.id)
+
+    if(response.error){
+      console.log("Error: ", response.error)
+      return
     }
+
+    // const filterIndex = archive.filters.indexOf(filter)
+    // if (filterIndex === 0) {
+    //   filter.run({ results: archive.files }, (e) => {
+    //     console.log(e.msg)
+    //   })
+    // } else {
+    //   filter.run(archive.filters[filterIndex - 1], (e) => {
+    //     console.log(e.msg)
+    //   })
+    // }
   }
 
   async function addFilter(e: any) {

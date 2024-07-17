@@ -200,6 +200,9 @@ export default class MenuBuilder {
           {
             label: '&Open Project',
             accelerator: 'Ctrl+O',
+            click: () => {
+              this.mainWindow.webContents.send('openProject')
+            },
           },
           {
             label: '&Close Project',

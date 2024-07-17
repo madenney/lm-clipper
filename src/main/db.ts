@@ -49,6 +49,7 @@ export async function createDB(path: string, name: string){
     path TEXT,
     players TEXT,
     winner INTEGER,
+    stage INTEGER,
     startedAt INTEGER,
     lastFrame INTEGER,
     isValid INTEGER,
@@ -62,10 +63,7 @@ export async function createDB(path: string, name: string){
     const sql = `
     CREATE TABLE IF NOT EXISTS ${filter.id} (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      fileID INTEGER,
-      filePath TEXT,
-      startFrame INTEGER,
-      endFrame INTEGER
+      JSON TEXT
     );`
     await runSqliteCommand([path, sql])
   })
@@ -107,7 +105,7 @@ export async function getMetaData(path: string){
   } catch(e) {
     console.log("Error Fetching Metadata :(")
     console.log(e)
-    return false
+    throw new Error("Failed to fetch metadata")
   }
 }
 
@@ -126,6 +124,7 @@ export async function insertFile(path: string, fileJSON: FileInterface){
     path,
     players,
     winner,
+    stage,
     startedAt,
     lastFrame,
     isValid,
@@ -134,7 +133,8 @@ export async function insertFile(path: string, fileJSON: FileInterface){
   ) VALUES (
     '${fileJSON.path.replace(/\|/g, '')}',             
     '${JSON.stringify(fileJSON.players).replace(/\|/g, '')}',             
-    ${fileJSON.winner},                               
+    ${fileJSON.winner},
+    ${fileJSON.stage},                              
     ${fileJSON.startedAt ? fileJSON.startedAt : 0},                     
     ${fileJSON.lastFrame},                            
     ${fileJSON.isValid ? 1 : 0},                               
@@ -150,6 +150,32 @@ export async function getValidFiles(path: string){
   const sql = 'SELECT * FROM files WHERE isValid = 1'
   const response = await runSqliteCommand([path, sql])
   return response
+}
+
+export async function getAllFromTable(path: string, tableId: string){
+  const sql = `SELECT * FROM ${tableId}`
+  const response = await runSqliteCommand([path, sql])
+  return response
+}
+
+export async function insertRow(path, tableId, filterJSON){
+  const sql = `INSERT into ${tableId} (JSON) VALUES ('${JSON.stringify(filterJSON)}')`
+  const response = await runSqliteCommand([path, sql])
+  return response
+}
+
+export async function getTableLength(path, tableId){
+  const sql = `SELECT COUNT(*) AS count FROM ${tableId};`;
+  const response = await runSqliteCommand([path, sql])
+  return response[0][0]
+
+}
+
+export async function getItem(path, tableId, itemId){
+  const sql = `SELECT * FROM ${tableId} WHERE id = ${itemId}`
+  const response = await runSqliteCommand([path, sql])
+  return response[0][0]
+
 }
 
 export function startDB(){

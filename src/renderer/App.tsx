@@ -32,6 +32,17 @@ export default function App() {
       await ipcBridge.closeArchive()
       await ipcBridge.updateConfig({ key: "lastArchivePath", value: null })
     })
+
+    window.electron.ipcRenderer.on('openProject', async () => {
+      const archive = await ipcBridge.openExistingArchive()
+      if (!archive) return
+      if (archive.error) {
+        console.log("Error: ", archive.error)
+        return
+      } else {
+        setArchive(archive)
+      }
+    })
   }, [])
 
   useEffect(() => {

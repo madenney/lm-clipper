@@ -92,6 +92,12 @@ export default {
       window.electron.ipcRenderer.once('updateFilter', resolve)
     })
   },
+  runFilter(filterId: string) {
+    return new Promise<any>((resolve) => {
+      window.electron.ipcRenderer.sendMessage('runFilter', filterId)
+      window.electron.ipcRenderer.once('runFilter', resolve)
+    })
+  },
   runFilters() {
     return new Promise<any>((resolve) => {
       window.electron.ipcRenderer.sendMessage('runFilters', {})

@@ -134,18 +134,25 @@ export default class Controller {
     try {
       const { canceled, filePaths } = await dialog.showOpenDialog({
         properties: ['openFile'],
-        filters: [{ name: 'lmc files', extensions: ['lmc'] }],
+        filters: [{ name: 'SQLite3 Database', extensions: [] }],
       })
       if (canceled) return event.reply('openExistingArchive')
 
-      this.archive = new Archive(
-        JSON.parse(fs.readFileSync(filePaths[0]).toString())
-      )
+      try{
+        this.archive = new Archive(filePaths[0])
+        await this.archive.init()
+      } catch(e){
+        console.log("Error opening archive", e)
+        return event.reply('openExistingArchive', {error: "Failed to open given filepath"})
+      }
+      
+      
       if (!this.archive || !this.archive.shallowCopy)
         throw new Error('Something went wrong :(')
       this.config.lastArchivePath = this.archive.path
       fs.writeFileSync(this.configPath, JSON.stringify(this.config, null, 2))
-      return event.reply('openExistingArchive', this.archive.shallowCopy())
+      const metadata = await this.archive.shallowCopy()
+      return event.reply('openExistingArchive', metadata)
     } catch (error) {
       return event.reply('openExistingArchive', { error })
     }
@@ -275,6 +282,42 @@ export default class Controller {
     const names = await this.archive.getNames()
     
     return event.reply('getNames', names)
+  }
+
+  async runFilter(event: IpcMainEvent, filterId: string){
+    if(!this.archive || !this.archive.runFilter)
+      return event.reply('runFilter', { error: 'archive undefined' })
+    console.log(this.archive)
+    const filter = this.archive.filters.find(filter => filter.id == filterId)
+    if(!filter)
+      return event.reply('runFilter', {error: `no filter with id: '${filterId}' found`})
+
+    const filterIndex = this.archive.filters.indexOf(filter)
+    console.log("Filter Index: ", filterIndex)
+    
+    // get prev results
+    let prevResultsTableId
+    if(filterIndex == 0){
+      prevResultsTableId = 'files'
+    } else {
+      prevResultsTableId = this.archive.filters[filterIndex-1].id
+    }
+    console.log("Prev Results Table: ", prevResultsTableId)
+    const { numFilterThreads } = this.config
+
+    await filter.run3(
+      this.archive.path,
+      prevResultsTableId,
+      numFilterThreads,
+      (eventUpdate: { current: number; total: number }) => {
+        const { total, current } = eventUpdate
+        this.mainWindow.webContents.send('filterUpdate', {
+          total,
+          current,
+        })
+      }
+    )
+
   }
 
   async runFilters(event: IpcMainEvent) {
@@ -439,6 +482,7 @@ export default class Controller {
     ipcMain.on('removeFilter', this.removeFilter.bind(this))
     ipcMain.on('getResults', this.getResults.bind(this))
     ipcMain.on('getNames', this.getNames.bind(this))
+    ipcMain.on('runFilter', this.runFilter.bind(this))
     ipcMain.on('runFilters', this.runFilters.bind(this))
     ipcMain.on('getPath', this.getPath.bind(this))
     ipcMain.on('generateVideo', this.generateVideo.bind(this))
