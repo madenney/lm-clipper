@@ -112,8 +112,7 @@ export interface ShallowArchiveInterface {
   path: string
   name: string
   createdAt: number
-  totalFiles: number
-  validFiles: number
+  files: number
   filters: ShallowFilterInterface[]
 }
 

@@ -9,10 +9,10 @@ import { ConfigInterface, ShallowArchiveInterface } from '../constants/types'
 import ipcBridge from './ipcBridge'
 
 export default function App() {
-  const [archive, setArchive] = useState<ShallowArchiveInterface | null>()
-  const [config, setConfig] = useState<ConfigInterface | null>()
-  const [areListenersDefined, setAreListenersDefined] = useState(false)
+  const [archive, setArchive] = useState<ShallowArchiveInterface | null>(null)
+  const [config, setConfig] = useState<ConfigInterface | null>(null)
 
+  // useful for development purposes
   useEffect(() => {
     console.log('Archive: ', archive)
   }, [archive])
@@ -45,40 +45,13 @@ export default function App() {
     })
   }, [])
 
-  useEffect(() => {
-    if (!areListenersDefined) {
-      setAreListenersDefined(true)
-      window.electron.ipcRenderer.on('importSlpClicked', async () => {
-        const newArchive = await ipcBridge.importSlpFiles()
-        if (newArchive && !newArchive.error) {
-          return setArchive(newArchive)
-        }
-        return console.log('Error', newArchive.error)
-      })
-
-      document.addEventListener('drop', async (event) => {
-        event.preventDefault()
-        event.stopPropagation()
-        if (event.dataTransfer) {
-          const newArchive = await ipcBridge.importDroppedSlpFiles(
-            Array.from(event.dataTransfer?.files).map((file) => file.path)
-          )
-          setArchive(newArchive)
-        }
-      })
-      document.addEventListener('dragover', (e) => {
-        e.preventDefault()
-      })
-      console.log('Added event listeners')
-    }
-  }, [areListenersDefined])
 
   if (!config) {
     return <LoadingScreen />
   }
-  if (!archive) {
-    return <OpenScreen setArchive={setArchive} />
-  }
+  // if (!archive) {
+  //   return <OpenScreen setArchive={setArchive} />
+  // }
   return (
     <Main
       archive={archive}

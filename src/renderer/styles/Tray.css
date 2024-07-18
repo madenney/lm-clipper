@@ -1,0 +1,19 @@
+.tray {
+    background-color: #202020;
+    height: 100%;
+    display: inline-block;
+    flex-grow: 1; /* Allow the right div to fill remaining space */
+}
+
+.noFilesMsg {
+    text-align: center;
+    margin-top: 175px;
+}
+
+.firstLine {
+    font-size: 26px;
+}
+.secondLine {
+    font-size: 22px;
+    margin-top: 30px;
+}
