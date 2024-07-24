@@ -19,7 +19,7 @@ export default class Filter {
   type: string
   isProcessed: boolean
   params: { [key: string]: any }
-  results: ClipInterface[] | FileInterface[]
+  results: number
   constructor(filterJSON: FilterInterface) {
     this.id = filterJSON.id
     this.label = filterJSON.label
@@ -118,7 +118,7 @@ export default class Filter {
       return true
     } else {
       this.isProcessed = true
-      this.results = newResults
+      //this.results = newResults
       return false
     }
 
@@ -137,220 +137,220 @@ export default class Filter {
 
 
 
-  async run2(
-    dbPath: string,
-    prevTableId: string,
-    numFilterThreads: number,
-    eventEmitter: EventEmitterInterface
-  ) {
+  // async run2(
+  //   dbPath: string,
+  //   prevTableId: string,
+  //   numFilterThreads: number,
+  //   eventEmitter: EventEmitterInterface
+  // ) {
 
-    let prevResults
-    try {
-      prevResults = await getAllFromTable(dbPath, prevTableId)
-    } catch(e){
-      console.log("Error getting prev results", e)
-      throw new Error("Error getting prev results")
-    }
+  //   let prevResults
+  //   try {
+  //     prevResults = await getAllFromTable(dbPath, prevTableId)
+  //   } catch(e){
+  //     console.log("Error getting prev results", e)
+  //     throw new Error("Error getting prev results")
+  //   }
 
-    if(!prevResults) throw new Error("Error getting prev results")
+  //   if(!prevResults) throw new Error("Error getting prev results")
 
-    console.log(prevResults)
+  //   console.log(prevResults)
 
-    // convert results from array back to object
-    const convertedPrevResults = this.convertResults(prevResults)
+  //   // convert results from array back to object
+  //   const convertedPrevResults = this.convertResults(prevResults)
 
-    console.log(convertedPrevResults.length)
-    console.log(convertedPrevResults[0])
+  //   console.log(convertedPrevResults.length)
+  //   console.log(convertedPrevResults[0])
 
-    const methodsThatNeedMultithread = ['slpParser', 'removeStarKOFrames', 'actionStateFilter']
-    let terminated = false
-    //const savedResults = this.results
+  //   const methodsThatNeedMultithread = ['slpParser', 'removeStarKOFrames', 'actionStateFilter']
+  //   let terminated = false
+  //   //const savedResults = this.results
 
-    if(methodsThatNeedMultithread.indexOf(this.type) > -1 ){
+  //   if(methodsThatNeedMultithread.indexOf(this.type) > -1 ){
 
-      const thread_count = numFilterThreads
+  //     const thread_count = numFilterThreads
 
-      let maxFiles = prevResults.length
-      if(this.params.maxFiles && this.params.maxFiles < prevResults.length){
-        maxFiles = this.params.maxFiles
-      }
+  //     let maxFiles = prevResults.length
+  //     if(this.params.maxFiles && this.params.maxFiles < prevResults.length){
+  //       maxFiles = this.params.maxFiles
+  //     }
 
-      // split previous results into sections, one for each thread
-      const splitPrevResults: (ClipInterface[] | FileInterface[])[] = []
-      const completeds: number[] = []
-      for (let i = 0; i < thread_count; i++) {
-        const len = maxFiles
-        splitPrevResults.push(
-          prevResults.slice(
-            Math.floor((len * i) / thread_count),
-            Math.floor((len * (i + 1)) / thread_count)
-          )
-        )
-        completeds.push(0)
-      }
+  //     // split previous results into sections, one for each thread
+  //     const splitPrevResults: (ClipInterface[] | FileInterface[])[] = []
+  //     const completeds: number[] = []
+  //     for (let i = 0; i < thread_count; i++) {
+  //       const len = maxFiles
+  //       splitPrevResults.push(
+  //         prevResults.slice(
+  //           Math.floor((len * i) / thread_count),
+  //           Math.floor((len * (i + 1)) / thread_count)
+  //         )
+  //       )
+  //       completeds.push(0)
+  //     }
 
-      const promises = splitPrevResults.map((prevResultsSection, i) => {
-        const worker = new Worker(new URL('./Worker.ts', import.meta.url), {
-          workerData: {
-            type: this.type,
-            prevResults: prevResultsSection,
-            params: this.params,
-          },
-          //execArgv: ['--require', 'ts-node/register'],
-        })
+  //     const promises = splitPrevResults.map((prevResultsSection, i) => {
+  //       const worker = new Worker(new URL('./Worker.ts', import.meta.url), {
+  //         workerData: {
+  //           type: this.type,
+  //           prevResults: prevResultsSection,
+  //           params: this.params,
+  //         },
+  //         //execArgv: ['--require', 'ts-node/register'],
+  //       })
 
-        const promise: Promise<any> = new Promise((resolve) => {
-          worker.addListener('message', (e: WorkerMessage) => {
-            if (e.type == 'progress') {
-              completeds[i] = e.current
-              eventEmitter({
-                current: completeds.reduce((a, b) => a + b, 0),
-                total: maxFiles,
-              })
-            } else if (e.type == 'results') {
-              resolve(e.results)
-              worker.terminate().then(() => {
-                console.log('Worker terminated');
-              })
-            }
-          })
-
-
-          ipcMain.on('terminateWorkers', () => {
-            worker.terminate()
-            terminated = true
-
-            // TODO: Return partially completed results
-            resolve([])
-          })
-
-        })
-        return promise
-      })
-
-      const newResults = (await Promise.all(promises)).flat()
-
-      console.log("New Results: ", newResults)
-      return 'whatever'
-      if( terminated ){
-        this.isProcessed = false
-        return true
-      } else {
-        this.isProcessed = true
-        this.results = newResults
-        return false
-      }
-
-    // if not a multi-thread method
-    } else {
-
-      const results = methods[this.type](convertedPrevResults, this.params, eventEmitter)
-
-      // save results
-      await asyncForEach(results, async result => {
-        try {
-          await insertRow(dbPath, this.id, result)
-        } catch(e){
-          console.log("ERROR OCCURED DURING RESULT INSERT: ", e)
-        }
-      })
-
-      this.results = results.length
-      this.isProcessed = true
-
-      return false
-    }
-  }
+  //       const promise: Promise<any> = new Promise((resolve) => {
+  //         worker.addListener('message', (e: WorkerMessage) => {
+  //           if (e.type == 'progress') {
+  //             completeds[i] = e.current
+  //             eventEmitter({
+  //               current: completeds.reduce((a, b) => a + b, 0),
+  //               total: maxFiles,
+  //             })
+  //           } else if (e.type == 'results') {
+  //             resolve(e.results)
+  //             worker.terminate().then(() => {
+  //               console.log('Worker terminated');
+  //             })
+  //           }
+  //         })
 
 
-  async run(
-    prevResults: ClipInterface[] | FileInterface[],
-    numFilterThreads: number,
-    eventEmitter: EventEmitterInterface
-  ) {
+  //         ipcMain.on('terminateWorkers', () => {
+  //           worker.terminate()
+  //           terminated = true
 
-    const methodsThatNeedMultithread = ['slpParser', 'removeStarKOFrames', 'actionStateFilter']
-    let terminated = false
-    const savedResults = this.results
+  //           // TODO: Return partially completed results
+  //           resolve([])
+  //         })
 
-    if(methodsThatNeedMultithread.indexOf(this.type) > -1 ){
+  //       })
+  //       return promise
+  //     })
 
-      const thread_count = numFilterThreads
+  //     const newResults = (await Promise.all(promises)).flat()
 
-      let maxFiles = prevResults.length
-      if(this.params.maxFiles && this.params.maxFiles < prevResults.length){
-        maxFiles = this.params.maxFiles
-      }
+  //     console.log("New Results: ", newResults)
+  //     return 'whatever'
+  //     if( terminated ){
+  //       this.isProcessed = false
+  //       return true
+  //     } else {
+  //       this.isProcessed = true
+  //       this.results = newResults
+  //       return false
+  //     }
 
-      // split previous results into sections, one for each thread
-      const splitPrevResults: (ClipInterface[] | FileInterface[])[] = []
-      const completeds: number[] = []
-      for (let i = 0; i < thread_count; i++) {
-        const len = maxFiles
-        splitPrevResults.push(
-          prevResults.slice(
-            Math.floor((len * i) / thread_count),
-            Math.floor((len * (i + 1)) / thread_count)
-          )
-        )
-        completeds.push(0)
-      }
+  //   // if not a multi-thread method
+  //   } else {
 
-      const promises = splitPrevResults.map((prevResultsSection, i) => {
-        const worker = new Worker(new URL('./Worker.ts', import.meta.url), {
-          workerData: {
-            type: this.type,
-            prevResults: prevResultsSection,
-            params: this.params,
-          },
-          //execArgv: ['--require', 'ts-node/register'],
-        })
+  //     const results = methods[this.type](convertedPrevResults, this.params, eventEmitter)
 
-        const promise: Promise<any> = new Promise((resolve) => {
-          worker.addListener('message', (e: WorkerMessage) => {
-            if (e.type == 'progress') {
-              completeds[i] = e.current
-              eventEmitter({
-                current: completeds.reduce((a, b) => a + b, 0),
-                total: maxFiles,
-              })
-            } else if (e.type == 'results') {
-              resolve(e.results)
-              worker.terminate().then(() => {
-                console.log('Worker terminated');
-              })
-            }
-          })
+  //     // save results
+  //     await asyncForEach(results, async result => {
+  //       try {
+  //         await insertRow(dbPath, this.id, result)
+  //       } catch(e){
+  //         console.log("ERROR OCCURED DURING RESULT INSERT: ", e)
+  //       }
+  //     })
+
+  //     this.results = results.length
+  //     this.isProcessed = true
+
+  //     return false
+  //   }
+  // }
 
 
-          ipcMain.on('terminateWorkers', () => {
-            worker.terminate()
-            terminated = true
+  // async run(
+  //   prevResults: ClipInterface[] | FileInterface[],
+  //   numFilterThreads: number,
+  //   eventEmitter: EventEmitterInterface
+  // ) {
 
-            // TODO: Return partially completed results
-            resolve([])
-          })
+  //   const methodsThatNeedMultithread = ['slpParser', 'removeStarKOFrames', 'actionStateFilter']
+  //   let terminated = false
+  //   const savedResults = this.results
 
-        })
-        return promise
-      })
+  //   if(methodsThatNeedMultithread.indexOf(this.type) > -1 ){
 
-      const newResults = (await Promise.all(promises)).flat()
-      if( terminated ){
-        this.isProcessed = false
-        return true
-      } else {
-        this.isProcessed = true
-        this.results = newResults
-        return false
-      }
+  //     const thread_count = numFilterThreads
 
-    } else {
-      this.results = methods[this.type](prevResults, this.params, eventEmitter)
-      this.isProcessed = true
-      return false
-    }
-  }
+  //     let maxFiles = prevResults.length
+  //     if(this.params.maxFiles && this.params.maxFiles < prevResults.length){
+  //       maxFiles = this.params.maxFiles
+  //     }
+
+  //     // split previous results into sections, one for each thread
+  //     const splitPrevResults: (ClipInterface[] | FileInterface[])[] = []
+  //     const completeds: number[] = []
+  //     for (let i = 0; i < thread_count; i++) {
+  //       const len = maxFiles
+  //       splitPrevResults.push(
+  //         prevResults.slice(
+  //           Math.floor((len * i) / thread_count),
+  //           Math.floor((len * (i + 1)) / thread_count)
+  //         )
+  //       )
+  //       completeds.push(0)
+  //     }
+
+  //     const promises = splitPrevResults.map((prevResultsSection, i) => {
+  //       const worker = new Worker(new URL('./Worker.ts', import.meta.url), {
+  //         workerData: {
+  //           type: this.type,
+  //           prevResults: prevResultsSection,
+  //           params: this.params,
+  //         },
+  //         //execArgv: ['--require', 'ts-node/register'],
+  //       })
+
+  //       const promise: Promise<any> = new Promise((resolve) => {
+  //         worker.addListener('message', (e: WorkerMessage) => {
+  //           if (e.type == 'progress') {
+  //             completeds[i] = e.current
+  //             eventEmitter({
+  //               current: completeds.reduce((a, b) => a + b, 0),
+  //               total: maxFiles,
+  //             })
+  //           } else if (e.type == 'results') {
+  //             resolve(e.results)
+  //             worker.terminate().then(() => {
+  //               console.log('Worker terminated');
+  //             })
+  //           }
+  //         })
+
+
+  //         ipcMain.on('terminateWorkers', () => {
+  //           worker.terminate()
+  //           terminated = true
+
+  //           // TODO: Return partially completed results
+  //           resolve([])
+  //         })
+
+  //       })
+  //       return promise
+  //     })
+
+  //     const newResults = (await Promise.all(promises)).flat()
+  //     if( terminated ){
+  //       this.isProcessed = false
+  //       return true
+  //     } else {
+  //       this.isProcessed = true
+  //       this.results = newResults
+  //       return false
+  //     }
+
+  //   } else {
+  //     this.results = methods[this.type](prevResults, this.params, eventEmitter)
+  //     this.isProcessed = true
+  //     return false
+  //   }
+  // }
 
   convertResults(prevResults: string[][]){
 
@@ -397,7 +397,7 @@ export default class Filter {
 }
 
 
-function createSlices(totalRows, numberOfSlices) {
+function createSlices(totalRows: number, numberOfSlices: number) {
   // If N is greater than totalRows, set numberOfSlices to totalRows
   const slicesCount = Math.min(totalRows, numberOfSlices);
   const sliceSize = Math.floor(totalRows / slicesCount);

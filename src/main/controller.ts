@@ -20,7 +20,7 @@ import {
 import Archive from '../models/Archive'
 import Filter from '../models/Filter'
 import slpToVideo from './slpToVideo'
-import { getMetaData } from './db'
+import { getMetaData, createDB } from './db'
 
 export default class Controller {
   mainWindow: BrowserWindow
@@ -40,13 +40,36 @@ export default class Controller {
     this.config = JSON.parse(fs.readFileSync(this.configPath).toString())
     this.archive = null
 
-    if (this.config.lastArchivePath && fs.existsSync(this.config.lastArchivePath)) {
-      try {
-        this.archive = new Archive(this.config.lastArchivePath)
-        this.archive.init()
-      } catch(e){
-        console.log('error fetching from last archive path')
-        this.archive = null
+    // if (this.config.lastArchivePath && fs.existsSync(this.config.lastArchivePath)) {
+    //   try {
+    //     this.archive = new Archive(this.config.lastArchivePath)
+    //     this.archive.init()
+    //   } catch(e){
+    //     console.log('error fetching from last archive path')
+    //     this.archive = null
+    //   }
+    // } else {
+    //   this.archive = null
+    // }
+  }
+
+  async initArchive(){
+    if (this.config.lastArchivePath){
+      if(fs.existsSync(this.config.lastArchivePath)){
+        console.log("Loading from existing DB")
+        try {
+          const metadata = await getMetaData(this.config.lastArchivePath)
+          this.archive = new Archive(metadata)
+          //this.archive.init()
+        } catch(e){
+          console.log('error fetching from last archive path')
+          this.archive = null
+        }
+      } else {
+        console.log("Creating new DB")
+        await createDB(this.config.lastArchivePath, this.config.projectName)
+        const metadata = await getMetaData(this.config.lastArchivePath)
+        this.archive = new Archive(metadata)
       }
     } else {
       this.archive = null
@@ -66,11 +89,6 @@ export default class Controller {
     return event.reply('updateConfig')
   }
 
-  async saveConfig(e: IpcMainEvent, payload: string) {
-    fs.writeFileSync(this.configPath, JSON.stringify(payload, null, 2))
-    this.config = JSON.parse(payload)
-  }
-
   async getArchive(event: IpcMainEvent) {
     if (this.archive ) {
       const metadata = await getMetaData(this.archive.path)
@@ -80,44 +98,52 @@ export default class Controller {
     }
   }
 
-  async createNewArchive(
+  createNewArchive(
     event: IpcMainEvent,
-    payload: { name: string; location: string }
+    payload: { name?: string; location?: string }
   ) {
     try {
       const newArchivePath = path.resolve(
         payload.location || app.getPath('documents'),
-        `${payload.name}`
+        `${payload.name ? payload.name : 'lm-clipper-default-db'}`
       )
-      // const newArchiveJSON = {
-      //   ...defaultArchive,
-      //   path: newArchivePath,
-      //   name: payload.name,
-      // }
-      //fs.writeFileSync(newArchivePath, JSON.stringify(newArchiveJSON))
 
-      this.archive = new Archive(newArchivePath)
-      const metadata = await this.archive.init(payload.name)
+      // temporary, delete existing default project and overwrite it
+      const defaultDBPath = path.resolve(app.getPath('documents'),'lm-clipper-default-db')
+      if(fs.existsSync(defaultDBPath)){
+        console.log("Deleting default db")
+        fs.rmSync(defaultDBPath)
+      }
+
+      const newArchiveJSON = {
+        ...defaultArchive,
+        path: newArchivePath,
+        name: payload.name ? payload.name : 'lm-clipper-default',
+        createdAt: Date.now()
+      }
+      this.archive = new Archive(newArchiveJSON)
 
       // update config
       const newConfig = JSON.parse(fs.readFileSync(this.configPath).toString())
       newConfig.lastArchivePath = newArchivePath
+      newConfig.projectName = newArchiveJSON.name
+      this.config = newConfig
       fs.writeFileSync(this.configPath, JSON.stringify(newConfig, null, 2))
       
-      event.reply('createNewArchive', metadata)
+      event.reply('createNewArchive', newArchiveJSON)
     } catch (error) {
       event.reply('createNewArchive', { error: true, info: error })
     }
   }
 
-  async saveArchive(event: IpcMainEvent) {
-    try {
-      if (this.archive && this.archive.save) this.archive.save()
-      event.reply('saveArchive')
-    } catch (error) {
-      event.reply('saveArchive', { error })
-    }
-  }
+  // async saveArchive(event: IpcMainEvent) {
+  //   try {
+  //     if (this.archive && this.archive.save) this.archive.save()
+  //     event.reply('saveArchive')
+  //   } catch (error) {
+  //     event.reply('saveArchive', { error })
+  //   }
+  // }
 
   async getDirectory(event: IpcMainEvent) {
     const { canceled, filePaths } = await dialog.showOpenDialog({
@@ -139,8 +165,8 @@ export default class Controller {
       if (canceled) return event.reply('openExistingArchive')
 
       try{
-        this.archive = new Archive(filePaths[0])
-        await this.archive.init()
+        const metadata = await getMetaData(filePaths[0]) 
+        this.archive = new Archive(metadata)
       } catch(e){
         console.log("Error opening archive", e)
         return event.reply('openExistingArchive', {error: "Failed to open given filepath"})
@@ -184,13 +210,20 @@ export default class Controller {
 
 
   async addDroppedFiles(event: IpcMainEvent, filePaths: string[]) {
+    if(!this.archive){
+      // dropped files onto new project, most likey
+      // create archive in temporary spot
+      this.createNewArchive(event, {})
+      await this.initArchive()
+    }
     if (!this.archive || !this.archive.addFiles || !this.archive.shallowCopy)
       return event.reply('addDroppedFiles', { error: 'archive undefined' })
     const slpFilePaths = getSlpFilePaths(filePaths)
-    await this.archive.addFiles(slpFilePaths, ({ current, total }) => {
+    await this.archive.addFiles(slpFilePaths, ({ current, total, newItem }) => {
       this.mainWindow.webContents.send('importingFileUpdate', {
         total,
         current,
+        newItem
       })
     })
     const archive = await this.archive.shallowCopy()
@@ -204,14 +237,24 @@ export default class Controller {
   }
 
   async addFilter(event: IpcMainEvent, type: string) {
-    if (!this.archive)
+    if (!this.archive || !this.archive.shallowCopy)
       return event.reply('addFilter', { error: 'archive undefined' })
     const template = filtersConfig.find((p) => p.id === type)
     if (!template) {
       throw Error(`Invalid Pattern Type ${type}`)
     }
+
+    // TODO: DETEMINE NEW FILTER ID
+    // FOR NOW:
+    // Generate a random number between 1000 and 9999
+    const randomNum = Math.floor(1000 + Math.random() * 9000);
+    // Convert the number to a string
+    const randStr = randomNum.toString();
+
+
     const newFilterJSON: FilterInterface = {
-      results: [],
+      id: randStr,
+      results: 0,
       type: template.id,
       isProcessed: false,
       label: template.label,
@@ -221,7 +264,8 @@ export default class Controller {
       newFilterJSON.params[option.id] = option.default
     })
     this.archive.filters.push(new Filter(newFilterJSON))
-    return event.reply('addFilter', this.archive.shallowCopy())
+    const metadata = await this.archive.shallowCopy()
+    return event.reply('addFilter', metadata )
   }
 
   async updateFilter(
@@ -237,11 +281,11 @@ export default class Controller {
     this.archive.filters[filterIndex] = new Filter({
       ...newFilter,
       isProcessed: false,
-      results: [],
+      results: 0,
     })
     this.archive.filters.slice(filterIndex).forEach((filter) => {
       filter.isProcessed = false
-      filter.results = []
+      filter.results = 0
     })
     return event.reply('updateFilter', this.archive.shallowCopy())
   }
@@ -253,7 +297,7 @@ export default class Controller {
     this.archive.filters.splice(index, 1)
     this.archive.filters.slice(index).forEach((filter) => {
       filter.isProcessed = false
-      filter.results = []
+      filter.results = 0
     })
     return event.reply('removeFilter', this.archive.shallowCopy())
   }
@@ -261,23 +305,27 @@ export default class Controller {
   async getResults(
     event: IpcMainEvent,
     params: {
-      selectedFilterIndex: number
+      filterId: string
       currentPage: number
       numPerPage: number
     }
   ) {
-    const { selectedFilterIndex, numPerPage, currentPage } = params
-    console.log('Selected filter: ', selectedFilterIndex)
+    if(!this.archive || !this.archive.getItems) return 
+    const { filterId, numPerPage, currentPage } = params
+    console.log('Selected filter: ', filterId)
     // const slicedResults = this.archive?.filters[
     //   selectedFilterIndex
     // ].results
     
     // event.reply('getResults', slicedResults)
-    event.reply('getResults',)
+
+    const items = await this.archive.getItems(params)
+
+    event.reply('getResults', items)
   }
 
   async getNames(event: IpcMainEvent) {
-    if (!this.archive)
+    if (!this.archive || !this.archive.getNames)
       return event.reply({ error: 'archive undefined' })
     const names = await this.archive.getNames()
     
@@ -289,7 +337,7 @@ export default class Controller {
       return event.reply('runFilter', { error: 'archive undefined' })
     console.log(this.archive)
     const filter = this.archive.filters.find(filter => filter.id == filterId)
-    if(!filter)
+    if(!filter || !filter.run3)
       return event.reply('runFilter', {error: `no filter with id: '${filterId}' found`})
 
     const filterIndex = this.archive.filters.indexOf(filter)
@@ -359,7 +407,7 @@ export default class Controller {
   async generateVideo(event: IpcMainEvent) {
     const selectedResults =
       this.archive?.filters[this.archive.filters.length - 1].results
-    if (!selectedResults || selectedResults.length == 0) {
+    if (!selectedResults || selectedResults == 0) {
       this.mainWindow.webContents.send('videoMsg', 'No clips to generate.')
       return event.reply('generateVideo')
     }
@@ -412,6 +460,7 @@ export default class Controller {
     fs.mkdirSync(path.resolve(`${outputPath}/${outputDirectoryName}`))
 
     const config = {
+      ...this.config,
       outputPath: path.resolve(`${outputPath}/${outputDirectoryName}`),
       numProcesses: numCPUs,
       dolphinPath: path.resolve(dolphinPath),
@@ -429,10 +478,13 @@ export default class Controller {
       fixedCamera,
       bitrateKbps,
       resolution,
-      dolphinCutoff,
+      dolphinCutoff
     }
 
-    let finalResults: ClipInterface[] | FileInterface[] = selectedResults
+
+    // TODO, get results straight from db
+    // let finalResults: ClipInterface[] | FileInterface[] = selectedResults
+    let finalResults: any[] = []
     if (shuffle) finalResults = shuffleArray(finalResults)
     if (slice) finalResults = finalResults.slice(0, slice)
 
@@ -473,7 +525,7 @@ export default class Controller {
     ipcMain.on('getArchive', this.getArchive.bind(this))
     ipcMain.on('createNewArchive', this.createNewArchive.bind(this))
     ipcMain.on('openExistingArchive', this.openExistingArchive.bind(this))
-    ipcMain.on('saveArchive', this.saveArchive.bind(this))
+    //ipcMain.on('saveArchive', this.saveArchive.bind(this))
     ipcMain.on('addFilesManual', this.addFilesManual.bind(this))
     ipcMain.on('addDroppedFiles', this.addDroppedFiles.bind(this))
     ipcMain.on('closeArchive', this.closeArchive.bind(this))

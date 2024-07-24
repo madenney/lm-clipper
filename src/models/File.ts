@@ -25,19 +25,19 @@ export default class File {
     this.info = fileJSON.info
   }
 
-  generateJSON() {
-    return {
-      id: this.id,
-      players: this.players,
-      stage: this.stage,
-      startedAt: this.startedAt,
-      lastFrame: this.lastFrame,
-      path: this.path,
-      isValid: this.isValid,
-      isProcessed: this.isProcessed,
-      info: this.info,
-    }
-  }
+  // generateJSON() {
+  //   return {
+  //     id: this.id,
+  //     players: this.players,
+  //     stage: this.stage,
+  //     startedAt: this.startedAt,
+  //     lastFrame: this.lastFrame,
+  //     path: this.path,
+  //     isValid: this.isValid,
+  //     isProcessed: this.isProcessed,
+  //     info: this.info,
+  //   }
+  // }
 }
 
 export function fileProcessor(path: string) {
@@ -53,7 +53,8 @@ export function fileProcessor(path: string) {
     isValid: false,
     isProcessed: true,
     info: '',
-    generateJSON: () => {},
+    startFrame: -123,
+    endFrame: 0
   }
 
   // check settings for indicators of invalid game

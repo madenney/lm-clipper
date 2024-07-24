@@ -68,7 +68,7 @@ export default {
     })
   },
   getResults(params: {
-    selectedFilterIndex: number
+    filterId: string
     currentPage?: number
     numPerPage?: number
   }) {

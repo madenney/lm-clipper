@@ -43,9 +43,10 @@ export default function Main({
         event.preventDefault()
         event.stopPropagation()
 
-        if (event.dataTransfer) {
+        if (event.dataTransfer && event.dataTransfer.files.length > 0) {
+          
           const newArchive = await ipcBridge.importDroppedSlpFiles(
-            Array.from(event.dataTransfer?.files).map((file) => file.path)
+            Array.from(event.dataTransfer.files).map((file) => file.path)
           )
           setArchive(newArchive)
         }
@@ -107,13 +108,14 @@ export default function Main({
           className="dragover"
           style={{backgroundImage: `radial-gradient(at ${mousePosition.x}px ${mousePosition.y}px,#262525,#1c1b1b,#080808)`}}
           onDragLeave={() => setDragover(false)}
+          onDrop={() => setDragover(false)}
         ></div> 
       ) : ""}
       <div className="top"></div>
       <div className="trayContainer">
         <div className="sidebar" style={{ width: `${leftWidth}px`}}></div>
         <div className="divider" onMouseDown={startResizing}></div>
-        <Tray archive={archive} ></Tray>
+        <Tray archive={archive} setArchive={setArchive}></Tray>
       </div>
       <div className="footer"></div>
       {/*<Navbar archive={archive} config={config} setConfig={setConfig}/>*/}

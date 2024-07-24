@@ -3,11 +3,23 @@
     height: 100%;
     display: inline-block;
     flex-grow: 1; /* Allow the right div to fill remaining space */
+    position: relative;
+    overflow: hidden;
+    overflow-y: scroll;
 }
 
-.noFilesMsg {
+/* .noFilesMsg {
     text-align: center;
     margin-top: 175px;
+} */
+
+.noFilesMsg {
+    position: absolute;
+    width: 700px;
+    top: 25%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    text-align: center;
 }
 
 .firstLine {
@@ -16,4 +28,72 @@
 .secondLine {
     font-size: 22px;
     margin-top: 30px;
+}
+
+
+.pagination {   
+    border: solid white 1px;
+    width: 100%;
+    height: 50px;
+}
+
+.prev {
+    display: inline-block;
+    width: 50px;
+}
+.prev:hover {
+    cursor: pointer;
+    color: 	#585858;
+}
+.current-page {
+    display: inline-block;
+    width: 50px;
+    text-align: center;
+}
+.next {
+    display: inline-block;
+    width: 50px;
+}
+.next:hover {
+    cursor: pointer;
+    color: 	#585858;
+}
+
+.disabled {
+    color: gray;
+}
+.disabled:hover {
+    cursor: default;
+    color: gray;
+}
+
+.import-message {    
+    font-size: 20px;
+    position: absolute;
+    top: 9px;
+    right: 200px;
+    min-height: 32px;
+    min-width: 200px;
+    border: solid white 1px;
+}
+
+.results {
+    position: absolute;
+    min-width: 300px;
+    width: 100%;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+}
+
+.tray::-webkit-scrollbar {
+    display: none; 
+}
+
+.loading-page-message {
+    color: #303030;
+    font-size: 40px;
+    text-align: center;
+    width: 100%;
+    margin-top: 20%;
 }

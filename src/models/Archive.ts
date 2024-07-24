@@ -6,12 +6,14 @@ import {
   FilterInterface,
   EventEmitterInterface,
   ShallowArchiveInterface,
+  PlayerInterface,
+  ClipInterface,
 } from 'constants/types'
 import File, { fileProcessor } from './File'
 import Filter from './Filter'
 
 const { getSlpFilePaths } = require('../lib/file')
-import { dbExists, createDB, getMetaData, getFileByPath, insertFile, getValidFiles } from '../main/db'
+import { dbExists, createDB, getMetaData, getFileByPath, insertFile, getFiles, getItems2 } from '../main/db'
 import { asyncForEach } from 'lib'
 
 // const fileTemplate = JSON.parse(
@@ -22,47 +24,47 @@ export default class Archive {
   path: string
   name: string
   createdAt: number
-  updatedAt: number
-  files: FileInterface[]
+  files: number
   filters: FilterInterface[]
-  // constructor(archiveJSON: ArchiveInterface) {
-  //   this.path = archiveJSON.path
-  //   this.name = archiveJSON.name
-  //   this.createdAt = archiveJSON.createdAt
-  //   this.updatedAt = archiveJSON.updatedAt
-  //   this.files = archiveJSON.files.map((fileJSON) => new File(fileJSON))
-  //   this.filters = archiveJSON.filters.map(
-  //     (filterJSON) => new Filter(filterJSON)
-  //   )
+  constructor(archiveJSON: ArchiveInterface) {
+    this.path = archiveJSON.path
+    this.name = archiveJSON.name
+    this.createdAt = archiveJSON.createdAt
+    this.files = archiveJSON.files
+    this.filters = archiveJSON.filters
+    // this.files = archiveJSON.files.map((fileJSON) => new File(fileJSON))
+    // this.filters = archiveJSON.filters.map(
+    //   (filterJSON) => new Filter(filterJSON)
+    // )
+  }
+  // constructor(archivePath: string) {
+  //   this.path = archivePath
   // }
-  constructor(archivePath: string) {
-    this.path = archivePath
-  }
 
-  async init(archiveName: string){
-    console.log("Archive.init()")
-    const fileExists = fs.existsSync(this.path)
-    let metadata
-    if(fileExists){
-      try {
-        metadata = await getMetaData(this.path)
-      } catch(e){
-        console.log("Error fetching metadata from ", this.path)
-        throw new Error("Failed to open given db filepath")
-      }
-    } else {
-      await createDB(this.path, archiveName)
-      metadata = await getMetaData(this.path)
-    }
+  // async init(archiveName: string){
+  //   console.log("Archive.init()")
+  //   const fileExists = fs.existsSync(this.path)
+  //   let metadata
+  //   if(fileExists){
+  //     try {
+  //       metadata = await getMetaData(this.path)
+  //     } catch(e){
+  //       console.log("Error fetching metadata from ", this.path)
+  //       throw new Error("Failed to open given db filepath")
+  //     }
+  //   } else {
+  //     await createDB(this.path, archiveName)
+  //     metadata = await getMetaData(this.path)
+  //   }
 
-    console.log("METADATA: ", metadata)
-    this.name = metadata.name 
-    this.createdAt = metadata.createdAt
-    this.filters = metadata.filters.map(
-      (filterJSON: FilterInterface) => new Filter(filterJSON)
-    )
-    return metadata
-  }
+  //   console.log("METADATA: ", metadata)
+  //   this.name = metadata.name 
+  //   this.createdAt = metadata.createdAt
+  //   this.filters = metadata.filters.map(
+  //     (filterJSON: FilterInterface) => new Filter(filterJSON)
+  //   )
+  //   return metadata
+  // }
 
   async addFiles(_paths: string | string[], eventEmitter: EventEmitterInterface) {
     const paths = Array.isArray(_paths) ? _paths : [_paths]
@@ -70,6 +72,11 @@ export default class Archive {
     let index = 0
     await asyncForEach(filePaths, async (path: string) => {
       index++
+
+      // await new Promise((resolve) => {
+      //   setTimeout(resolve, 1000)
+      // })
+ 
     // })
     // filePaths.forEach((path: string, index: number) => {
 
@@ -77,54 +84,56 @@ export default class Archive {
       const existingFile = await getFileByPath(this.path, path)
       //const existingFile = this.files.find(file => file.path == path)
       if(existingFile){
-        console.log(path)
-        return
-      }
-
-      const fileJSON = fileProcessor(path)
-      if(fileJSON.isValid){
-        try {
-          await insertFile(this.path, fileJSON)
-        } catch(e){
-          console.log("Error inserting file :(")
-          console.log(path)
-          console.log(e)
+        console.log('already exists in db - ', path)
+        eventEmitter({
+          current: index,
+          total: filePaths.length
+        })
+      } else {
+        const fileJSON = fileProcessor(path)
+        if(fileJSON.isValid){
+          try {
+            const response = await insertFile(this.path, fileJSON)
+            eventEmitter({
+              current: index,
+              total: filePaths.length,
+              newItem: fileJSON
+            })
+          } catch(e){
+            console.log("Error inserting file :(")
+            console.log(path)
+            console.log(e)
+          }
         }
       }
       //this.files.push(new File(fileJSON))
-      eventEmitter({
-        current: index,
-        total: filePaths.length,
-      })
     })
-    return filePaths.length
   }
 
-  save() {
-    const jsonToSave = {
-      name: this.name,
-      path: this.path,
-      createdAt: this.createdAt,
-      updatedAt: new Date().getTime().toString(),
-      files: this.files.map((file) => file.generateJSON()),
-      filters: this.filters.map((filter) => {
-        if (!filter.generateJSON) throw Error('generateJSON not defined')
-        return filter.generateJSON()
-      }),
-    }
-    fs.writeFileSync(this.path, JSON.stringify(jsonToSave))
-  }
+  // save() {
+  //   const jsonToSave = {
+  //     name: this.name,
+  //     path: this.path,
+  //     createdAt: this.createdAt,
+  //     updatedAt: new Date().getTime().toString(),
+  //     files: this.files.map((file) => file.generateJSON()),
+  //     filters: this.filters.map((filter) => {
+  //       if (!filter.generateJSON) throw Error('generateJSON not defined')
+  //       return filter.generateJSON()
+  //     }),
+  //   }
+  //   fs.writeFileSync(this.path, JSON.stringify(jsonToSave))
+  // }
 
   async shallowCopy() {
 
     const metadata = await getMetaData(this.path)
-
+    
     const shallowArchive: ShallowArchiveInterface = {
       path: this.path,
       name: metadata.name,
       createdAt: metadata.createdAt,
-      totalFiles: metadata.totalFiles,
-      validFiles: metadata.validFiles,
+      files: metadata.files,
       filters: metadata.filters
     }
 
@@ -159,6 +168,37 @@ export default class Archive {
     // return shallowArchive
   }
 
+  async getItems(params: { filterId: string, numPerPage: number, currentPage: number }){
+    const { filterId, numPerPage, currentPage } = params
+    const response = await getItems2(this.path, filterId, numPerPage, currentPage*numPerPage)
+    const items: FileInterface[] | ClipInterface[] = []
+
+    if(filterId == 'files'){
+      response.forEach((item: any[]) => {
+        if(!item[0]) return 
+        const file = {
+          id: item[0],
+          path: item[1],
+          players: JSON.parse(item[2]),
+          winner: item[3],
+          stage: item[4],
+          startedAt: item[5],
+          lastFrame: item[6],
+          isProcessed: item[7],
+          startFrame: 0,
+          endFrame: 0,
+          info: '',
+          isValid: true
+        }
+        items.push(file)
+      })
+    } else{
+      throw new Error("Filter not supported yet")
+    }
+
+    return items
+  }
+
 
   async runFilter(
     filterId: string, 
@@ -166,7 +206,7 @@ export default class Archive {
     filterMsgEventEmitter: EventEmitterInterface ){
 
     const filter = this.filters.find(filter => filter.id == filterId)
-    
+    if(!filter) throw new Error('No filter found?')
     const filterIndex = this.filters.indexOf(filter)
     console.log("Filter Index: ", filterIndex)
 
@@ -177,45 +217,45 @@ export default class Archive {
     if(filterIndex == 0){
       prevResultsTable = 'files'
     } else {
-      prevResultsTable = this.archive.filters[filterIndex-1].id
+      prevResultsTable = this.filters[filterIndex-1].id
     }
     console.log("Prev Results Table: ", prevResultsTable)
   }
 
 
-  async runFilters(
-    numFilterThreads: number,
-    currentFilterEventEmitter: EventEmitterInterface,
-    filterMsgEventEmitter: EventEmitterInterface
-  ) {
-    let firstUnprocessed = this.filters.find((filter) => !filter.isProcessed)
-    if (!firstUnprocessed) firstUnprocessed = this.filters[0]
-    const firstUnprocessedIndex = this.filters.indexOf(firstUnprocessed)
-    let prevResults = firstUnprocessedIndex === 0 ? this.files : this.filters[firstUnprocessedIndex - 1].results
+  // async runFilters(
+  //   numFilterThreads: number,
+  //   currentFilterEventEmitter: EventEmitterInterface,
+  //   filterMsgEventEmitter: EventEmitterInterface
+  // ) {
+  //   let firstUnprocessed = this.filters.find((filter) => !filter.isProcessed)
+  //   if (!firstUnprocessed) firstUnprocessed = this.filters[0]
+  //   const firstUnprocessedIndex = this.filters.indexOf(firstUnprocessed)
+  //   let prevResults = firstUnprocessedIndex === 0 ? this.files : this.filters[firstUnprocessedIndex - 1].results
 
     
-    let terminated = false
-    for (const filter of this.filters.slice(firstUnprocessedIndex)) {
-      if (!filter.run) throw Error('filter.run() not defined?')
-      if(terminated) return 
-      currentFilterEventEmitter({
-        current: this.filters.indexOf(filter),
-        total: this.filters.length
-      })
-      terminated = await filter.run(prevResults, numFilterThreads, filterMsgEventEmitter)
-      prevResults = filter.results
-    }
-    return false
-  }
+  //   let terminated = false
+  //   for (const filter of this.filters.slice(firstUnprocessedIndex)) {
+  //     if (!filter.run) throw Error('filter.run() not defined?')
+  //     if(terminated) return 
+  //     currentFilterEventEmitter({
+  //       current: this.filters.indexOf(filter),
+  //       total: this.filters.length
+  //     })
+  //     terminated = await filter.run(prevResults, numFilterThreads, filterMsgEventEmitter)
+  //     prevResults = filter.results
+  //   }
+  //   return false
+  // }
 
   async getNames() {
 
-    const files = await getValidFiles(this.path)
+    const files = await getFiles(this.path)
 
     const namesObj: { [key: string]: number } = {}
-    files.forEach((file) => {
+    files.forEach((file: any[]) => {
       const players = JSON.parse(file[2])
-      players.forEach((player) => {
+      players.forEach((player: PlayerInterface) => {
         const name = player.displayName
         if (namesObj[name]) {
           namesObj[name] += 1

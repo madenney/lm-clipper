@@ -1,5 +1,6 @@
 /* eslint-disable no-unused-vars */
 export interface ConfigInterface {
+  outputPath: string
   lastArchivePath: string|null
   hideHud: boolean
   gameMusic: boolean
@@ -23,14 +24,13 @@ export interface ConfigInterface {
   dolphinCutoff: number
   ssbmIsoPath: string
   dolphinPath: string
-  outputPath: string
   [key: string]: any
 }
 
 export interface PlayerInterface {
   playerIndex: number
   port: number
-  characterId: number
+  characterId: number  
   characterColor: number
   nametag: string
   displayName: string
@@ -49,7 +49,7 @@ export interface FileInterface {
   info: string
   startFrame: number
   endFrame: number
-  generateJSON?(): void
+  //generateJSON?(): void
 }
 
 export interface ClipInterface {
@@ -76,7 +76,7 @@ export interface ClipInterface {
 }
 
 export interface EventEmitterInterface {
-  (arg1: { current: number; total: number }): void
+  (arg1: { current: number; total: number, newItem?: FileInterface | ClipInterface }): void
 }
 
 export interface FilterInterface {
@@ -85,17 +85,18 @@ export interface FilterInterface {
   label: string
   isProcessed: boolean
   params: { [key: string]: any }
-  results: ClipInterface[] | FileInterface[]
-  run2?(
+  results: number
+  run3?(
+    dbPath: string,
     prevTable: string,
     numFilterThreads: number,
     arg2: EventEmitterInterface
   ): void
-  run?(
-    arg1: ClipInterface[] | FileInterface[],
-    numFilterThreads: number,
-    arg2: EventEmitterInterface
-  ): boolean
+  // run?(
+  //   arg1: ClipInterface[] | FileInterface[],
+  //   numFilterThreads: number,
+  //   arg2: EventEmitterInterface
+  // ): boolean
   generateJSON?(): void
 }
 
@@ -120,9 +121,9 @@ export interface ArchiveInterface {
   path: string
   name: string
   createdAt: number
-  files: FileInterface[]
+  files: number
   filters: FilterInterface[]
-  save?(): void
+  //save?(): void
   runFilter?(
     filterId: string,
     numFilterThreads: number,
@@ -133,12 +134,17 @@ export interface ArchiveInterface {
     currentFilterEventEmitter: EventEmitterInterface,
     filterMsgEventEmitter: EventEmitterInterface
   ): void
-  names?(): { name: string; total: number }[]
-  shallowCopy?(): ShallowArchiveInterface
+  getNames?(): Promise<{ name: string; total: number }[]>
+  shallowCopy?(): Promise<ShallowArchiveInterface>
   addFiles?(
     filePaths: string | string[],
     eventEmitter: EventEmitterInterface
-  ): number
+  ): Promise<void>
+  getItems?(params: {
+    filterId: string,
+    numPerPage: number,
+    currentPage: number
+  }): Promise<ClipInterface[]|FileInterface>
 }
 
 export interface ReplayInterface {

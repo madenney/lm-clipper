@@ -1,5 +1,6 @@
 export const config = {
   lastArchivePath: '',
+  projectName: '',
   hideHud: false,
   gameMusic: false,
   enableChants: false,
@@ -28,7 +29,7 @@ export const config = {
 
 export const archive = {
   path: '',
-  name: 'default_project',
+  name: 'default_lm_project',
   createdAt: 1006329600,
   files: 0,
   filters: [
@@ -46,23 +47,23 @@ export const archive = {
         player2: '',
       }
     },
-    {
-      id: 'filter_1',
-      label: 'Combo Parser',
-      type: 'slpParser',
-      isProcessed: false,
-      params: {
-        minHits: '2',
-        maxHits: '',
-        maxFiles: '100',
-        comboerChar: '',
-        comboeeChar: '',
-        comboerTag: '',
-        comboeeTag: '',
-        didKill: true,
-      },
-      results: 0,
-    },
+    // {
+    //   id: 'filter_1',
+    //   label: 'Combo Parser',
+    //   type: 'slpParser',
+    //   isProcessed: false,
+    //   params: {
+    //     minHits: '2',
+    //     maxHits: '',
+    //     maxFiles: '100',
+    //     comboerChar: '',
+    //     comboeeChar: '',
+    //     comboerTag: '',
+    //     comboeeTag: '',
+    //     didKill: true,
+    //   },
+    //   results: 0,
+    // },
     // {
     //   label: 'Combo Filter',
     //   type: 'comboFilter',

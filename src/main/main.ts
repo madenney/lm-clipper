@@ -71,6 +71,7 @@ const createWindow = async () => {
   })
 
   const controller = new Controller(mainWindow)
+  await controller.initArchive()
   controller.initiateListeners()
 
   mainWindow.loadURL(resolveHtmlPath('index.html'))

@@ -52,7 +52,6 @@ export async function createDB(path: string, name: string){
     stage INTEGER,
     startedAt INTEGER,
     lastFrame INTEGER,
-    isValid INTEGER,
     isProcessed INTEGER,
     info TEXT
   );`
@@ -82,14 +81,10 @@ export async function getMetaData(path: string){
     
     // get # files
     const totalFilesSQL = `SELECT COUNT(*) AS count FROM files;`;
-    const validFilesSQL = `SELECT COUNT(*) AS count FROM files WHERE isValid = 1;`;
 
     const total = await runSqliteCommand([path, totalFilesSQL])
-    const valid = await runSqliteCommand([path, validFilesSQL])
 
-    metadata.totalFiles = parseInt(total[0][0])
-    metadata.validFiles = parseInt(valid[0][0])
-
+    metadata.files = parseInt(total[0][0])
 
     // get each filter's results count
     await asyncForEach(metadata.filters, async filter => {
@@ -114,7 +109,6 @@ export async function getFileByPath(path: string, filePath: string){
 
   const sql = `SELECT * FROM files WHERE path = '${filePath}' LIMIT 1;`
   const response = await runSqliteCommand([path, sql])
-  console.log("RESPONSE: ", response)
   return response[0][0]
 }
 
@@ -127,27 +121,25 @@ export async function insertFile(path: string, fileJSON: FileInterface){
     stage,
     startedAt,
     lastFrame,
-    isValid,
     isProcessed,
     info
   ) VALUES (
     '${fileJSON.path.replace(/\|/g, '')}',             
-    '${JSON.stringify(fileJSON.players).replace(/\|/g, '')}',             
+    '${JSON.stringify(fileJSON.players).replace(/[\|']/g, '')}',             
     ${fileJSON.winner},
     ${fileJSON.stage},                              
     ${fileJSON.startedAt ? fileJSON.startedAt : 0},                     
-    ${fileJSON.lastFrame},                            
-    ${fileJSON.isValid ? 1 : 0},                               
+    ${fileJSON.lastFrame},                             
     ${fileJSON.isProcessed ? 1 : 0},                               
     '${fileJSON.info}'
   );`
 
   const response = await runSqliteCommand([path, sql])
-  console.log("RESPONSE: ", response)
+  return response
 }
 
-export async function getValidFiles(path: string){
-  const sql = 'SELECT * FROM files WHERE isValid = 1'
+export async function getFiles(path: string){
+  const sql = 'SELECT * FROM files WHERE'
   const response = await runSqliteCommand([path, sql])
   return response
 }
@@ -175,7 +167,18 @@ export async function getItem(path, tableId, itemId){
   const sql = `SELECT * FROM ${tableId} WHERE id = ${itemId}`
   const response = await runSqliteCommand([path, sql])
   return response[0][0]
+}
 
+export async function getItems(path, tableId, limit, offset){
+  const sql = `SELECT * FROM ${tableId} ORDER BY id LIMIT ${limit} OFFSET ${offset}`
+  const response = await runSqliteCommand([path, sql])
+  return response
+}
+
+export async function getItems2(path, tableId, limit, offset){
+  const sql = `SELECT * FROM ${tableId} ORDER BY id LIMIT ${limit} OFFSET ${offset}`
+  const response = await runSqliteCommand2([path, sql])
+  return response
 }
 
 export function startDB(){
@@ -231,6 +234,7 @@ function runSqliteCommand(args: string[]) {
         return resolve(rows)
       } else {
         console.log("Error running SQL command\n")
+        throw("GIGANTIC ERROR")
         return reject()
       }
     });
@@ -238,3 +242,44 @@ function runSqliteCommand(args: string[]) {
 
 }
 
+
+function runSqliteCommand2(args, maxRetries = 50, retryDelay = 100) {
+  return new Promise((resolve, reject) => {
+    function attempt(retriesLeft) {
+      const sqlite = spawn(sqlite3Path, args);
+      let output = '';
+
+      sqlite.stdout.on('data', (data) => {
+        output += data.toString();
+      });
+
+      sqlite.stderr.on('data', (data) => {
+        //console.error(`stderr: ${data}`);
+      });
+
+      sqlite.on('close', (code) => {
+        if (code === 0) {
+          const rows = output.trim().split('\n').map(row => row.split('|'));
+          resolve(rows);
+        } else {
+          if (retriesLeft > 0) {
+            if(retriesLeft < 3 ){
+              console.log("ALMOST DEAD ALMOST DEAD ALMOST DEAD ALMOST DEAD ALMOST DEAD")
+              console.log("ALMOST DEAD ALMOST DEAD ALMOST DEAD ALMOST DEAD ALMOST DEAD")
+              console.log("ALMOST DEAD ALMOST DEAD ALMOST DEAD ALMOST DEAD ALMOST DEAD")
+              console.log("ALMOST DEAD ALMOST DEAD ALMOST DEAD ALMOST DEAD ALMOST DEAD")
+
+            }
+            //console.log(`Retrying... attempts left: ${retriesLeft}`);
+            setTimeout(() => attempt(retriesLeft - 1), retryDelay);
+          } else {
+            console.log('Error running SQL command after maximum retries');
+            reject(new Error('Failed to run SQL command'));
+          }
+        }
+      });
+    }
+
+    attempt(maxRetries);
+  });
+}
