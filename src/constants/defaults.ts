@@ -33,20 +33,20 @@ export const archive = {
   createdAt: 1006329600,
   files: 0,
   filters: [
-    {
-      id: 'filter_0',
-      label: 'Game Filter',
-      type: 'files',
-      isProcessed: false,
-      results: 0,
-      params: {
-        stage: '',
-        char1: '',
-        char2: '',
-        player1: '',
-        player2: '',
-      }
-    },
+    // {
+    //   id: 'filter_0',
+    //   label: 'Game Filter',
+    //   type: 'files',
+    //   isProcessed: false,
+    //   results: 0,
+    //   params: {
+    //     stage: '',
+    //     char1: '',
+    //     char2: '',
+    //     player1: '',
+    //     player2: '',
+    //   }
+    // },
     // {
     //   id: 'filter_1',
     //   label: 'Combo Parser',

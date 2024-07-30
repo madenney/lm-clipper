@@ -792,7 +792,7 @@ export const videoConfig = [
     type: 'openDirectory',
   },
   {
-    label: '# CPU Threads for Filters',
+    label: '# CPU Threads',
     default: 1,
     id: 'numFilterThreads',
     type: 'int',

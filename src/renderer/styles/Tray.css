@@ -6,6 +6,7 @@
     position: relative;
     overflow: hidden;
     overflow-y: scroll;
+    height: calc(100vh - 160px); /* 160 is top height + footer height */
 }
 
 /* .noFilesMsg {
@@ -84,6 +85,7 @@
     display: flex;
     flex-wrap: wrap;
     justify-content: flex-start;
+    padding-bottom: 10px;
 }
 
 .tray::-webkit-scrollbar {

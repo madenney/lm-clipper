@@ -107,7 +107,7 @@ export async function getMetaData(path: string){
 
 export async function getFileByPath(path: string, filePath: string){
 
-  const sql = `SELECT * FROM files WHERE path = '${filePath}' LIMIT 1;`
+  const sql = `SELECT * FROM files WHERE path = '${escapeSqlString(filePath)}' LIMIT 1;`
   const response = await runSqliteCommand([path, sql])
   return response[0][0]
 }
@@ -124,7 +124,7 @@ export async function insertFile(path: string, fileJSON: FileInterface){
     isProcessed,
     info
   ) VALUES (
-    '${fileJSON.path.replace(/\|/g, '')}',             
+    '${escapeSqlString(fileJSON.path.replace(/\|/g, ''))}',             
     '${JSON.stringify(fileJSON.players).replace(/[\|']/g, '')}',             
     ${fileJSON.winner},
     ${fileJSON.stage},                              
@@ -245,6 +245,8 @@ function runSqliteCommand(args: string[]) {
 
 function runSqliteCommand2(args, maxRetries = 50, retryDelay = 100) {
   return new Promise((resolve, reject) => {
+    console.log("\nRunning2 SQL Command: ", args.join(" "))
+
     function attempt(retriesLeft) {
       const sqlite = spawn(sqlite3Path, args);
       let output = '';
@@ -282,4 +284,15 @@ function runSqliteCommand2(args, maxRetries = 50, retryDelay = 100) {
 
     attempt(maxRetries);
   });
+}
+
+
+// Function to escape single and double quotes in a string for SQL queries
+function escapeSqlString(inputString: string) {
+
+  // Escape internal quotes
+  return inputString
+      .replace(/\\/g, '\\\\')  
+      .replace(/'/g, "''")    
+      .replace(/"/g, '\\"'); 
 }

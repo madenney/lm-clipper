@@ -1,0 +1,88 @@
+
+
+
+.top {
+    border-bottom: solid 2px white;
+    height: 100px;
+}
+
+.gear-icon {
+    position: absolute;
+    right: 15px;
+    top: 15px;
+    font-size: 28px;
+    cursor: pointer;
+}
+
+.gear-icon:hover {
+    color: green;
+}
+
+.config-options {
+    margin: 5px 10px;
+}
+  
+.config-title {
+    font-size: 30px;
+}
+
+
+.settings-row {
+    font-size: 20px;
+    margin: 5px 20px;
+    width: 100%;
+    display: inline-block;
+}
+
+.settings-row-label {
+    font-size: 20px;
+    width: 90%;
+    display: inline-block;
+}
+
+.settings-row-input {
+    margin-top: 5px;
+    margin-bottom: 15px;
+    padding: 3px;
+    font-size: 20px;
+    width: 90%;
+}
+  
+
+.modal-container {
+    width: 100vw;
+    height: 100vh;
+    background-color: rgba(160, 160, 160, 0.5);
+    position: fixed;
+    top: 0px;
+    left: 0px;
+    z-index: 10;
+  }
+  
+.modal {
+    position: relative;
+    padding: 10px;
+    border: solid 4px #282828;
+    background-color: #342E37;
+    border-radius: 6px;
+    width: 750px;
+    min-height: 400px;
+    max-height: 500px;
+    margin: auto;
+    margin-top: 140px;
+    overflow: hidden;
+    overflow-y: auto;
+}
+  
+.modal-close {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    font-size: 35px;
+    color: #FA824C;
+    cursor: pointer;
+}
+
+.modal-close:hover {
+    color: red;
+}

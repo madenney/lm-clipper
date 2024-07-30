@@ -13,11 +13,6 @@
   padding: 0px;
 }
 
-.top {
-  border-bottom: solid 2px white;
-  height: 100px;
-}
-
 .dragover {
   text-align: center;
   padding-top: 30px;
@@ -29,7 +24,7 @@
   backdrop-filter: blur(200px);
 }
 
-.trayContainer {
+.mid {
   display: flex;
   height: 100%;
   width: 100%;
@@ -47,6 +42,7 @@
   background-color: white;
   cursor: ew-resize;
   flex-shrink: 0; /* Prevent the divider from shrinking */
+  z-index: 1;
 }
 
 
@@ -57,4 +53,5 @@
   position: absolute;
   bottom: 0;
   width: 100vw;
+  z-index: 2;
 }

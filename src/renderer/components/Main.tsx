@@ -6,9 +6,10 @@ import {
 } from '../../constants/types'
 import Navbar from './Navbar'
 import Replays from './Replays'
-import Filters from './Filters'
+import Filters from './Filters2'
 import Results from './Results'
 import Video from './Video'
+import Top from './Top'
 import Tray from './Tray'
 import ipcBridge from 'renderer/ipcBridge'
 import '../styles/Main.css'
@@ -111,11 +112,13 @@ export default function Main({
           onDrop={() => setDragover(false)}
         ></div> 
       ) : ""}
-      <div className="top"></div>
-      <div className="trayContainer">
-        <div className="sidebar" style={{ width: `${leftWidth}px`}}></div>
+      <Top archive={archive} config={config} setConfig={setConfig}/>
+      <div className="mid">
+        <div className="sidebar" style={{ width: `${leftWidth}px`}}>
+          <Filters archive={archive} setArchive={setArchive}/>
+        </div>
         <div className="divider" onMouseDown={startResizing}></div>
-        <Tray archive={archive} setArchive={setArchive}></Tray>
+        <Tray archive={archive} setArchive={setArchive}/>
       </div>
       <div className="footer"></div>
       {/*<Navbar archive={archive} config={config} setConfig={setConfig}/>*/}

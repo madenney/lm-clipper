@@ -81,7 +81,7 @@ export default function Item({ item, index }: ItemProps) {
             <img alt="img_here" className="arrow-image" src={arrowImage} />
             <img alt="img_here" className="char2-image" src={p2Image} />
         </div> */}
-            <img alt="img_here" className="stage-image" src={stageImage} />
+            <img alt="" className="stage-image" src={stageImage} />
         </div>
     </div>
 
