@@ -3,7 +3,6 @@ import { useState, useEffect } from 'react'
 import './styles/App.css'
 import Main from './components/Main'
 import LoadingScreen from './components/LoadingScreen'
-import OpenScreen from './components/OpenScreen'
 import { ConfigInterface, ShallowArchiveInterface } from '../constants/types'
 
 import ipcBridge from './ipcBridge'
@@ -30,7 +29,6 @@ export default function App() {
     window.electron.ipcRenderer.on('closeProject', async () => {
       setArchive(null)
       await ipcBridge.closeArchive()
-      await ipcBridge.updateConfig({ key: "lastArchivePath", value: null })
     })
 
     window.electron.ipcRenderer.on('openProject', async () => {

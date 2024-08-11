@@ -43,7 +43,6 @@ export default function Tray({
   }, [newItem])
 
   useEffect(() => {
-
     async function getResults() {
       console.log(`getting results -> page: ${currentPage} numPerPage -> ${numPerPage}`)
       //const selectedFilterIndex = archive.filters.indexOf(selectedFilter)
@@ -57,26 +56,24 @@ export default function Tray({
       setCurrentResults(newResults)
       setIsLoadingPage(false)
     }
-    getResults()
+    if(archive) getResults()
   }, [archive, numPerPage, currentPage])
 
   useEffect(() => {
     window.electron.ipcRenderer.on(
       'importingFileUpdate',
       async ({ total, current, finished, newItem }) => {
-        console.log("newitem:", newItem)
-        if(newItem) setNewItem(newItem)
+        if(newItem){
+          setNewItem(newItem)
+        }
         if (finished) {
           setImportMsg('')
         } else {
           setImportMsg(`Importing ${current}/${total}`)
         }
-        // if(newItem) setNewItem(newItem)
       }
     )
   }, [])
-
-
 
 
   useEffect(() => {

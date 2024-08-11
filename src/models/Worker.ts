@@ -11,12 +11,12 @@ function postMessage(message: WorkerMessage) {
 }
 
 
-async function test(){
+async function runWorkers(){
   let index = workerData.slice.bottom 
 
   let success = false
   while (index <= workerData.slice.top){
-    // await exampleAsyncFunction(index)
+    // await testAsyncFunction(index)
     const dbPath = workerData.dbPath
     const prevTableId = workerData.prevTableId
     const nextTableId = workerData.nextTableId
@@ -95,25 +95,17 @@ async function test(){
   postMessage({ type: 'results', results: [] })
 }
 
+runWorkers()
 
-test()
-async function exampleAsyncFunction(num) {
+
+
+async function testAsyncFunction(num) {
   return new Promise(resolve => {
     setTimeout(() => {
       resolve();
     }, Math.random()*200); // Simulate an async operation
   });
 }
-// const results = methods[workerData.type](
-//   workerData.prevResults,
-//   workerData.params,
-//   (message: any) => {
-//     const { current, total } = message
-//     postMessage({ type: 'progress', current: current, total: total })
-//   }
-// )
-
-// postMessage({ type: 'results', results: results })
 
 async function writeItem(sqlPath, dbPath, tableId, itemJSON){
   const sql = `INSERT into ${tableId} (JSON) VALUES ('${JSON.stringify(itemJSON)}')`
@@ -183,35 +175,4 @@ function runSqliteCommand2(sqlPath, args, maxRetries = 50, retryDelay = 100) {
 
     attempt(maxRetries);
   });
-}
-
-function runSqliteCommand(sqlPath, args: string[]) {
-  //console.log("\nRunning SQL Command: ", args.join(" "))
-  return new Promise<any>((resolve, reject) => {
-    const sqlite = spawn(sqlPath, args);
-    let output = ""
-    sqlite.stdout.on('data', (data) => {
-      //console.log(`stdout: ${data}`);
-      output += data.toString()
-    });
-    sqlite.stderr.on('data', (data) => {
-      console.error(`stderr: ${data}`);
-      reject()
-    });
-
-    sqlite.on('close', (code) => {
-      if(code == 0){
-        //console.log("Successfully ran SQL command\n")
-        const rows = output.trim().split('\n').map(row => row.split('|'));
-        return resolve(rows)
-      } else {
-        console.log("Error running SQL command", code)
-        if(code == 5){
-          console.log("Data base was blocked")
-        }
-        return reject()
-      }
-    });
-  })
-
 }

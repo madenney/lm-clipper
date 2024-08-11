@@ -1,3 +1,8 @@
+export const defaults = {
+  archiveName: 'lm-clipper-default-db',
+  configName: 'lm-clipper.json'
+}
+
 export const config = {
   lastArchivePath: '',
   projectName: '',
@@ -31,7 +36,7 @@ export const archive = {
   path: '',
   name: 'default_lm_project',
   createdAt: 1006329600,
-  files: 0,
+  //files: 0,
   filters: [
     // {
     //   id: 'filter_0',

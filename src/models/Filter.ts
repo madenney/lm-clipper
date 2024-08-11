@@ -5,7 +5,7 @@ import {
   WorkerMessage,
   EventEmitterInterface
 } from '../constants/types'
-import { getAllFromTable, insertRow, getTableLength } from '../main/db'
+import * as db from './db'
 import { getSqlitePath } from '../main/util'
 const sqlite3Path = getSqlitePath()
 import { Worker } from 'worker_threads'
@@ -27,6 +27,14 @@ export default class Filter {
     this.isProcessed = filterJSON.isProcessed
     this.params = filterJSON.params
     this.results = filterJSON.results
+  }
+
+  async init(dbPath: string){
+    await db.createFilterTable(dbPath, this.id)
+  }
+
+  async delete(dbPath: string){
+    await db.deleteFilterTable(dbPath, this.id)
   }
 
 

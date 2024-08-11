@@ -97,6 +97,7 @@ export interface FilterInterface {
   //   numFilterThreads: number,
   //   arg2: EventEmitterInterface
   // ): boolean
+  delete?(dbPath: string): Promise<void>
   generateJSON?(): void
 }
 
@@ -145,6 +146,8 @@ export interface ArchiveInterface {
     numPerPage: number,
     currentPage: number
   }): Promise<ClipInterface[]|FileInterface>
+  addFilter?(type: string): Promise<ArchiveInterface>
+  deleteFilter?(filterId: string): Promise<ArchiveInterface>
 }
 
 export interface ReplayInterface {

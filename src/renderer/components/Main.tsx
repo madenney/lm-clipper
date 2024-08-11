@@ -2,14 +2,9 @@ import { useState, Dispatch, SetStateAction, useEffect } from 'react'
 import {
   ConfigInterface,
   ShallowArchiveInterface,
-  ShallowFilterInterface,
 } from '../../constants/types'
-import Navbar from './Navbar'
-import Replays from './Replays'
-import Filters from './Filters2'
-import Results from './Results'
-import Video from './Video'
 import Top from './Top'
+import Filters from './Filters'
 import Tray from './Tray'
 import ipcBridge from 'renderer/ipcBridge'
 import '../styles/Main.css'
@@ -29,10 +24,7 @@ export default function Main({
   config,
   setConfig,
 }: MainProps) {
-  // const [isResultsOpen, setResultsOpen] = useState(false)
-  // const [selectedFilter, setSelectedFilter] =
-  //   useState<ShallowFilterInterface | null>(null)
-  const [leftWidth, setLeftWidth] = useState(300);
+  const [leftWidth, setLeftWidth] = useState(580);
   const [areListenersDefined, setAreListenersDefined] = useState(false)
   const [dragover, setDragover] = useState(false)
   const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 })
@@ -45,18 +37,27 @@ export default function Main({
         event.stopPropagation()
 
         if (event.dataTransfer && event.dataTransfer.files.length > 0) {
+
+          // this must occur before async functions because... something html, idk
+          const filePaths = Array.from(event.dataTransfer.files).map((file) => file.path)
           
-          const newArchive = await ipcBridge.importDroppedSlpFiles(
-            Array.from(event.dataTransfer.files).map((file) => file.path)
-          )
-          setArchive(newArchive)
+          // check if archive exists, create new default one if it doesn't
+          const archive = await ipcBridge.getArchive()
+          if(!archive){
+            await ipcBridge.createNewArchive({})
+          }
+
+          const response = await ipcBridge.addDroppedFiles( filePaths )
+          if(!response){ console.log("Error dropping files") }
+          setArchive( await ipcBridge.getArchive() )
         }
       })
+
       document.addEventListener('dragover', (e) => {
         e.preventDefault()
         setDragover(true)
       })
-      console.log('Added event listeners')
+      
       setAreListenersDefined(true)
     }
   }, [areListenersDefined])
@@ -104,6 +105,7 @@ export default function Main({
 
   return (
     <div className="main" onDragEnter={() => setDragover(true)}>
+
       { dragover ? (
         <div 
           className="dragover"
@@ -112,6 +114,7 @@ export default function Main({
           onDrop={() => setDragover(false)}
         ></div> 
       ) : ""}
+      
       <Top archive={archive} config={config} setConfig={setConfig}/>
       <div className="mid">
         <div className="sidebar" style={{ width: `${leftWidth}px`}}>
@@ -121,26 +124,6 @@ export default function Main({
         <Tray archive={archive} setArchive={setArchive}/>
       </div>
       <div className="footer"></div>
-      {/*<Navbar archive={archive} config={config} setConfig={setConfig}/>*/}
-      {/*<div className="main-content">*/}
-        {/*<Replays archive={archive} setArchive={setArchive} />*/}
-        {/*<Filters
-          archive={archive}
-          setArchive={setArchive}
-          setResultsOpen={setResultsOpen}
-          setSelectedFilter={setSelectedFilter}
-        />*/}
-        
-        {/* TODO: Make this available in dev mode
-        
-        <Results
-          archive={archive}
-          isResultsOpen={isResultsOpen}
-          setResultsOpen={setResultsOpen}
-          selectedFilter={selectedFilter}
-        /> */}
-        {/*<Video archive={archive} config={config} setConfig={setConfig} />*/}
-      {/*</div>*/}
     </div>
   )
 }

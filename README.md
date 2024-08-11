@@ -4,7 +4,7 @@ A desktop app to automate clip generation from Slippi replays.
 
 Compatible with Windows and Linux.
 
-*In theory*, any video on the Lunar Melee channel can be made with this tool, with a small number of exceptions
+*In theory*, any video on the Lunar Melee youtube channel can be made with this tool, with a small number of exceptions
 
 
 ## Pre-Requirements
@@ -19,12 +19,12 @@ Compatible with Windows and Linux.
     - search frame by frame using character action states, X/Y coordinates, etc...
 - Generate __high quality__ video
     - Uses Dolphin's built-in frame by frame video/audio dump
-    - Generates video at whatever video quality your computer can handle
-        - You can run 24 concurrent instances of Slippi Dolphin and watch your computer melt :)
+    - Generates video at whatever quality your computer can handle
+        - Run 24 concurrent instances of Slippi Dolphin and watch your computer melt :)
 
 ## Architecture
 - Mainly written in Typescript
-- sqlite3 for local database
+- SQL (sqlite3) for local database
 - ffmpeg for video/audio editing
 - Started with Electron React Boilerplate 
     - https://github.com/electron-react-boilerplate/electron-react-boilerplate
@@ -41,5 +41,5 @@ To build, run ```./build.sh```
 
 
 ## Important contribution
-See this repo for slp -> mp4 conversion:
-https://github.com/kevinsung/slp-to-video
+Huge credit to Kevin Sung for solving slp -> mp4 conversion
+Check out his repo: https://github.com/kevinsung/slp-to-video
