@@ -1041,17 +1041,34 @@ export default class Controller {
       this.archive.path,
       prevResultsTableId,
       numFilterThreads,
-      (eventUpdate: { current: number; total: number }) => {
-        const { total, current } = eventUpdate
+      (eventUpdate: { current: number; total: number; newItemCount?: number }) => {
+        const { total, current, newItemCount } = eventUpdate
         this.mainWindow.webContents.send('filterUpdate', {
           filterId,
           filterIndex,
           total,
           current,
+          results: newItemCount,
         })
       },
       abortController.signal
     )
+
+    // Check if upstream filter is still running (before cleanup)
+    let filterMessage = ''
+    if (filterIndex > 0) {
+      const prevFilterId = this.archive.filters[filterIndex - 1]?.id
+      if (prevFilterId && this.runningFilterControllers.has(prevFilterId)) {
+        try {
+          const prevCount = getTableCount(this.archive.path, prevFilterId)
+          filterMessage = prevCount === 0
+            ? 'Previous filter has no results yet'
+            : `Ran on ${prevCount.toLocaleString()} partial results`
+        } catch (_) {
+          filterMessage = 'Previous filter has no results yet'
+        }
+      }
+    }
 
     // Clean up this filter's controller
     this.runningFilterControllers.delete(filterId)
@@ -1100,7 +1117,10 @@ export default class Controller {
     const metadata = await getMetaData(this.archive.path)
     this.archive = new Archive(metadata)
 
-    return reply(event, 'runFilter', requestId, metadata)
+    const replyData = filterMessage
+      ? { ...metadata, filterMessage: { [filterId]: filterMessage } }
+      : metadata
+    return reply(event, 'runFilter', requestId, replyData)
   }
 
   async runFilters(event: IpcMainEvent, data?: RequestEnvelope<null>) {

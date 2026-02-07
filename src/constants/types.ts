@@ -196,6 +196,7 @@ interface WorkerMessageProgress {
   type: 'progress'
   current: number
   total: number
+  results?: number
 }
 
 interface WorkerMessageDone {
