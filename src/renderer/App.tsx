@@ -3,70 +3,146 @@ import { useState, useEffect } from 'react'
 import './styles/App.css'
 import Main from './components/Main'
 import LoadingScreen from './components/LoadingScreen'
-import OpenScreen from './components/OpenScreen'
 import { ConfigInterface, ShallowArchiveInterface } from '../constants/types'
+import { initPerfObservers } from './perfLogger'
 
 import ipcBridge from './ipcBridge'
 
 export default function App() {
-  const [archive, setArchive] = useState<ShallowArchiveInterface | null>()
-  const [config, setConfig] = useState<ConfigInterface | null>()
-  const [areListenersDefined, setAreListenersDefined] = useState(false)
+  const [archive, setArchive] = useState<ShallowArchiveInterface | null>(null)
+  const [config, setConfig] = useState<ConfigInterface | null>(null)
 
   useEffect(() => {
-    console.log('Archive: ', archive)
-  }, [archive])
-  useEffect(() => {
-    console.log('Config: ', config)
-  }, [config])
-
-  useEffect(() => {
-    async function getInitialData() {
-      setConfig(await ipcBridge.getConfig())
-      setArchive(await ipcBridge.getArchive())
-    }
-    getInitialData()
-
-    window.electron.ipcRenderer.on('closeProject', async () => {
-      setArchive(null)
-      await ipcBridge.closeArchive()
+    initPerfObservers()
+    ipcBridge.getConfig((nextConfig) => {
+      setConfig(nextConfig || null)
     })
+    ipcBridge.getArchive((nextArchive) => {
+      setArchive(nextArchive || null)
+    })
+
+    const removeCloseListener = window.electron.ipcRenderer.on(
+      'closeProject',
+      () => {
+        setArchive(null)
+        ipcBridge.closeArchive()
+      }
+    )
+
+    const removeOpenListener = window.electron.ipcRenderer.on(
+      'openProject',
+      () => {
+        ipcBridge.openExistingArchive((newArchive) => {
+          if (!newArchive) return
+          if (newArchive.error) {
+            console.log('Error: ', newArchive.error)
+            return
+          }
+          setArchive(newArchive)
+        })
+      }
+    )
+
+    const removeImportListener = window.electron.ipcRenderer.on(
+      'importSlpClicked',
+      () => {
+        ipcBridge.importSlpFiles((newArchive) => {
+          if (newArchive?.error) {
+            console.log('Error importing files: ', newArchive.error)
+            return
+          }
+          setArchive(newArchive)
+        })
+      }
+    )
+
+    const removeNewProjectListener = window.electron.ipcRenderer.on(
+      'newProject',
+      () => {
+        ipcBridge.newProject((newArchive) => {
+          if (!newArchive || newArchive.error) {
+            console.log('Error creating new project:', newArchive?.error)
+            return
+          }
+          setArchive(newArchive)
+        })
+      }
+    )
+
+    const removeSaveAsListener = window.electron.ipcRenderer.on(
+      'saveAsProject',
+      () => {
+        ipcBridge.saveAsArchive((result) => {
+          if (!result) return
+          if (result.error) {
+            console.log('Error saving project as:', result.error)
+            return
+          }
+          setArchive(result)
+        })
+      }
+    )
+
+    return () => {
+      removeCloseListener()
+      removeOpenListener()
+      removeImportListener()
+      removeNewProjectListener()
+      removeSaveAsListener()
+    }
   }, [])
 
   useEffect(() => {
-    if (!areListenersDefined) {
-      setAreListenersDefined(true)
-      window.electron.ipcRenderer.on('importSlpClicked', async () => {
-        const newArchive = await ipcBridge.importSlpFiles()
-        if (newArchive && !newArchive.error) {
-          return setArchive(newArchive)
-        }
-        return console.log('Error', newArchive.error)
+    const handleError = (event: ErrorEvent) => {
+      window.electron.ipcRenderer.sendMessage('rendererError', {
+        type: 'error',
+        message: event.message,
+        filename: event.filename,
+        lineno: event.lineno,
+        colno: event.colno,
+        stack: event.error?.stack,
       })
-
-      document.addEventListener('drop', async (event) => {
-        event.preventDefault()
-        event.stopPropagation()
-        if (event.dataTransfer) {
-          const newArchive = await ipcBridge.importDroppedSlpFiles(
-            Array.from(event.dataTransfer?.files).map((file) => file.path)
-          )
-          setArchive(newArchive)
-        }
-      })
-      document.addEventListener('dragover', (e) => {
-        e.preventDefault()
-      })
-      console.log('Added event listeners')
     }
-  }, [areListenersDefined])
+
+    const handleRejection = (event: PromiseRejectionEvent) => {
+      const reason = event.reason
+      window.electron.ipcRenderer.sendMessage('rendererError', {
+        type: 'unhandledrejection',
+        reason:
+          reason instanceof Error
+            ? { name: reason.name, message: reason.message, stack: reason.stack }
+            : { message: String(reason) },
+      })
+    }
+
+    window.addEventListener('error', handleError)
+    window.addEventListener('unhandledrejection', handleRejection)
+
+    return () => {
+      window.removeEventListener('error', handleError)
+      window.removeEventListener('unhandledrejection', handleRejection)
+    }
+  }, [])
+
+  useEffect(() => {
+    const removeListener = window.electron.ipcRenderer.on(
+      'importingFileUpdate',
+      ({ finished, archive: freshArchive }) => {
+        if (finished && freshArchive) {
+          setArchive(freshArchive)
+        }
+      }
+    )
+
+    return () => {
+      removeListener()
+    }
+  }, [])
 
   if (!config) {
     return <LoadingScreen />
   }
-  if (!archive) {
-    return <OpenScreen setArchive={setArchive} />
-  }
+
   return (
     <Main
       archive={archive}

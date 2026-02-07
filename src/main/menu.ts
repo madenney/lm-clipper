@@ -138,6 +138,48 @@ export default class MenuBuilder {
         },
       ],
     }
+    const subMenuFile: DarwinMenuItemConstructorOptions = {
+      label: 'File',
+      submenu: [
+        {
+          label: 'New Project',
+          accelerator: 'Command+N',
+          click: () => {
+            this.mainWindow.webContents.send('newProject')
+          },
+        },
+        {
+          label: 'Open Project',
+          accelerator: 'Command+O',
+          click: () => {
+            this.mainWindow.webContents.send('openProject')
+          },
+        },
+        {
+          label: 'Save As...',
+          accelerator: 'Command+Shift+S',
+          click: () => {
+            this.mainWindow.webContents.send('saveAsProject')
+          },
+        },
+        { type: 'separator' },
+        {
+          label: 'Import Slippi Replays',
+          accelerator: 'Command+I',
+          click: () => {
+            this.mainWindow.webContents.send('importSlpClicked')
+          },
+        },
+        { type: 'separator' },
+        {
+          label: 'Close Project',
+          accelerator: 'Command+W',
+          click: () => {
+            this.mainWindow.webContents.send('closeProject')
+          },
+        },
+      ],
+    }
     const subMenuWindow: DarwinMenuItemConstructorOptions = {
       label: 'Window',
       submenu: [
@@ -146,7 +188,6 @@ export default class MenuBuilder {
           accelerator: 'Command+M',
           selector: 'performMiniaturize:',
         },
-        { label: 'Close', accelerator: 'Command+W', selector: 'performClose:' },
         { type: 'separator' },
         { label: 'Bring All to Front', selector: 'arrangeInFront:' },
       ],
@@ -189,7 +230,7 @@ export default class MenuBuilder {
         ? subMenuViewDev
         : subMenuViewProd
 
-    return [subMenuAbout, subMenuEdit, subMenuView, subMenuWindow, subMenuHelp]
+    return [subMenuAbout, subMenuFile, subMenuEdit, subMenuView, subMenuWindow, subMenuHelp]
   }
 
   buildDefaultTemplate() {
@@ -198,21 +239,40 @@ export default class MenuBuilder {
         label: '&File',
         submenu: [
           {
-            label: '&Open Project',
-            accelerator: 'Ctrl+O',
-          },
-          {
-            label: '&Close Project',
-            accelerator: 'Ctrl+W',
+            label: '&New Project',
+            accelerator: 'Ctrl+N',
             click: () => {
-              this.mainWindow.webContents.send('closeProject')
+              this.mainWindow.webContents.send('newProject')
             },
           },
+          {
+            label: '&Open Project',
+            accelerator: 'Ctrl+O',
+            click: () => {
+              this.mainWindow.webContents.send('openProject')
+            },
+          },
+          {
+            label: '&Save As...',
+            accelerator: 'Ctrl+Shift+S',
+            click: () => {
+              this.mainWindow.webContents.send('saveAsProject')
+            },
+          },
+          { type: 'separator' },
           {
             label: '&Import Slippi Replays',
             accelerator: 'Ctrl+I',
             click: () => {
               this.mainWindow.webContents.send('importSlpClicked')
+            },
+          },
+          { type: 'separator' },
+          {
+            label: '&Close Project',
+            accelerator: 'Ctrl+W',
+            click: () => {
+              this.mainWindow.webContents.send('closeProject')
             },
           },
           {
@@ -231,10 +291,11 @@ export default class MenuBuilder {
           process.env.DEBUG_PROD === 'true'
             ? [
                 {
-                  label: '&Reload',
+                  label: '&Restart',
                   accelerator: 'Ctrl+R',
                   click: () => {
-                    this.mainWindow.webContents.reload()
+                    app.relaunch()
+                    app.exit(0)
                   },
                 },
                 {

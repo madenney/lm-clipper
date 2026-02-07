@@ -82,6 +82,7 @@ export default function OpenScreen({ setArchive }: OpenScreenProps) {
       >
         Open Saved Project
       </div>
+      <div className="errorMessage">{errorMessage}</div>
     </div>
   )
 }

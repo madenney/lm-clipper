@@ -5,7 +5,7 @@ export default class File {
   path: string
   id: string
   players: PlayerInterface[]
-  startedAt: string
+  startedAt: number
   winner: number
   stage: number
   lastFrame: number
@@ -25,19 +25,19 @@ export default class File {
     this.info = fileJSON.info
   }
 
-  generateJSON() {
-    return {
-      id: this.id,
-      players: this.players,
-      stage: this.stage,
-      startedAt: this.startedAt,
-      lastFrame: this.lastFrame,
-      path: this.path,
-      isValid: this.isValid,
-      isProcessed: this.isProcessed,
-      info: this.info,
-    }
-  }
+  // generateJSON() {
+  //   return {
+  //     id: this.id,
+  //     players: this.players,
+  //     stage: this.stage,
+  //     startedAt: this.startedAt,
+  //     lastFrame: this.lastFrame,
+  //     path: this.path,
+  //     isValid: this.isValid,
+  //     isProcessed: this.isProcessed,
+  //     info: this.info,
+  //   }
+  // }
 }
 
 export function fileProcessor(path: string) {
@@ -48,12 +48,13 @@ export function fileProcessor(path: string) {
     players: [],
     winner: 0,
     stage: 0,
-    startedAt: '',
+    startedAt: 0,
     lastFrame: -123,
     isValid: false,
     isProcessed: true,
     info: '',
-    generateJSON: () => {},
+    startFrame: -123,
+    endFrame: 0
   }
 
   // check settings for indicators of invalid game
@@ -128,7 +129,7 @@ export function fileProcessor(path: string) {
       return fileJSON
     }
 
-    fileJSON.startedAt = metadata.startAt
+    fileJSON.startedAt = Math.floor(new Date(metadata.startAt).getTime()/1000)
     fileJSON.lastFrame = metadata.lastFrame
   }
 

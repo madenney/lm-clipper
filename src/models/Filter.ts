@@ -1,21 +1,28 @@
 import {
   FilterInterface,
-  FileInterface,
-  ClipInterface,
+  EventEmitterInterface,
   WorkerMessage,
-  EventEmitterInterface
 } from '../constants/types'
+import { getTableLength, createFilter, deleteFilter } from '../main/db'
 import { Worker } from 'worker_threads'
-import { ipcMain } from 'electron'
-import methods from './methods'
+
+type Slice = {
+  bottom: number
+  top: number
+  completed: number
+  id: number
+}
 
 export default class Filter {
+  id: string
   label: string
   type: string
   isProcessed: boolean
   params: { [key: string]: any }
-  results: ClipInterface[] | FileInterface[]
+  results: number
+
   constructor(filterJSON: FilterInterface) {
+    this.id = filterJSON.id
     this.label = filterJSON.label
     this.type = filterJSON.type
     this.isProcessed = filterJSON.isProcessed
@@ -23,102 +30,155 @@ export default class Filter {
     this.results = filterJSON.results
   }
 
-  async run(
-    prevResults: ClipInterface[] | FileInterface[],
+  async init(dbPath: string) {
+    await createFilter(dbPath, this.id)
+  }
+
+  async delete(dbPath: string) {
+    await deleteFilter(dbPath, this.id)
+  }
+
+  async run3(
+    dbPath: string,
+    prevTableId: string,
     numFilterThreads: number,
-    eventEmitter: EventEmitterInterface
+    eventEmitter: EventEmitterInterface,
+    abortSignal?: AbortSignal
   ) {
+    const prevResultsLength = await getTableLength(dbPath, prevTableId)
+    let maxFiles = prevResultsLength
 
-    const methodsThatNeedMultithread = ['slpParser', 'removeStarKOFrames', 'actionStateFilter']
+    if (this.params.maxFiles !== undefined && this.params.maxFiles !== '') {
+      const parsed = parseInt(this.params.maxFiles, 10)
+      if (!Number.isNaN(parsed) && parsed >= 0) {
+        maxFiles = Math.min(prevResultsLength, parsed)
+      }
+    }
+
+    if (maxFiles === 0) {
+      this.isProcessed = true
+      return false
+    }
+
+    await deleteFilter(dbPath, this.id)
+    await createFilter(dbPath, this.id)
+
+    const minThreads = Math.max(1, numFilterThreads)
+    const threadCount = this.type === 'sort' ? 1 : Math.min(minThreads, maxFiles)
+    const slices = createSlices(maxFiles, threadCount)
+    const workers: Worker[] = []
     let terminated = false
-    const savedResults = this.results
+    let lastProgress = -1
 
-    if(methodsThatNeedMultithread.indexOf(this.type) > -1 ){
+    const abortHandler = () => {
+      terminated = true
+      workers.forEach((worker) => worker.terminate())
+    }
 
-      const thread_count = numFilterThreads
+    if (abortSignal) {
+      if (abortSignal.aborted) abortHandler()
+      abortSignal.addEventListener('abort', abortHandler)
+    }
 
-      let maxFiles = prevResults.length
-      if(this.params.maxFiles && this.params.maxFiles < prevResults.length){
-        maxFiles = this.params.maxFiles
-      }
+    eventEmitter({ current: 0, total: maxFiles })
 
-      // split previous results into sections, one for each thread
-      const splitPrevResults: (ClipInterface[] | FileInterface[])[] = []
-      const completeds: number[] = []
-      for (let i = 0; i < thread_count; i++) {
-        const len = maxFiles
-        splitPrevResults.push(
-          prevResults.slice(
-            Math.floor((len * i) / thread_count),
-            Math.floor((len * (i + 1)) / thread_count)
-          )
-        )
-        completeds.push(0)
-      }
-
-      const promises = splitPrevResults.map((prevResultsSection, i) => {
+    try {
+      const promises = slices.map((slice, i) => {
+        const workerExecArgv = (() => {
+          const mode = process.env.LM_CLIPPER_WORKER_TS_NODE
+          if (!mode) return undefined
+          if (mode === 'esm') return ['--loader', 'ts-node/esm']
+          return ['-r', 'ts-node/register/transpile-only']
+        })()
         const worker = new Worker(new URL('./Worker.ts', import.meta.url), {
           workerData: {
+            dbPath,
+            prevTableId,
+            nextTableId: this.id,
             type: this.type,
-            prevResults: prevResultsSection,
+            slice,
             params: this.params,
           },
-          //execArgv: ['--require', 'ts-node/register'],
+          ...(workerExecArgv ? { execArgv: workerExecArgv } : {}),
         })
 
-        const promise: Promise<any> = new Promise((resolve) => {
-          worker.addListener('message', (e: WorkerMessage) => {
-            if (e.type == 'progress') {
-              completeds[i] = e.current
-              eventEmitter({
-                current: completeds.reduce((a, b) => a + b, 0),
-                total: maxFiles,
-              })
-            } else if (e.type == 'results') {
-              resolve(e.results)
+        workers.push(worker)
+
+        return new Promise<void>((resolve) => {
+          worker.on('message', (e: WorkerMessage) => {
+            if (e.type === 'progress') {
+              slices[i].completed = e.current
+              const totalCompleted = slices.reduce(
+                (acc, s) => acc + s.completed,
+                0
+              )
+              if (totalCompleted !== lastProgress) {
+                lastProgress = totalCompleted
+                eventEmitter({ current: totalCompleted, total: maxFiles })
+              }
+            }
+
+            if (e.type === 'done') {
+              resolve()
               worker.terminate().then(() => {
-                console.log('Worker terminated');
+                console.log('Worker terminated')
               })
             }
           })
 
-
-          ipcMain.on('terminateWorkers', () => {
-            worker.terminate()
-            terminated = true
-
-            // TODO: Return partially completed results
-            resolve([])
+          worker.on('error', (error) => {
+            console.log('Worker error:', error)
+            resolve()
           })
-
         })
-        return promise
       })
 
-      const newResults = (await Promise.all(promises)).flat()
-      if( terminated ){
-        this.isProcessed = false
-        return true
-      } else {
-        this.isProcessed = true
-        this.results = newResults
-        return false
+      await Promise.all(promises)
+    } finally {
+      if (abortSignal) {
+        abortSignal.removeEventListener('abort', abortHandler)
       }
 
-    } else {
-      this.results = methods[this.type](prevResults, this.params, eventEmitter)
-      this.isProcessed = true
-      return false
+      // Ensure all workers are terminated even if something threw
+      workers.forEach((worker) => {
+        try { worker.terminate() } catch (_) {}
+      })
     }
+
+    if (terminated) {
+      this.isProcessed = false
+      return true
+    }
+
+    this.isProcessed = true
+    return false
+  }
+}
+
+function createSlices(totalRows: number, numberOfSlices: number) {
+  if (totalRows <= 0 || numberOfSlices <= 0) return []
+
+  const slicesCount = Math.min(totalRows, numberOfSlices)
+  const sliceSize = Math.floor(totalRows / slicesCount)
+  const remainder = totalRows % slicesCount
+  const slices: Slice[] = []
+
+  let currentBottom = 1
+
+  for (let i = 0; i < slicesCount; i += 1) {
+    let currentTop = currentBottom + sliceSize - 1
+    if (i < remainder) {
+      currentTop += 1
+    }
+
+    slices.push({
+      bottom: currentBottom,
+      top: currentTop,
+      completed: 0,
+      id: i + 1,
+    })
+    currentBottom = currentTop + 1
   }
 
-  generateJSON() {
-    return {
-      label: this.label,
-      type: this.type,
-      isProcessed: this.isProcessed,
-      params: this.params,
-      results: this.results,
-    }
-  }
+  return slices
 }

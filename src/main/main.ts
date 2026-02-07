@@ -10,12 +10,17 @@
  */
 import path from 'path'
 import { app, BrowserWindow, shell } from 'electron'
+import type { Event } from 'electron'
 import MenuBuilder from './menu'
 import { resolveHtmlPath } from './util'
 import Controller from './controller'
+import { runWorkflow } from './workflow'
+import { logMain } from './logger'
+import { closeDb } from './dbConnection'
 
 
 let mainWindow: BrowserWindow | null = null
+let controller: Controller | null = null
 
 if (process.env.NODE_ENV === 'production') {
   const sourceMapSupport = require('source-map-support')
@@ -28,6 +33,29 @@ const isDebug =
 if (isDebug) {
   require('electron-debug')()
 }
+
+process.on('uncaughtException', (error) => {
+  logMain('uncaughtException', error)
+  shutdownCleanup()
+})
+
+process.on('unhandledRejection', (reason) => {
+  logMain('unhandledRejection', reason)
+})
+
+app.on('render-process-gone', (_event, contents, details) => {
+  logMain('render-process-gone', {
+    id: contents.id,
+    reason: details.reason,
+    exitCode: details.exitCode,
+  })
+  // Kill orphaned workers and child processes
+  if (controller) controller.cleanup()
+})
+
+app.on('child-process-gone', (_event, details) => {
+  logMain('child-process-gone', details)
+})
 
 const installExtensions = async () => {
   const installer = require('electron-devtools-installer')
@@ -70,8 +98,48 @@ const createWindow = async () => {
     //resizable: process.env.NODE_ENV === 'development',
   })
 
-  const controller = new Controller(mainWindow)
+  controller = new Controller(mainWindow)
+  await controller.initArchive()
   controller.initiateListeners()
+
+  mainWindow.webContents.on('console-message', (_event, level, message, line, sourceId) => {
+    if (level < 2) return
+    logMain('renderer-console', { level, message, line, sourceId })
+  })
+
+  const allowedUrl = resolveHtmlPath('index.html')
+  const isAllowedNavigation = (url: string) => {
+    try {
+      const allowed = new URL(allowedUrl)
+      const next = new URL(url)
+      if (allowed.protocol === 'file:') {
+        return url === allowedUrl
+      }
+      return next.origin === allowed.origin
+    } catch (error) {
+      return false
+    }
+  }
+
+  const guardNavigation = (event: Event, url: string) => {
+    if (!url || isAllowedNavigation(url)) return
+    event.preventDefault()
+    logMain('blocked-navigation', { url })
+  }
+
+  mainWindow.webContents.on('will-navigate', guardNavigation)
+  mainWindow.webContents.on('will-redirect', guardNavigation)
+
+  if (process.env.LM_CLIPPER_AUTORUN_WORKFLOW === '1') {
+    runWorkflow(controller.config)
+      .then(() => {
+        if (process.env.LM_CLIPPER_AUTORUN_EXIT === '1') app.quit()
+      })
+      .catch((error) => {
+        console.error('Workflow failed:', error)
+        if (process.env.LM_CLIPPER_AUTORUN_EXIT === '1') app.quit()
+      })
+  }
 
   mainWindow.loadURL(resolveHtmlPath('index.html'))
 
@@ -92,10 +160,12 @@ const createWindow = async () => {
 
   const menuBuilder = new MenuBuilder(mainWindow)
   menuBuilder.buildMenu()
-
+  //testDB()
   // Open urls in the user's browser
   mainWindow.webContents.setWindowOpenHandler((edata) => {
-    shell.openExternal(edata.url)
+    if (edata.url.startsWith('http://') || edata.url.startsWith('https://')) {
+      shell.openExternal(edata.url)
+    }
     return { action: 'deny' }
   })
 }
@@ -103,6 +173,26 @@ const createWindow = async () => {
 /**
  * Add event listeners...
  */
+
+const shutdownCleanup = () => {
+  if (controller) {
+    controller.cleanup()
+    controller = null
+  }
+  closeDb()
+}
+
+app.on('before-quit', shutdownCleanup)
+
+// Ctrl+C from terminal or kill signal
+process.on('SIGINT', () => {
+  shutdownCleanup()
+  process.exit(0)
+})
+process.on('SIGTERM', () => {
+  shutdownCleanup()
+  process.exit(0)
+})
 
 app.on('window-all-closed', () => {
   // Respect the OSX convention of having the application in memory even
@@ -123,4 +213,3 @@ app
     })
   })
   .catch(console.log)
-
