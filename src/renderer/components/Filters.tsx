@@ -42,12 +42,12 @@ export default function Filters({
     useState<ShallowFilterInterface | null>(null)
 
 
-    useEffect(() => {
-      async function getResults() {
-        setResultsData( await ipcBridge.getResults({selectedFilterIndex: archive.filters.length-1 }) )
-      }
-      getResults()
-    }, [archive, setResultsData])
+  // useEffect(() => {
+  //   async function getResults() {
+  //     setResultsData( await ipcBridge.getResults({selectedFilterIndex: archive.filters.length-1 }) )
+  //   }
+  //   getResults()
+  // }, [archive, setResultsData])
 
   useEffect(() => {
     setFilterToEdit(archive.filters[filterIndex])
@@ -87,19 +87,27 @@ export default function Filters({
     ipcBridge.cancelRunningFilters()
   }
 
-  // function runFilter(filter: ShallowFilterInterface) {
-  //   console.log('RUN FILTER: ', filter)
-  //   // const filterIndex = archive.filters.indexOf(filter)
-  //   // if (filterIndex === 0) {
-  //   //   filter.run({ results: archive.files }, (e) => {
-  //   //     console.log(e.msg)
-  //   //   })
-  //   // } else {
-  //   //   filter.run(archive.filters[filterIndex - 1], (e) => {
-  //   //     console.log(e.msg)
-  //   //   })
-  //   // }
-  // }
+  async function runFilter(filter: ShallowFilterInterface) {
+    console.log('RUN FILTER: ', filter.id)
+
+    const response = await ipcBridge.runFilter(filter.id)
+
+    if(response.error){
+      console.log("Error: ", response.error)
+      return
+    }
+
+    // const filterIndex = archive.filters.indexOf(filter)
+    // if (filterIndex === 0) {
+    //   filter.run({ results: archive.files }, (e) => {
+    //     console.log(e.msg)
+    //   })
+    // } else {
+    //   filter.run(archive.filters[filterIndex - 1], (e) => {
+    //     console.log(e.msg)
+    //   })
+    // }
+  }
 
   async function addFilter(e: any) {
     if (!setArchive) return
@@ -335,13 +343,13 @@ export default function Filters({
           >
             Edit
           </button>
-          {/* <button
+          <button
             type="button"
             className="filter-button"
             onClick={() => runFilter(filter)}
           >
             Run
-          </button> */}
+          </button>
           {/* <button
             type="button"
             className="filter-button"
@@ -452,7 +460,7 @@ export default function Filters({
           </button>
         }
         <div id="filters-list">{renderFilters()}</div>
-        <div id="results">{ renderResultsData()  }</div>
+        {/*<div id="results">{ renderResultsData()  }</div>*/}
       </div>
     )
   }

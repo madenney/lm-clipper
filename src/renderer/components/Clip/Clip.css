@@ -1,0 +1,437 @@
+/**
+ * Clip Component Styles
+ *
+ * CRITICAL: .clip container dimensions are set via inline style (width + height).
+ * All children are absolute positioned and cannot affect container size.
+ */
+
+/* ─── Base Container ─── */
+
+.clip {
+  position: relative;
+  overflow: hidden;
+  box-sizing: border-box;
+  background: #000;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  /* width and height set via inline style - ALWAYS equal (square) */
+}
+
+.clip--with-border {
+  border: 1px solid #fff;
+}
+
+.clip--full {
+  border-radius: 8px;
+  border: 1px solid #2a2a2a;
+  background: #131313;
+  display: flex;
+  flex-direction: row;
+  overflow: hidden;
+}
+
+/* Full mode: left thumbnail area */
+.clip--full .clip-thumbnail {
+  position: relative;
+  width: auto;
+  height: 100%;
+  aspect-ratio: 1;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.clip--full .clip-thumbnail .clip-bg {
+  position: absolute;
+  inset: 0;
+}
+
+.clip--full .clip-thumbnail .clip-characters {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 12%;
+  gap: 8%;
+}
+
+/* Full mode: right content area */
+.clip--full .clip-content {
+  flex: 1;
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.clip--full .clip-header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.clip--full .clip-matchup {
+  font-size: 16px;
+  font-weight: 600;
+  color: #f0f0f0;
+}
+
+.clip--full .clip-meta {
+  display: flex;
+  gap: 12px;
+  color: #888;
+  font-size: 13px;
+}
+
+.clip--full .clip-duration {
+  color: #aaa;
+}
+
+.clip--full .clip-combo {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  font-size: 13px;
+  color: #ccc;
+}
+
+.clip--full .clip-file {
+  font-size: 11px;
+  color: #555;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.clip--full .clip-actions-bar {
+  display: flex;
+  gap: 8px;
+  margin-top: auto;
+}
+
+.clip--full .clip-action-btn {
+  padding: 6px 14px;
+  border-radius: 4px;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.clip--mode2 {
+  border-radius: 4px;
+}
+
+
+/* Overlay for selected state */
+.clip::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: transparent;
+  pointer-events: none;
+  z-index: 10;
+}
+
+/* Hover: blue border */
+.clip:hover {
+  outline: 2px solid #3a7bff;
+  outline-offset: -2px;
+}
+
+/* Selected: blue border + blue overlay */
+.clip.clip--selected {
+  outline: 2px solid #3a7bff;
+  outline-offset: -2px;
+}
+
+.clip.clip--selected::after {
+  background: rgba(58, 123, 255, 0.25);
+}
+
+/* ─── Background Layer (Stage Image) ─── */
+
+.clip-bg {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+.clip-stage {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+  display: block;
+}
+
+.clip--low-res .clip-stage {
+  image-rendering: pixelated;
+}
+
+/* ─── Characters Overlay ─── */
+
+.clip-characters {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 12%;
+  gap: 8%;
+  pointer-events: none;
+}
+
+.clip-char {
+  width: 18%;
+  height: auto;
+  object-fit: contain;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.6));
+}
+
+.clip-arrow {
+  width: 10%;
+  height: auto;
+  object-fit: contain;
+  margin-top: 4%;
+}
+
+/* Full mode: smaller icons */
+.clip--full .clip-characters {
+  padding-top: 8%;
+  gap: 10%;
+}
+
+.clip--full .clip-char {
+  width: 14%;
+  filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.7));
+}
+
+.clip--full .clip-arrow {
+  width: 5%;
+  margin-top: 3%;
+}
+
+/* ─── Info Overlay (modes 1-2) ─── */
+
+.clip-info {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  max-height: 40%;
+  padding: 8px 10px;
+  background: rgba(0, 0, 0, 0.85);
+  color: #cfcfcf;
+  font-size: 12px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* Full mode uses .clip-content instead of .clip-info */
+
+.clip-info-row {
+  display: flex;
+  gap: 4px;
+  line-height: 1.3;
+  overflow: hidden;
+}
+
+.clip-info-label {
+  color: #9a9a9a;
+  flex-shrink: 0;
+}
+
+.clip-info-value {
+  color: #e0e0e0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.clip-matchup {
+  font-size: 1.2em;
+  font-weight: 600;
+  color: #f0f0f0;
+}
+
+.clip-meta {
+  display: flex;
+  gap: 12px;
+  color: #888;
+  font-size: 0.9em;
+}
+
+.clip-duration {
+  color: #aaa;
+}
+
+.clip-kill {
+  color: #e85454;
+  font-weight: 600;
+}
+
+/* ─── Action Buttons (modes 1-2) ─── */
+
+.clip-actions {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.clip:hover .clip-actions {
+  opacity: 1;
+}
+
+.clip-action-btn {
+  border: 1px solid transparent;
+  border-radius: 999px;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #f6f4f2;
+  font-size: 12px;
+}
+
+.clip-action-btn--play {
+  background-color: #1f7a3a;
+  border-color: #2fa954;
+}
+
+.clip-action-btn--play:hover {
+  background-color: #249147;
+}
+
+.clip-action-btn--record {
+  background-color: #8a2626;
+  border-color: #b13a3a;
+}
+
+.clip-action-btn--record:hover {
+  background-color: #a03131;
+}
+
+.clip-action-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* Full mode: larger buttons */
+.clip--full .clip-actions {
+  opacity: 1; /* Always visible in full mode */
+}
+
+.clip--full .clip-action-btn {
+  width: auto;
+  height: auto;
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 14px;
+  gap: 6px;
+}
+
+/* ─── Players Section (full mode) ─── */
+
+.clip-players {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.clip-player {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #1a1a1a;
+  border-radius: 5px;
+  padding: 6px 8px;
+  min-width: 120px;
+}
+
+.clip-player-icon {
+  width: 36px;
+  height: 36px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+.clip-player-details {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.clip-player-tag {
+  font-size: 14px;
+  font-weight: 600;
+  color: #e8e8e8;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.clip-player-char {
+  font-size: 12px;
+  color: #aaa;
+}
+
+.clip-player-port {
+  font-size: 11px;
+  color: #666;
+}
+
+/* ─── Combo Info (full mode) ─── */
+
+.clip-combo {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  font-size: 13px;
+  color: #ccc;
+}
+
+.clip-combo-label {
+  color: #777;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 11px;
+}
+
+/* ─── File Path (full mode) ─── */
+
+.clip-file {
+  font-size: 12px;
+  color: #666;
+  word-break: break-all;
+  border-top: 1px solid #222;
+  padding-top: 8px;
+  margin-top: 4px;
+}
+
+/* ─── Actions Bar (full mode bottom) ─── */
+
+.clip-actions-bar {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.clip-actions-bar .clip-action-btn {
+  width: auto;
+  padding: 8px 20px;
+  border-radius: 6px;
+  font-size: 14px;
+}

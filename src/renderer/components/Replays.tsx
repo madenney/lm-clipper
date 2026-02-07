@@ -25,6 +25,7 @@ export default function Replays({ archive, setArchive }: ReplaysProps) {
 
   async function showNames() {
     setNamesModalOpen(true)
+    setNames([{name: 'loading...', total: 0}])
     setNames(await ipcBridge.getNames())
   }
 

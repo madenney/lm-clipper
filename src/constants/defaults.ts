@@ -1,5 +1,7 @@
 export const config = {
-  lastArchivePath: '',
+  recentProjects: [] as { name: string; path: string; lastOpened: number }[],
+  lastArchivePath: null,
+  projectName: '',
   hideHud: false,
   gameMusic: false,
   enableChants: false,
@@ -12,7 +14,8 @@ export const config = {
   noCrowdNoise: false,
   disableMagnifyingGlass: false,
   shuffle: false,
-  resolution: '1x',
+  resolution: 2,
+  playbackResolution: 2,
   bitrateKbps: 15000,
   addStartFrames: 0,
   addEndFrames: 0,
@@ -24,19 +27,23 @@ export const config = {
   ssbmIsoPath: '',
   dolphinPath: '',
   outputPath: '',
+  concatenate: false,
+  detectDuplicatesOnImport: false,
+  testMode: false,
 }
 
 export const archive = {
   path: '',
-  name: 'default_project',
+  name: 'default_lm_project',
   createdAt: 1006329600,
-  updatedAt: 1006329600,
-  files: [],
+  files: 0,
   filters: [
     {
+      id: 'filter_0',
       label: 'Game Filter',
       type: 'files',
       isProcessed: false,
+      results: 0,
       params: {
         stage: '',
         char1: '',
@@ -44,9 +51,9 @@ export const archive = {
         player1: '',
         player2: '',
       },
-      results: [],
     },
     // {
+    //   id: 'filter_1',
     //   label: 'Combo Parser',
     //   type: 'slpParser',
     //   isProcessed: false,
@@ -60,7 +67,7 @@ export const archive = {
     //     comboeeTag: '',
     //     didKill: true,
     //   },
-    //   results: [],
+    //   results: 0,
     // },
     // {
     //   label: 'Combo Filter',

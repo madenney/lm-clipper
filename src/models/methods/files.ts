@@ -5,6 +5,7 @@ export default (
   params: { [key: string]: any },
   eventEmitter: EventEmitterInterface
 ) => {
+  console.log(prevResults)
   return prevResults.filter((file: FileInterface, index) => {
     if (index % 100 === 0)
       eventEmitter({ current: index, total: prevResults.length })

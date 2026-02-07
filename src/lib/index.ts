@@ -24,3 +24,9 @@ export const pad = (num: number, size: number) => {
   while (strNum.length < size) strNum = `0${strNum}`
   return strNum
 }
+
+export const asyncForEach = async (array: any[], callback: any) => {
+  for (let index = 0; index < array.length; index++) {
+      await callback(array[index], index, array);
+  }
+}

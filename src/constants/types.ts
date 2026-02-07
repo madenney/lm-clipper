@@ -1,6 +1,14 @@
 /* eslint-disable no-unused-vars */
+export interface RecentProject {
+  name: string
+  path: string
+  lastOpened: number
+}
+
 export interface ConfigInterface {
-  lastArchivePath: string
+  recentProjects: RecentProject[]
+  outputPath: string
+  lastArchivePath: string|null
   hideHud: boolean
   gameMusic: boolean
   enableChants: boolean
@@ -13,24 +21,28 @@ export interface ConfigInterface {
   noCrowdNoise: boolean
   disableMagnifyingGlass: boolean
   shuffle: boolean
-  resolution: string
+  resolution: number
+  playbackResolution: number
   bitrateKbps: number
   addStartFrames: number
   addEndFrames: number
   lastClipOffset: number
   numCPUs: number
+  numFilterThreads: number
   slice: number
   dolphinCutoff: number
   ssbmIsoPath: string
   dolphinPath: string
-  outputPath: string
+  concatenate: boolean
+  detectDuplicatesOnImport: boolean
+  testMode?: boolean
   [key: string]: any
 }
 
 export interface PlayerInterface {
   playerIndex: number
   port: number
-  characterId: number
+  characterId: number  
   characterColor: number
   nametag: string
   displayName: string
@@ -39,7 +51,7 @@ export interface PlayerInterface {
 export interface FileInterface {
   id: string
   players: PlayerInterface[]
-  startedAt: string
+  startedAt: number
   winner: number
   stage: number
   lastFrame: number
@@ -47,9 +59,9 @@ export interface FileInterface {
   isValid: boolean
   isProcessed: boolean
   info: string
-  startFrame?: number
-  endFrame?: number
-  generateJSON(): void
+  startFrame: number
+  endFrame: number
+  //generateJSON?(): void
 }
 
 export interface ClipInterface {
@@ -75,25 +87,44 @@ export interface ClipInterface {
   recordingParams?: { [key: string]: any }
 }
 
+export interface LiteItem {
+  id: string
+  stage: number
+  path?: string
+  players?: PlayerInterface[]
+  startFrame?: number
+  endFrame?: number
+}
+
 export interface EventEmitterInterface {
-  (arg1: { current: number; total: number }): void
+  (arg1: { current: number; total: number, newItemCount?: number }): void
 }
 
 export interface FilterInterface {
+  id: string
   type: string
   label: string
   isProcessed: boolean
   params: { [key: string]: any }
-  results: ClipInterface[] | FileInterface[]
-  run?(
-    arg1: ClipInterface[] | FileInterface[],
+  results: number
+  run3?(
+    dbPath: string,
+    prevTable: string,
     numFilterThreads: number,
-    arg2: EventEmitterInterface
-  ): boolean
+    arg2: EventEmitterInterface,
+    abortSignal?: AbortSignal
+  ): void
+  // run?(
+  //   arg1: ClipInterface[] | FileInterface[],
+  //   numFilterThreads: number,
+  //   arg2: EventEmitterInterface
+  // ): boolean
+  delete?(dbPath: string): Promise<void>
   generateJSON?(): void
 }
 
 export interface ShallowFilterInterface {
+  id: string
   type: string
   label: string
   isProcessed: boolean
@@ -105,9 +136,7 @@ export interface ShallowArchiveInterface {
   path: string
   name: string
   createdAt: number
-  updatedAt: number
-  totalFiles: number
-  validFiles: number
+  files: number
   filters: ShallowFilterInterface[]
 }
 
@@ -115,21 +144,43 @@ export interface ArchiveInterface {
   path: string
   name: string
   createdAt: number
-  updatedAt: number
-  files: FileInterface[]
+  files: number
   filters: FilterInterface[]
-  save?(): void
+  //save?(): void
+  runFilter?(
+    filterId: string,
+    numFilterThreads: number,
+    filterMsgEventEmitter: EventEmitterInterface
+  ): void
   runFilters?(
     numFilterThreads: number,
     currentFilterEventEmitter: EventEmitterInterface,
     filterMsgEventEmitter: EventEmitterInterface
   ): void
-  names?(): { name: string; total: number }[]
-  shallowCopy?(): ShallowArchiveInterface
+  getNames?(): Promise<{ name: string; total: number }[]>
+  shallowCopy?(): Promise<ShallowArchiveInterface>
   addFiles?(
     filePaths: string | string[],
-    eventEmitter: EventEmitterInterface
-  ): number
+    eventEmitter: EventEmitterInterface,
+    options?: {
+      detectDuplicates?: boolean
+      abortSignal?: AbortSignal
+      maxWorkers?: number
+    }
+  ): Promise<boolean>
+  getItems?(params: {
+    filterId: string
+    numPerPage?: number
+    currentPage?: number
+    offset?: number
+    limit?: number
+    lite?: boolean
+  }): Promise<ClipInterface[]|FileInterface[]|LiteItem[]>
+  getAllItems?(filterId: string): Promise<ClipInterface[]|FileInterface[]>
+  addFilter?(newFilterJSON: FilterInterface): Promise<ArchiveInterface>
+  deleteFilter?(filterId: string): Promise<ArchiveInterface>
+  saveMetaData?(): Promise<void>
+  resetFiltersFrom?(startIndex: number): Promise<void>
 }
 
 export interface ReplayInterface {
@@ -139,7 +190,7 @@ export interface ReplayInterface {
   endFrame: number
 }
 
-export type WorkerMessage = WorkerMessageProgress | WorkerMessageResults
+export type WorkerMessage = WorkerMessageProgress | WorkerMessageDone
 
 interface WorkerMessageProgress {
   type: 'progress'
@@ -147,7 +198,7 @@ interface WorkerMessageProgress {
   total: number
 }
 
-interface WorkerMessageResults {
-  type: 'results'
-  results: FileInterface[] | ClipInterface[]
+interface WorkerMessageDone {
+  type: 'done'
+  results: number
 }

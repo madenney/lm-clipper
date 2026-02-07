@@ -4,12 +4,18 @@ export const sortOptions = [
     shortName: 'DPS',
     method: (reverse: boolean) => {
       return (resultA: any, resultB: any) => {
-        const totalDamageA = resultA.combo.moves.reduce((total: number, move) => {
+        const totalDamageA = resultA.combo.moves.reduce(
+          (total: number, move: { damage: number }) => {
           return total + move.damage
-        }, 0)
-        const totalDamageB = resultB.combo.moves.reduce((total: number, move) => {
+        },
+          0
+        )
+        const totalDamageB = resultB.combo.moves.reduce(
+          (total: number, move: { damage: number }) => {
           return total + move.damage
-        }, 0)
+        },
+          0
+        )
 
         const dpsA = totalDamageA / (resultA.endFrame - resultA.startFrame)
         const dpsB = totalDamageB / (resultB.endFrame - resultB.startFrame)
@@ -71,12 +77,12 @@ export const sortOptions = [
   // },
 ]
 
-export const sort = (prevResults, params) => {
+export const sort = (prevResults: any[], params: { [key: string]: any }) => {
   const { sortFunction, reverse } = params
   console.log(params)
   const sortOption = sortOptions.find((s) => s.id === sortFunction)
   if (!sortOption) throw Error('sortOption undefined')
-  const copy = prevResults.map((result) => {
+  const copy = prevResults.map((result: any) => {
     return { ...result }
   })
   console.log(sortOption.method(reverse))

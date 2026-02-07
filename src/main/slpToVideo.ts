@@ -24,7 +24,31 @@ import { pad } from '../lib'
 import { getFFMPEGPath } from './util'
 import { ConfigInterface, ReplayInterface } from '../constants/types'
 
+export type VideoJobController = {
+  stop: () => void
+  cancel: () => void
+  promise: Promise<void>
+}
+
+type VideoSignal = {
+  stopped: boolean
+  cancelled: boolean
+  activeProcesses: Set<ChildProcessWithoutNullStreams>
+}
+
 const ffmpegPath = getFFMPEGPath()
+
+const getAppDataPath = () => {
+  if (app && typeof app.getPath === 'function') return app.getPath('appData')
+  const platform = os.type()
+  if (platform === 'Windows_NT') {
+    return process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming')
+  }
+  if (platform === 'Darwin') {
+    return path.join(os.homedir(), 'Library', 'Application Support')
+  }
+  return process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config')
+}
 
 const generateDolphinConfigs = async (
   replays: ReplayInterface[],
@@ -80,6 +104,7 @@ const executeCommandsInQueue = async (
   numWorkers: number,
   options: { [key: string]: any },
   eventEmitter: (msg: string) => void,
+  signal: VideoSignal,
   // eslint-disable-next-line no-unused-vars
   onSpawn?: (process_: ChildProcessWithoutNullStreams) => void
 ) => {
@@ -89,12 +114,16 @@ const executeCommandsInQueue = async (
   const worker = async () => {
     let args
     while ((args = argsArray.pop()) !== undefined) {
+      if (signal.stopped || signal.cancelled) break
       const process_ = spawn(command, args, options)
+      signal.activeProcesses.add(process_)
       const exitPromise = exit(process_)
       if (onSpawn) {
         await onSpawn(process_)
       }
       await exitPromise
+      signal.activeProcesses.delete(process_)
+      if (signal.cancelled) break
       count += 1
       eventEmitter(`${count}/${numTasks}`)
     }
@@ -118,6 +147,8 @@ const killDolphinOnEndFrame = (process: ChildProcessWithoutNullStreams) => {
         const regex = /\[PLAYBACK_END_FRAME\] ([0-9]*)/
         const match = regex.exec(line)
         endFrame = match && match[1] ? match[1] : Infinity
+      } else if (line.includes('[GAME_END_FRAME]')) {
+        process.kill()
       } else if (line.includes(`[CURRENT_FRAME] ${endFrame}`)) {
         process.kill()
       }
@@ -128,7 +159,8 @@ const killDolphinOnEndFrame = (process: ChildProcessWithoutNullStreams) => {
 const processReplays = async (
   replays: ReplayInterface[],
   config: ConfigInterface,
-  eventEmitter: (msg: string) => void
+  eventEmitter: (msg: string) => void,
+  signal: VideoSignal
 ) => {
   const dolphinArgsArray: string[][] = []
   const ffmpegMergeArgsArray: string[][] = []
@@ -161,7 +193,7 @@ const processReplays = async (
       '-b:v',
       `${config.bitrateKbps}k`,
     ]
-    if (config.resolution === '2x' && !config.widescreenOff) {
+    if (config.resolution === 4 && !config.widescreenOff) {
       // Slightly upscale to 1920x1080
       ffmpegMergeArgs.push('-vf')
       ffmpegMergeArgs.push('scale=1920:1080')
@@ -214,8 +246,11 @@ const processReplays = async (
     (msg: string) => {
       eventEmitter(`Recording video and audio... ${msg}`)
     },
+    signal,
     killDolphinOnEndFrame
   )
+
+  if (signal.stopped || signal.cancelled) return
 
   // Merge video and audio files
   console.log('Merging video and audio...')
@@ -227,8 +262,11 @@ const processReplays = async (
     { stdio: 'ignore' },
     (msg: string) => {
       eventEmitter(`Merging video and audio... ${msg}`)
-    }
+    },
+    signal
   )
+
+  if (signal.stopped || signal.cancelled) return
 
   // Trim buffer frames
   console.log('Trimming off buffer frames...')
@@ -240,7 +278,8 @@ const processReplays = async (
     { stdio: 'ignore' },
     (msg: string) => {
       eventEmitter(`Trimming off buffer frames... ${msg}`)
-    }
+    },
+    signal
   )
 
   // Add overlays
@@ -308,6 +347,47 @@ const processReplays = async (
     promises.push(fsPromises.unlink(path.resolve(config.outputPath, file)))
   })
   await Promise.all(promises)
+
+  // Concatenate all output clips into a single video
+  if (config.concatenate && !signal.stopped && !signal.cancelled) {
+    console.log('Concatenating clips...')
+    eventEmitter('Concatenating clips...')
+
+    const outputFiles = fs
+      .readdirSync(config.outputPath)
+      .filter((f) => f.endsWith('.avi') && !f.includes('-unmerged') && !f.includes('-merged'))
+      .sort()
+
+    if (outputFiles.length > 1) {
+      const concatListPath = path.resolve(config.outputPath, 'concat_list.txt')
+      const concatLines = outputFiles.map(
+        (f) => `file '${path.resolve(config.outputPath, f)}'`
+      )
+      await fsPromises.writeFile(concatListPath, concatLines.join('\n'))
+
+      const finalPath = path.resolve(config.outputPath, 'final.avi')
+      const concatProcess = spawn(ffmpegPath, [
+        '-f', 'concat',
+        '-safe', '0',
+        '-i', concatListPath,
+        '-c:v', 'copy',
+        '-b:v', `${config.bitrateKbps}k`,
+        '-af', 'aresample=async=1:first_pts=0',
+        '-c:a', 'aac',
+        '-b:a', '128k',
+        '-fflags', '+genpts',
+        finalPath,
+      ], { stdio: 'ignore' })
+
+      signal.activeProcesses.add(concatProcess)
+      await exit(concatProcess)
+      signal.activeProcesses.delete(concatProcess)
+
+      // Clean up concat list
+      await fsPromises.unlink(concatListPath).catch(() => {})
+    }
+  }
+
   eventEmitter('Done :)')
   setTimeout(() => {
     eventEmitter('')
@@ -327,7 +407,7 @@ const configureDolphin = async (
 
   // Linux 
   if(os.type() == "Linux"){
-    const dolphinDirname = path.resolve(app.getPath('appData'), 'SlippiPlayback')
+    const dolphinDirname = path.resolve(getAppDataPath(), 'SlippiPlayback')
     gameSettingsPath = path.join(dolphinDirname, 'GameSettings', 'GALE01.ini')
     graphicsSettingsPath = path.join(dolphinDirname, 'Config', 'GFX.ini')
     dolphinSettingsPath = path.join(dolphinDirname, 'Config', 'Dolphin.ini')
@@ -428,39 +508,69 @@ const configureDolphin = async (
   await fsPromises.writeFile(dolphinSettingsPath, newSettings.join('\n'))
 }
 
-const slpToVideo = async (
+const slpToVideo = (
   replays: ReplayInterface[],
   config: ConfigInterface,
   eventEmitter: (msg: string) => void
-) => {
-  await fsPromises
-    .access(config.ssbmIsoPath)
-    .catch((err) => {
-      if (err.code === 'ENOENT') {
-        throw new Error(
-          `Error: Could not read SSBM iso from path ${config.ssbmIsoPath}. `
-        )
-      } else {
-        throw err
-      }
-    })
-    .then(() => fsPromises.access(config.dolphinPath))
-    .catch((err) => {
-      if (err.code === 'ENOENT') {
-        throw new Error(
-          `Error: Could not open Dolphin from path ${config.dolphinPath}. `
-        )
-      } else {
-        throw err
-      }
-    })
-    .then(() => configureDolphin(config, eventEmitter))
-    .then(() => generateDolphinConfigs(replays, config, eventEmitter))
-    .then(() => processReplays(replays, config, eventEmitter))
-    .catch((err) => {
-      eventEmitter(`${err}`)
-      throw new Error(err)
-    })
+): VideoJobController => {
+  const signal: VideoSignal = {
+    stopped: false,
+    cancelled: false,
+    activeProcesses: new Set(),
+  }
+
+  const promise = (async () => {
+    await fsPromises
+      .access(config.ssbmIsoPath)
+      .catch((err) => {
+        if (err.code === 'ENOENT') {
+          throw new Error(
+            `Error: Could not read SSBM iso from path ${config.ssbmIsoPath}. `
+          )
+        } else {
+          throw err
+        }
+      })
+      .then(() => fsPromises.access(config.dolphinPath))
+      .catch((err) => {
+        if (err.code === 'ENOENT') {
+          throw new Error(
+            `Error: Could not open Dolphin from path ${config.dolphinPath}. `
+          )
+        } else {
+          throw err
+        }
+      })
+      .then(() => configureDolphin(config, eventEmitter))
+      .then(() => generateDolphinConfigs(replays, config, eventEmitter))
+      .then(() => processReplays(replays, config, eventEmitter, signal))
+      .catch((err) => {
+        eventEmitter(`${err}`)
+        throw new Error(err)
+      })
+
+    if (signal.stopped) {
+      eventEmitter('Stopped.')
+      setTimeout(() => eventEmitter(''), 2000)
+    } else if (signal.cancelled) {
+      eventEmitter('Cancelled.')
+      setTimeout(() => eventEmitter(''), 2000)
+    }
+  })()
+
+  return {
+    stop: () => {
+      signal.stopped = true
+    },
+    cancel: () => {
+      signal.cancelled = true
+      signal.activeProcesses.forEach((p) => {
+        try { p.kill() } catch (_) { /* already dead */ }
+      })
+      signal.activeProcesses.clear()
+    },
+    promise,
+  }
 }
 
 export default slpToVideo

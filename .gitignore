@@ -32,3 +32,8 @@ npm-debug.log.*
 
 ffmpeg/*
 !ffmpeg/README.md
+
+# Dev artifacts
+build/
+test_replays/
+"[object Object]"
