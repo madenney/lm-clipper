@@ -16,12 +16,9 @@ function run() {
   db.pragma('journal_mode = WAL')
   db.pragma('busy_timeout = 5000')
 
-  const FLUSH_SIZE = 100
+  const FLUSH_SIZE = 100 // default for non-parser paths
 
   try {
-    const rows = getRows(db, prevTableId, slice)
-    const prevResults = parseRows(prevTableId, rows)
-
     const method = methods[type]
     if (!method) {
       postMessage({ type: 'done', results: 0 })
@@ -35,40 +32,74 @@ function run() {
       }
     })
 
+    // Sort loads all rows upfront; parsers and other filters stream in chunks
+    const prevResults = type === 'sort'
+      ? parseRows(prevTableId, getRows(db, prevTableId, slice))
+      : []
+
     if (type === 'slpParser' || type === 'slpParser2') {
-      // Parser methods read .slp files from disk (slow) — flush incrementally
-      // so partial results are visible via the View button
+      // Parser methods read .slp files from disk (slow) — stream from DB
+      // in chunks so we don't load 100K+ rows into memory before starting
+      const total = slice.top - slice.bottom + 1
+      const LOAD_CHUNK = 5000
+
+      // Adaptive flush size: small runs flush often for UI responsiveness,
+      // large runs flush less often to minimize SQLite transaction overhead.
+      // First flush always at 100 so partial results are available quickly.
+      const parserFlushSize =
+        total < 1000 ? 100 :
+        total < 10000 ? 500 :
+        total < 100000 ? 2000 :
+        5000
+
       let totalInserted = 0
       let buffer: any[] = []
+      let processed = 0
+      let lastProgressTime = 0
       const noopEmitter = () => {}
-      const total = prevResults.length
-      prevResults.forEach((item, index) => {
-        postMessage({ type: 'progress', current: index, total })
-        // slpParser2 takes (item, params); slpParser takes ([item], params, emitter)
-        const res = type === 'slpParser2'
-          ? method(item, params)
-          : method([item], params, noopEmitter)
-        if (Array.isArray(res)) {
-          for (let i = 0; i < res.length; i += 1) {
-            if (res[i]) buffer.push(res[i])
+      let currentBottom = slice.bottom
+
+      while (currentBottom <= slice.top) {
+        const currentTop = Math.min(currentBottom + LOAD_CHUNK - 1, slice.top)
+        const chunkRows = getRows(db, prevTableId, { bottom: currentBottom, top: currentTop })
+        const chunk = parseRows(prevTableId, chunkRows)
+
+        for (const item of chunk) {
+          const now = Date.now()
+          if (now - lastProgressTime >= 200) {
+            postMessage({ type: 'progress', current: processed, total, results: totalInserted })
+            lastProgressTime = now
           }
+          // slpParser2 takes (item, params); slpParser takes ([item], params, emitter)
+          const res = type === 'slpParser2'
+            ? method(item, params)
+            : method([item], params, noopEmitter)
+          if (Array.isArray(res)) {
+            for (let i = 0; i < res.length; i += 1) {
+              if (res[i]) buffer.push(res[i])
+            }
+          }
+          // First flush at 100 for quick partial results, then adaptive size
+          const flushAt = totalInserted === 0 ? 100 : parserFlushSize
+          if (buffer.length >= flushAt) {
+            insertBatch(buffer)
+            totalInserted += buffer.length
+            buffer = []
+          }
+          processed++
         }
-        if (buffer.length >= FLUSH_SIZE) {
-          insertBatch(buffer)
-          totalInserted += buffer.length
-          buffer = []
-        }
-      })
+
+        currentBottom = currentTop + 1
+      }
       if (buffer.length > 0) {
         insertBatch(buffer)
         totalInserted += buffer.length
       }
       postMessage({ type: 'done', results: totalInserted })
-    } else {
-      // Non-parser filters: compute all results first, then single transaction insert
-      let results: any[] = []
+    } else if (type === 'sort') {
+      // Sort needs all data in memory — keep as single batch
       const progressEmitter = createProgressEmitter()
-
+      let results: any[] = []
       if (method.length >= 3) {
         const res = method(prevResults, params, progressEmitter)
         if (Array.isArray(res)) results = res
@@ -76,10 +107,46 @@ function run() {
         const res = method(prevResults, params)
         if (Array.isArray(res)) results = res
       }
-
       results = results.filter(Boolean)
       insertBatch(results)
       postMessage({ type: 'done', results: results.length })
+    } else {
+      // Non-parser filters: process in chunks to avoid OOM
+      const CHUNK_SIZE = 5000
+      const total = slice.top - slice.bottom + 1
+      let totalInserted = 0
+      let processed = 0
+      let currentBottom = slice.bottom
+
+      while (currentBottom <= slice.top) {
+        const currentTop = Math.min(currentBottom + CHUNK_SIZE - 1, slice.top)
+        const chunkRows = getRows(db, prevTableId, { bottom: currentBottom, top: currentTop })
+        const chunk = parseRows(prevTableId, chunkRows)
+
+        // Progress is reported per-chunk below; no need for per-item messages
+        const chunkEmitter = () => {}
+
+        let results: any[] = []
+        if (method.length >= 3) {
+          const res = method(chunk, params, chunkEmitter)
+          if (Array.isArray(res)) results = res
+        } else {
+          const res = method(chunk, params)
+          if (Array.isArray(res)) results = res
+        }
+
+        results = results.filter(Boolean)
+        if (results.length > 0) {
+          insertBatch(results)
+          totalInserted += results.length
+        }
+
+        processed += chunk.length
+        postMessage({ type: 'progress', current: processed, total })
+        currentBottom = currentTop + 1
+      }
+
+      postMessage({ type: 'done', results: totalInserted })
     }
   } finally {
     try { db.close() } catch (_) {}

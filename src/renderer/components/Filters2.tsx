@@ -34,6 +34,7 @@ export default function Filters({
 }: FiltersProps) {
   const [runningFilters, setRunningFilters] = useState<Set<number>>(new Set())
   const [filterMsgs, setFilterMsgs] = useState<Record<string, string>>({})
+  const [liveResults, setLiveResults] = useState<Record<string, number>>({})
   // Filters start collapsed by default — toggling sets them to expanded (false)
   const [expandedFilters, setExpandedFilters] = useState<Record<string, boolean>>({})
 
@@ -47,13 +48,16 @@ export default function Filters({
 
     const removeUpdateListener = window.electron.ipcRenderer.on(
       'filterUpdate',
-      (event: { filterId?: string; filterIndex?: number; total: number; current: number }) => {
+      (event: { filterId?: string; filterIndex?: number; total: number; current: number; results?: number }) => {
         const key = event.filterId || String(event.filterIndex ?? '')
         if (key) {
           setFilterMsgs((prev) => ({
             ...prev,
             [key]: `${event.current}/${event.total}`,
           }))
+          if (event.results !== undefined) {
+            setLiveResults((prev) => ({ ...prev, [key]: event.results as number }))
+          }
         }
       }
     )
@@ -95,6 +99,10 @@ export default function Filters({
     ipcBridge.runFilter(filter.id, (response) => {
       if (!response || response?.error) {
         console.log('Error: ', response.error)
+        setFilterMsgs((prev) => ({
+          ...prev,
+          [filter.id]: response?.error || 'Error running filter',
+        }))
         return
       }
 
@@ -116,9 +124,21 @@ export default function Filters({
         }
         return merged
       })
-      setFilterMsgs((prev) => {
+      // Clear live results for this filter
+      setLiveResults((prev) => {
         const updated = { ...prev }
         delete updated[filter.id]
+        return updated
+      })
+      // Show message from response, or clear
+      setFilterMsgs((prev) => {
+        const updated = { ...prev }
+        const msg = response.filterMessage?.[filter.id]
+        if (msg) {
+          updated[filter.id] = msg
+        } else {
+          delete updated[filter.id]
+        }
         return updated
       })
     })
@@ -413,9 +433,11 @@ export default function Filters({
                 <div className="filter-title">{filter.label}</div>
                 <div className="filter-meta">
                   <div className="filter-results">
-                    Results: {isRunning ? '---/---' : resultsCount}
+                    Results: {isRunning
+                      ? (liveResults[filter.id] ?? 0).toLocaleString()
+                      : resultsCount}
                   </div>
-                  {isRunning ? (
+                  {filterMsg ? (
                     <div className="filterMsg">{filterMsg}</div>
                   ) : (
                     ''

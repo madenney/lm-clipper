@@ -55,17 +55,19 @@ export default class Filter {
       }
     }
 
+    // Always clear the output table so stale results don't persist
+    await deleteFilter(dbPath, this.id)
+    await createFilter(dbPath, this.id)
+
     if (maxFiles === 0) {
       this.isProcessed = true
       return false
     }
 
-    await deleteFilter(dbPath, this.id)
-    await createFilter(dbPath, this.id)
-
     const minThreads = Math.max(1, numFilterThreads)
     const threadCount = this.type === 'sort' ? 1 : Math.min(minThreads, maxFiles)
     const slices = createSlices(maxFiles, threadCount)
+    const workerResults = new Array(slices.length).fill(0)
     const workers: Worker[] = []
     let terminated = false
     let lastProgress = -1
@@ -108,13 +110,15 @@ export default class Filter {
           worker.on('message', (e: WorkerMessage) => {
             if (e.type === 'progress') {
               slices[i].completed = e.current
+              if (e.results !== undefined) workerResults[i] = e.results
               const totalCompleted = slices.reduce(
                 (acc, s) => acc + s.completed,
                 0
               )
               if (totalCompleted !== lastProgress) {
                 lastProgress = totalCompleted
-                eventEmitter({ current: totalCompleted, total: maxFiles })
+                const totalResults = workerResults.reduce((a, b) => a + b, 0)
+                eventEmitter({ current: totalCompleted, total: maxFiles, newItemCount: totalResults })
               }
             }
 
