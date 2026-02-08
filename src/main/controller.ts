@@ -1210,8 +1210,17 @@ export default class Controller {
       const controller = this.runningFilterControllers.get(filterId)
       if (controller) {
         controller.abort()
-        // Cleanup happens in runFilter when it detects termination
+        this.runningFilterControllers.delete(filterId)
       }
+      if (this.archive) {
+        const filterIndex = this.archive.filters.findIndex(
+          (f) => f.id === filterId
+        )
+        if (filterIndex >= 0) {
+          this.runningFilterIndices.delete(filterIndex)
+        }
+      }
+      this.broadcastRunningFilters()
     }
     return reply(event, 'stopFilter', requestId)
   }

@@ -1,9 +1,8 @@
 import { useState, Dispatch, SetStateAction, useEffect, useRef, useMemo } from 'react'
 import { ConfigInterface, ShallowArchiveInterface, ClipInterface, FileInterface, RecentProject } from '../../constants/types'
-import Filters from './Filters2'
+import Filters from './Filters'
 import Top from './Top'
-// import Tray from './Tray' // Old tray
-import { Tray2 as Tray } from './Tray/Tray2' // New clip display system
+import { Tray } from './Tray/Tray'
 import ipcBridge from 'renderer/ipcBridge'
 import '../styles/Main.css'
 

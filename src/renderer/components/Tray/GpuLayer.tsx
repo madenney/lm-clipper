@@ -8,7 +8,7 @@
  * Uses the existing WebGL worker infrastructure.
  *
  * NOTE: Selection functionality is implemented (selectedIds, onClipClick props)
- * but currently disabled. To enable, pass these props from Tray2.tsx.
+ * but currently disabled. To enable, pass these props from Tray.tsx.
  * We can enable this later if needed.
  */
 

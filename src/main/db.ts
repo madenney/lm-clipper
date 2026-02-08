@@ -321,18 +321,6 @@ export function getItems(
     .all(limit, offset)
 }
 
-export function getItems2(
-  path: string,
-  tableId: string,
-  limit: number,
-  offset: number
-) {
-  const db = getDb(path)
-  return db
-    .prepare(`SELECT * FROM "${tableId}" ORDER BY id LIMIT ? OFFSET ?`)
-    .all(limit, offset)
-}
-
 export function getItemsLite(path: string, limit: number, offset: number) {
   const db = getDb(path)
   return db
