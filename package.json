@@ -88,7 +88,7 @@
     }
   },
   "dependencies": {
-    "electron-debug": "^3.2.0",
+    "electron-debug": "^4.1.0",
     "electron-log": "^4.4.8",
     "lodash": "^4.17.21",
     "react": "^18.2.0",
