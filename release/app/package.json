@@ -15,6 +15,6 @@
   },
   "dependencies": {
     "better-sqlite3": "^12.6.2",
-    "electron": "^31.0.0"
+    "electron": "^35.7.5"
   }
 }
