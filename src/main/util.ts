@@ -14,7 +14,6 @@ export function resolveHtmlPath(htmlFileName: string) {
 }
 
 export function getFFMPEGPath() {
-
   if (process.env.NODE_ENV === 'development') {
     return 'ffmpeg'
   }
@@ -31,5 +30,3 @@ export function getFFMPEGPath() {
       throw new Error('no os?')
   }
 }
-
-

@@ -41,6 +41,6 @@ const ensureLogFile = () => {
 export const appendPerfEvents = async (events: PerfEvent[]) => {
   if (!events || events.length === 0) return
   const filePath = ensureLogFile()
-  const lines = events.map((event) => JSON.stringify(event)).join('\n') + '\n'
+  const lines = `${events.map((event) => JSON.stringify(event)).join('\n')}\n`
   await fs.promises.appendFile(filePath, lines)
 }

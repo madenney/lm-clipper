@@ -13,7 +13,7 @@ import { FiZoomIn, FiZoomOut } from 'react-icons/fi'
 import { DomLayer } from './DomLayer'
 import { GpuLayer } from './GpuLayer'
 import { useClipMode } from '../../hooks/useClipMode'
-import { clipDisplayConfig, isGpuMode } from '../../config/clipDisplay'
+import { clipDisplayConfig } from '../../config/clipDisplay'
 import type { ClipData } from '../Clip'
 import type {
   ShallowArchiveInterface,
@@ -52,13 +52,13 @@ const FETCH_DEBOUNCE_MS = 150
 export function Tray({
   archive,
   activeFilterId,
-  isImporting,
+  isImporting: _isImporting,
   selectedIds,
   setSelectedIds,
   lastSelectedIndex,
   setLastSelectedIndex,
   setSelectionDuration,
-  setIsCalculatingDuration,
+  setIsCalculatingDuration: _setIsCalculatingDuration,
 }: TrayProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const contentRef = useRef<HTMLDivElement>(null)
@@ -475,7 +475,10 @@ export function Tray({
 
     for (const clip of selectedClips) {
       const start = clip.startFrame ?? 0
-      const end = (clip.endFrame ?? 0) > 0 ? (clip.endFrame ?? 0) : (('lastFrame' in clip ? clip.lastFrame : 0) ?? 0)
+      const end =
+        (clip.endFrame ?? 0) > 0
+          ? (clip.endFrame ?? 0)
+          : (('lastFrame' in clip ? clip.lastFrame : 0) ?? 0)
       totalFrames += Math.max(0, end - start)
     }
 

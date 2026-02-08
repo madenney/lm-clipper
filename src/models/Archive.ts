@@ -9,9 +9,9 @@ import {
   LiteItem,
 } from 'constants/types'
 
+import { Worker } from 'worker_threads'
 import Filter from './Filter'
 
-import { Worker } from 'worker_threads'
 import { streamSlpFilePaths } from '../lib/file'
 import {
   getMetaData,
@@ -50,7 +50,7 @@ export default class Archive {
       detectDuplicates?: boolean
       abortSignal?: AbortSignal
       maxWorkers?: number
-    }
+    },
   ) {
     const paths = Array.isArray(_paths) ? _paths : [_paths]
     const detectDuplicates = options?.detectDuplicates !== false
@@ -81,7 +81,9 @@ export default class Archive {
       eventEmitter({
         current: processed,
         total: totalDiscovered,
-        ...(pendingNewItemCount > 0 ? { newItemCount: pendingNewItemCount } : {}),
+        ...(pendingNewItemCount > 0
+          ? { newItemCount: pendingNewItemCount }
+          : {}),
       })
       pendingNewItemCount = 0
     }
@@ -180,7 +182,9 @@ export default class Archive {
     }
 
     try {
-      for await (const path of streamSlpFilePaths(paths, { signal: abortSignal })) {
+      for await (const path of streamSlpFilePaths(paths, {
+        signal: abortSignal,
+      })) {
         if (terminated) break
         totalDiscovered += 1
         const task = processFile(path)
@@ -224,7 +228,9 @@ export default class Archive {
   async deleteFilter(filterId: string) {
     const selectedFilter = this.filters.find((f) => f.id === filterId)
     if (!selectedFilter) {
-      throw new Error(`Archive error: removeFilter - no filter id found ${filterId}`)
+      throw new Error(
+        `Archive error: removeFilter - no filter id found ${filterId}`,
+      )
     }
 
     await deleteFilter(this.path, filterId)
@@ -284,8 +290,7 @@ export default class Archive {
   }) {
     const { filterId, numPerPage, currentPage, offset, limit, lite } = params
     const resolvedLimit = limit ?? numPerPage ?? 0
-    const resolvedOffset =
-      offset ?? ((currentPage || 0) * (numPerPage || 0))
+    const resolvedOffset = offset ?? (currentPage || 0) * (numPerPage || 0)
 
     if (resolvedLimit <= 0) return []
 
@@ -314,9 +319,10 @@ export default class Archive {
     const namesObj: { [key: string]: number } = {}
     files.forEach((file: any) => {
       if (!file.players) return
-      const players = typeof file.players === 'string'
-        ? JSON.parse(file.players)
-        : file.players
+      const players =
+        typeof file.players === 'string'
+          ? JSON.parse(file.players)
+          : file.players
       players.forEach((player: PlayerInterface) => {
         const name = player.displayName
         if (namesObj[name]) {
@@ -345,16 +351,18 @@ export default class Archive {
       response.forEach((row: any) => {
         if (!row.id) return
         if (lite) {
-          const rawStage = typeof row.stage === 'number' ? row.stage : parseInt(row.stage, 10)
+          const rawStage =
+            typeof row.stage === 'number' ? row.stage : parseInt(row.stage, 10)
           items.push({
             id: String(row.id),
             stage: Number.isNaN(rawStage) ? 0 : rawStage,
           })
           return
         }
-        const players = typeof row.players === 'string'
-          ? JSON.parse(row.players)
-          : row.players
+        const players =
+          typeof row.players === 'string'
+            ? JSON.parse(row.players)
+            : row.players
         const file = {
           id: row.id,
           path: row.path,
@@ -408,8 +416,8 @@ type ImportWorkerResponse =
 type ImportWorkerTask = {
   id: number
   filePath: string
-  resolve: (fileJSON: FileInterface) => void
-  reject: (error: Error) => void
+  resolve: (_fileJSON: FileInterface) => void
+  reject: (_error: Error) => void
 }
 
 class ImportWorkerPool {
@@ -477,7 +485,7 @@ class ImportWorkerPool {
       if (code !== 0) {
         this.handleWorkerError(
           worker,
-          new Error(`Import worker exited with code ${code}`)
+          new Error(`Import worker exited with code ${code}`),
         )
       }
     })

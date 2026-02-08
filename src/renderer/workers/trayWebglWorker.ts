@@ -69,9 +69,9 @@ let quadBuffer: WebGLBuffer | null = null
 let stageLayerBuffer: WebGLBuffer | null = null
 let stageIdBuffer: WebGLBuffer | null = null
 
-let attrCorner = 0
-let attrLayer = 1
-let attrStageId = 2
+const attrCorner = 0
+const attrLayer = 1
+const attrStageId = 2
 
 let uniformViewport: WebGLUniformLocation | null = null
 let uniformTileSize: WebGLUniformLocation | null = null
@@ -163,7 +163,11 @@ void main() {
 }
 `
 
-const postPerf = (name: string, durationMs: number, meta?: Record<string, any>) => {
+const postPerf = (
+  name: string,
+  durationMs: number,
+  meta?: Record<string, any>,
+) => {
   if (durationMs < perfLogThresholdMs) return
   self.postMessage({ type: 'perf', name, durationMs, meta })
 }
@@ -176,7 +180,10 @@ const createShader = (type: number, source: string) => {
   gl.compileShader(shader)
   if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
     const info = gl.getShaderInfoLog(shader)
-    self.postMessage({ type: 'error', message: `Shader compile failed: ${info}` })
+    self.postMessage({
+      type: 'error',
+      message: `Shader compile failed: ${info}`,
+    })
     gl.deleteShader(shader)
     return null
   }
@@ -229,7 +236,7 @@ const initGl = () => {
   gl.bufferData(
     gl.ARRAY_BUFFER,
     new Float32Array([0, 0, 1, 0, 0, 1, 1, 1]),
-    gl.STATIC_DRAW
+    gl.STATIC_DRAW,
   )
   gl.enableVertexAttribArray(attrCorner)
   gl.vertexAttribPointer(attrCorner, 2, gl.FLOAT, false, 0, 0)
@@ -305,7 +312,7 @@ const uploadStageData = (payload: DataPayload) => {
 const uploadTextureArray = (payload: TexturePayload) => {
   if (!gl) return
   const uploadStart = performance.now()
-  const size = payload.size
+  const { size } = payload
   const bitmaps = payload.bitmaps.filter(Boolean)
   if (bitmaps.length === 0) return
 
@@ -314,7 +321,14 @@ const uploadTextureArray = (payload: TexturePayload) => {
   gl.bindTexture(gl.TEXTURE_2D_ARRAY, texture)
 
   if (gl.texStorage3D) {
-    gl.texStorage3D(gl.TEXTURE_2D_ARRAY, 1, gl.RGBA8, size, size, bitmaps.length)
+    gl.texStorage3D(
+      gl.TEXTURE_2D_ARRAY,
+      1,
+      gl.RGBA8,
+      size,
+      size,
+      bitmaps.length,
+    )
   } else {
     gl.texImage3D(
       gl.TEXTURE_2D_ARRAY,
@@ -326,7 +340,7 @@ const uploadTextureArray = (payload: TexturePayload) => {
       0,
       gl.RGBA,
       gl.UNSIGNED_BYTE,
-      null
+      null,
     )
   }
 
@@ -342,7 +356,7 @@ const uploadTextureArray = (payload: TexturePayload) => {
       1,
       gl.RGBA,
       gl.UNSIGNED_BYTE,
-      bitmap
+      bitmap,
     )
     bitmap.close()
   })
@@ -363,9 +377,8 @@ const drawFrame = (payload: DrawPayload) => {
   updateViewport(payload.width, payload.height)
 
   const availableTexture = texturesBySize.get(payload.variantSize)
-  const useFallback = payload.useFallback
-  const layerCount =
-    availableTexture?.layers ?? payload.layerCount ?? 0
+  const { useFallback } = payload
+  const layerCount = availableTexture?.layers ?? payload.layerCount ?? 0
   if (payload.useSolid === false && !availableTexture) {
     gl.clearColor(0, 0, 0, 0)
     gl.clear(gl.COLOR_BUFFER_BIT)
@@ -378,7 +391,9 @@ const drawFrame = (payload: DrawPayload) => {
     : payload.offset >= cachedRange.offset
       ? payload.offset
       : cachedRange.offset
-  const baseOffset = useFallback ? 0 : Math.max(0, drawOffset - cachedRange.offset)
+  const baseOffset = useFallback
+    ? 0
+    : Math.max(0, drawOffset - cachedRange.offset)
   const drawable = useFallback
     ? Math.max(0, payload.limit)
     : Math.max(0, Math.min(payload.limit, total - baseOffset))
@@ -405,7 +420,8 @@ const drawFrame = (payload: DrawPayload) => {
   if (uniformTileSize) gl.uniform1f(uniformTileSize, payload.tileSize)
   if (uniformCell) gl.uniform1f(uniformCell, payload.cell)
   if (uniformPadding) gl.uniform1f(uniformPadding, payload.padding)
-  if (uniformScrollOffset) gl.uniform1f(uniformScrollOffset, payload.scrollOffset)
+  if (uniformScrollOffset)
+    gl.uniform1f(uniformScrollOffset, payload.scrollOffset)
   if (uniformColumns) gl.uniform1i(uniformColumns, payload.columns)
   if (uniformOffset) gl.uniform1i(uniformOffset, drawOffset)
   if (uniformUseSolid) gl.uniform1i(uniformUseSolid, payload.useSolid ? 1 : 0)
@@ -451,7 +467,13 @@ self.onmessage = (event: MessageEvent<WorkerMessage>) => {
     canvas = payload.canvas
     dpr = payload.dpr || 1
     const success = initGl()
-    self.postMessage({ type: 'log', msg: 'init', success, hasGl: !!gl, hasProgram: !!program })
+    self.postMessage({
+      type: 'log',
+      msg: 'init',
+      success,
+      hasGl: !!gl,
+      hasProgram: !!program,
+    })
     return
   }
   if (payload.type === 'palette') {
@@ -460,7 +482,11 @@ self.onmessage = (event: MessageEvent<WorkerMessage>) => {
       gl.useProgram(program)
       gl.uniform4fv(uniformStageColors, stageColors)
     }
-    self.postMessage({ type: 'log', msg: 'palette', count: stageColors.length / 4 })
+    self.postMessage({
+      type: 'log',
+      msg: 'palette',
+      count: stageColors.length / 4,
+    })
     return
   }
   if (payload.type === 'textures') {
@@ -473,7 +499,13 @@ self.onmessage = (event: MessageEvent<WorkerMessage>) => {
     return
   }
   if (payload.type === 'draw') {
-    self.postMessage({ type: 'log', msg: 'draw-start', limit: payload.limit, cachedLimit: cachedRange.limit, useSolid: payload.useSolid })
+    self.postMessage({
+      type: 'log',
+      msg: 'draw-start',
+      limit: payload.limit,
+      cachedLimit: cachedRange.limit,
+      useSolid: payload.useSolid,
+    })
     drawFrame(payload)
     self.postMessage({ type: 'log', msg: 'draw-done' })
   }

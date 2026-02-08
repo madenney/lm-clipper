@@ -28,6 +28,10 @@ npm-debug.log.*
 *.sass.d.ts
 *.scss.d.ts
 
-# eslint ignores hidden directories by default:
-# https://github.com/eslint/eslint/issues/8429
-!.erb
+# Boilerplate and utility scripts
+.erb
+notes
+scripts
+
+# ESLint config file (not included in tsconfig)
+.eslintrc.js

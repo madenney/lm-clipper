@@ -1,15 +1,19 @@
-import { useState, Dispatch, SetStateAction, useEffect, useRef, useMemo } from 'react'
-import { ConfigInterface, ShallowArchiveInterface, ClipInterface, FileInterface, RecentProject } from '../../constants/types'
+import { useState, Dispatch, SetStateAction, useEffect, useRef } from 'react'
+import ipcBridge from 'renderer/ipcBridge'
+import {
+  ConfigInterface,
+  ShallowArchiveInterface,
+  RecentProject,
+} from '../../constants/types'
 import Filters from './Filters'
 import Top from './Top'
 import { Tray } from './Tray/Tray'
-import ipcBridge from 'renderer/ipcBridge'
 import '../styles/Main.css'
 
 export type SelectionInfo = {
   selectedIds: Set<string>
   lastSelectedIndex: number | null
-  totalDuration: number | null  // null = calculating
+  totalDuration: number | null // null = calculating
   isCalculating: boolean
 }
 
@@ -30,7 +34,11 @@ const formatDuration = (frames: number): string => {
   return parts.join(' ')
 }
 
-function EmptyState({ setArchive }: { setArchive: Dispatch<SetStateAction<ShallowArchiveInterface | null>> }) {
+function EmptyState({
+  setArchive,
+}: {
+  setArchive: Dispatch<SetStateAction<ShallowArchiveInterface | null>>
+}) {
   const [recentProjects, setRecentProjects] = useState<RecentProject[]>([])
 
   useEffect(() => {
@@ -66,7 +74,7 @@ function EmptyState({ setArchive }: { setArchive: Dispatch<SetStateAction<Shallo
 
   const truncatePath = (p: string, maxLen = 60) => {
     if (p.length <= maxLen) return p
-    return '...' + p.slice(p.length - maxLen + 3)
+    return `...${p.slice(p.length - maxLen + 3)}`
   }
 
   return (
@@ -74,10 +82,18 @@ function EmptyState({ setArchive }: { setArchive: Dispatch<SetStateAction<Shallo
       <div className="empty-state-inner">
         <div className="empty-state-title">LM Clipper</div>
         <div className="empty-state-actions">
-          <button type="button" className="empty-state-btn" onClick={handleNewProject}>
+          <button
+            type="button"
+            className="empty-state-btn"
+            onClick={handleNewProject}
+          >
             New Project
           </button>
-          <button type="button" className="empty-state-btn empty-state-btn--secondary" onClick={handleOpenProject}>
+          <button
+            type="button"
+            className="empty-state-btn empty-state-btn--secondary"
+            onClick={handleOpenProject}
+          >
             Open Project
           </button>
         </div>
@@ -92,8 +108,12 @@ function EmptyState({ setArchive }: { setArchive: Dispatch<SetStateAction<Shallo
                   className="empty-state-recent-item"
                   onClick={() => handleOpenRecent(project.path)}
                 >
-                  <span className="empty-state-recent-name">{project.name}</span>
-                  <span className="empty-state-recent-path">{truncatePath(project.path)}</span>
+                  <span className="empty-state-recent-name">
+                    {project.name}
+                  </span>
+                  <span className="empty-state-recent-path">
+                    {truncatePath(project.path)}
+                  </span>
                 </button>
               ))}
             </div>
@@ -128,8 +148,12 @@ export default function Main({
 
   // Selection state
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
-  const [lastSelectedIndex, setLastSelectedIndex] = useState<number | null>(null)
-  const [selectionDuration, setSelectionDuration] = useState<number | null>(null)
+  const [lastSelectedIndex, setLastSelectedIndex] = useState<number | null>(
+    null,
+  )
+  const [selectionDuration, setSelectionDuration] = useState<number | null>(
+    null,
+  )
   const [isCalculatingDuration, setIsCalculatingDuration] = useState(false)
 
   // Video generation state
@@ -146,12 +170,14 @@ export default function Main({
 
     const removeListener = window.electron.ipcRenderer.on(
       'importStatus',
-      (status) => applyStatus(status)
+      (status) => applyStatus(status),
     )
 
     ipcBridge.getImportStatus((status) => applyStatus(status))
 
-    return () => { removeListener() }
+    return () => {
+      removeListener()
+    }
   }, [])
 
   // Clear selection when filter changes
@@ -167,7 +193,7 @@ export default function Main({
       'videoJobFinished',
       () => {
         setIsGenerating(false)
-      }
+      },
     )
     return () => {
       removeListener()
@@ -175,8 +201,11 @@ export default function Main({
   }, [])
 
   // Determine if showing games or clips
-  const activeFilterType = archive?.filters.find(f => f.id === activeFilterId)?.type
-  const isShowingGames = activeFilterType === 'files' || activeFilterId === 'files'
+  const activeFilterType = archive?.filters.find(
+    (f) => f.id === activeFilterId,
+  )?.type
+  const isShowingGames =
+    activeFilterType === 'files' || activeFilterId === 'files'
 
   useEffect(() => {
     const hasFiles = (event: DragEvent) => {
@@ -236,7 +265,7 @@ export default function Main({
 
       const getPath = (window as any).electronWebUtils?.getPathForFile
       const paths: string[] = []
-      const dataTransfer = event.dataTransfer
+      const { dataTransfer } = event
       const items = dataTransfer?.items
       if (items && items.length > 0) {
         for (let i = 0; i < items.length; i += 1) {
@@ -298,7 +327,9 @@ export default function Main({
       }
       return
     }
-    const exists = archive.filters.some((filter) => filter.id === activeFilterId)
+    const exists = archive.filters.some(
+      (filter) => filter.id === activeFilterId,
+    )
     if (!exists && activeFilterId !== fallbackId) {
       setActiveFilterId(fallbackId)
     }
@@ -332,7 +363,7 @@ export default function Main({
     const newLeftWidth = e.clientX
     const maxLeftWidth = Math.max(
       minLeftWidth,
-      window.innerWidth - minRightWidth - dividerWidth
+      window.innerWidth - minRightWidth - dividerWidth,
     )
     if (newLeftWidth > minLeftWidth && newLeftWidth < maxLeftWidth) {
       setLeftWidth(newLeftWidth)
@@ -348,9 +379,11 @@ export default function Main({
     const clampWidths = () => {
       const maxLeftWidth = Math.max(
         minLeftWidth,
-        window.innerWidth - minRightWidth - dividerWidth
+        window.innerWidth - minRightWidth - dividerWidth,
       )
-      setLeftWidth((prev) => Math.min(Math.max(prev, minLeftWidth), maxLeftWidth))
+      setLeftWidth((prev) =>
+        Math.min(Math.max(prev, minLeftWidth), maxLeftWidth),
+      )
     }
     window.addEventListener('resize', clampWidths)
     clampWidths()
@@ -439,7 +472,8 @@ export default function Main({
           {selectedIds.size > 0 ? (
             <div className="footer-selection">
               <span className="footer-selection-count">
-                {selectedIds.size} {isShowingGames ? 'game' : 'clip'}{selectedIds.size !== 1 ? 's' : ''}
+                {selectedIds.size} {isShowingGames ? 'game' : 'clip'}
+                {selectedIds.size !== 1 ? 's' : ''}
               </span>
               {selectionDuration !== null && selectionDuration > 0 && (
                 <span className="footer-selection-duration">
@@ -456,11 +490,7 @@ export default function Main({
           )}
           {isGenerating ? (
             <>
-              <button
-                type="button"
-                className="stop-button"
-                onClick={stopVideo}
-              >
+              <button type="button" className="stop-button" onClick={stopVideo}>
                 Stop
               </button>
               <button

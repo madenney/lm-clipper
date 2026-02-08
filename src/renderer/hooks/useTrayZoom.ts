@@ -1,4 +1,10 @@
-import { useState, useEffect, useMemo, useRef, type MutableRefObject } from 'react'
+import {
+  useState,
+  useEffect,
+  useMemo,
+  useRef,
+  type MutableRefObject,
+} from 'react'
 import { zoomConfig } from '../zoomConfig'
 import {
   clamp,
@@ -15,8 +21,11 @@ import {
 } from '../lib/layoutMath'
 
 type DebugFns = {
-  logZoomTrace: (event: string, meta?: Record<string, string | number | boolean | null>) => void
-  updateDebugLines: (source: string) => void
+  logZoomTrace: (
+    _event: string,
+    _meta?: Record<string, string | number | boolean | null>,
+  ) => void
+  updateDebugLines: (_source: string) => void
 }
 
 type WheelDebugInfo = {
@@ -51,16 +60,25 @@ export type UseTrayZoomParams = {
 
 const maxVisibleItems = zoomConfig.densityMaxVisibleItems
 const zoomCommitDelayMs = 120
-const zoomButtonStep = zoomConfig.zoomButtonStep
-const fitToTray = zoomConfig.fitToTray
+const { zoomButtonStep } = zoomConfig
+const { fitToTray } = zoomConfig
 const pageSizeDefault = 50
 
 export const useTrayZoom = (params: UseTrayZoomParams) => {
   const {
-    trayRef, traySizeRef, resultsTopRef,
-    layoutRef, displayTotalResultsRef, totalResultsRef,
-    trayWidth, trayHeight, resultsTop,
-    pageOffsetRef, onZoomCommitRef, debugRef, scrollDetectPulse,
+    trayRef,
+    traySizeRef,
+    resultsTopRef,
+    layoutRef,
+    displayTotalResultsRef,
+    totalResultsRef,
+    trayWidth,
+    trayHeight,
+    resultsTop,
+    pageOffsetRef,
+    onZoomCommitRef,
+    debugRef,
+    scrollDetectPulse,
   } = params
 
   const [zoomSize, setZoomSize] = useState(20)
@@ -71,9 +89,17 @@ export const useTrayZoom = (params: UseTrayZoomParams) => {
   const zoomRafRef = useRef<number | null>(null)
   const initialZoomSetRef = useRef(false)
   const lastWheelInfoRef = useRef<WheelDebugInfo>({
-    deltaX: 0, deltaY: 0,
-    ctrlKey: false, shiftKey: false, altKey: false, metaKey: false,
-    factor: 1, nextZoom: 0, anchorX: 0, anchorY: 0, time: 0,
+    deltaX: 0,
+    deltaY: 0,
+    ctrlKey: false,
+    shiftKey: false,
+    altKey: false,
+    metaKey: false,
+    factor: 1,
+    nextZoom: 0,
+    anchorX: 0,
+    anchorY: 0,
+    time: 0,
   })
 
   const minZoomForDensity = useMemo(() => {
@@ -93,7 +119,9 @@ export const useTrayZoom = (params: UseTrayZoomParams) => {
   const effectiveMinZoomRef = useRef(effectiveMinZoom)
   effectiveMinZoomRef.current = effectiveMinZoom
   const displayZoomRef = useRef(displayZoom)
-  useEffect(() => { displayZoomRef.current = displayZoom }, [displayZoom])
+  useEffect(() => {
+    displayZoomRef.current = displayZoom
+  }, [displayZoom])
 
   // Initial zoom from column count
   useEffect(() => {
@@ -110,10 +138,12 @@ export const useTrayZoom = (params: UseTrayZoomParams) => {
   }, [maxZoom])
 
   // Sync zoomTarget ref
-  useEffect(() => { zoomTargetRef.current = zoomSize }, [zoomSize])
+  useEffect(() => {
+    zoomTargetRef.current = zoomSize
+  }, [zoomSize])
 
   const isFullWidthZoom = (zoom: number) => {
-    const width = traySizeRef.current.width
+    const { width } = traySizeRef.current
     if (width <= 0) return false
     const gap = getGap(zoom)
     const cell = Math.max(1, zoom + gap)
@@ -136,7 +166,13 @@ export const useTrayZoom = (params: UseTrayZoomParams) => {
     const currentSize = traySizeRef.current
     const rTop = resultsTopRef.current
     const currentBaseGap = getGap(zoom)
-    const baseMetrics = computeViewMetrics(zoom, currentSize.width, currentSize.height, rTop, currentBaseGap)
+    const baseMetrics = computeViewMetrics(
+      zoom,
+      currentSize.width,
+      currentSize.height,
+      rTop,
+      currentBaseGap,
+    )
     const nextFullWidth = baseMetrics.columns === 1
     const nextFitToTray = nextFullWidth ? false : fitToTray
     const pageOffset = pageOffsetRef.current
@@ -144,22 +180,42 @@ export const useTrayZoom = (params: UseTrayZoomParams) => {
       ? Math.max(0, Math.min(pageSizeDefault, nextDisplayBase - pageOffset))
       : nextDisplayBase
     const currentBaseOnScreen = Math.min(pagedDisplayBase, baseMetrics.capacity)
-    const currentGapValue = currentBaseOnScreen >= zoomConfig.gapOffAt ? 0 : currentBaseGap
-    const currentViewMetrics = computeViewMetrics(zoom, currentSize.width, currentSize.height, rTop, currentGapValue)
-    const nextDisplayTotal = nextFitToTray && currentViewMetrics.capacity > 0
-      ? Math.min(currentViewMetrics.capacity, pagedDisplayBase)
-      : pagedDisplayBase
-    const nextLayout = buildLayout(zoom, nextDisplayTotal, currentSize.width, currentSize.height, rTop, currentGapValue)
+    const currentGapValue =
+      currentBaseOnScreen >= zoomConfig.gapOffAt ? 0 : currentBaseGap
+    const currentViewMetrics = computeViewMetrics(
+      zoom,
+      currentSize.width,
+      currentSize.height,
+      rTop,
+      currentGapValue,
+    )
+    const nextDisplayTotal =
+      nextFitToTray && currentViewMetrics.capacity > 0
+        ? Math.min(currentViewMetrics.capacity, pagedDisplayBase)
+        : pagedDisplayBase
+    const nextLayout = buildLayout(
+      zoom,
+      nextDisplayTotal,
+      currentSize.width,
+      currentSize.height,
+      rTop,
+      currentGapValue,
+    )
     return { displayTotal: nextDisplayTotal, layout: nextLayout }
   }
 
   const applyZoom = (nextZoom: number, anchorX: number, anchorY: number) => {
     const node = trayRef.current
     if (!node) return
-    if (isFullWidthZoom(zoomTargetRef.current) && nextZoom > zoomTargetRef.current) return
+    if (
+      isFullWidthZoom(zoomTargetRef.current) &&
+      nextZoom > zoomTargetRef.current
+    )
+      return
 
     isZoomingRef.current = true
-    if (zoomStopTimeoutRef.current != null) window.clearTimeout(zoomStopTimeoutRef.current)
+    if (zoomStopTimeoutRef.current != null)
+      window.clearTimeout(zoomStopTimeoutRef.current)
     zoomStopTimeoutRef.current = window.setTimeout(() => {
       isZoomingRef.current = false
       onZoomCommitRef.current()
@@ -174,8 +230,16 @@ export const useTrayZoom = (params: UseTrayZoomParams) => {
     let anchorRatio = 0
     if (oldTotal > 0 && oldLayout.columns > 0) {
       const gridY = node.scrollTop + pointerY - resultsTopRef.current
-      const row = clamp(Math.floor((gridY - oldLayout.padding) / oldLayout.cell), 0, Math.max(0, oldLayout.totalRows - 1))
-      const col = clamp(Math.floor((pointerX - oldLayout.padding) / oldLayout.cell), 0, Math.max(0, oldLayout.columns - 1))
+      const row = clamp(
+        Math.floor((gridY - oldLayout.padding) / oldLayout.cell),
+        0,
+        Math.max(0, oldLayout.totalRows - 1),
+      )
+      const col = clamp(
+        Math.floor((pointerX - oldLayout.padding) / oldLayout.cell),
+        0,
+        Math.max(0, oldLayout.columns - 1),
+      )
       const index = Math.min(row * oldLayout.columns + col, oldTotal - 1)
       anchorRatio = (index + 0.5) / oldTotal
     }
@@ -190,12 +254,24 @@ export const useTrayZoom = (params: UseTrayZoomParams) => {
     const nextMetrics = computeZoomMetrics(nextZoom)
     if (nextMetrics.displayTotal > 0 && nextMetrics.layout.columns > 0) {
       const safeTotal = Math.max(1, nextMetrics.displayTotal)
-      const nextIndex = clamp(Math.floor(anchorRatio * safeTotal), 0, safeTotal - 1)
+      const nextIndex = clamp(
+        Math.floor(anchorRatio * safeTotal),
+        0,
+        safeTotal - 1,
+      )
       const nextColumns = Math.max(1, nextMetrics.layout.columns)
       const nextRow = Math.floor(nextIndex / nextColumns)
-      const nextScrollOffset = nextRow * nextMetrics.layout.cell + nextMetrics.layout.padding - pointerY
+      const nextScrollOffset =
+        nextRow * nextMetrics.layout.cell +
+        nextMetrics.layout.padding -
+        pointerY
       const nextScrollTop = nextScrollOffset + resultsTopRef.current
-      const maxScroll = Math.max(0, resultsTopRef.current + nextMetrics.layout.totalHeight - traySizeRef.current.height)
+      const maxScroll = Math.max(
+        0,
+        resultsTopRef.current +
+          nextMetrics.layout.totalHeight -
+          traySizeRef.current.height,
+      )
       zoomScrollTopRef.current = clamp(nextScrollTop, 0, maxScroll)
     } else {
       zoomScrollTopRef.current = 0
@@ -231,7 +307,7 @@ export const useTrayZoom = (params: UseTrayZoomParams) => {
   useEffect(() => {
     const node = trayRef.current
     if (!node) return
-    const minZoom = zoomConfig.minZoom
+    const { minZoom } = zoomConfig
     const onWheel = (event: WheelEvent) => {
       const rect = node.getBoundingClientRect()
       const aX = event.clientX - rect.left
@@ -243,10 +319,17 @@ export const useTrayZoom = (params: UseTrayZoomParams) => {
         nz = clamp(zoomTargetRef.current * factor, minZoom, maxZoomRef.current)
       }
       lastWheelInfoRef.current = {
-        deltaX: event.deltaX, deltaY: event.deltaY,
-        ctrlKey: event.ctrlKey, shiftKey: event.shiftKey,
-        altKey: event.altKey, metaKey: event.metaKey,
-        factor, nextZoom: nz, anchorX: aX, anchorY: aY, time: Date.now(),
+        deltaX: event.deltaX,
+        deltaY: event.deltaY,
+        ctrlKey: event.ctrlKey,
+        shiftKey: event.shiftKey,
+        altKey: event.altKey,
+        metaKey: event.metaKey,
+        factor,
+        nextZoom: nz,
+        anchorX: aX,
+        anchorY: aY,
+        time: Date.now(),
       }
       if (event.ctrlKey) scrollDetectPulse()
       debugRef.current.updateDebugLines('wheel')
@@ -254,8 +337,10 @@ export const useTrayZoom = (params: UseTrayZoomParams) => {
         deltaX: roundNumber(event.deltaX, 2),
         deltaY: roundNumber(event.deltaY, 2),
         deltaMode: event.deltaMode,
-        ctrlKey: event.ctrlKey, shiftKey: event.shiftKey,
-        altKey: event.altKey, metaKey: event.metaKey,
+        ctrlKey: event.ctrlKey,
+        shiftKey: event.shiftKey,
+        altKey: event.altKey,
+        metaKey: event.metaKey,
         factor: roundNumber(factor, 5),
         nextZoom: roundNumber(nz, 3),
         anchorX: roundNumber(aX, 2),
@@ -263,7 +348,8 @@ export const useTrayZoom = (params: UseTrayZoomParams) => {
       })
       if (!event.ctrlKey) return
       event.preventDefault()
-      if (nz > zoomTargetRef.current && isFullWidthZoom(zoomTargetRef.current)) return
+      if (nz > zoomTargetRef.current && isFullWidthZoom(zoomTargetRef.current))
+        return
       applyZoom(nz, aX, aY)
     }
     node.addEventListener('wheel', onWheel, { passive: false })
@@ -271,10 +357,23 @@ export const useTrayZoom = (params: UseTrayZoomParams) => {
   }, [])
 
   return {
-    zoomSize, displayZoom, maxZoom, minZoomForDensity, effectiveMinZoom,
-    isFullWidthZoom, nudgeZoom, computeZoomMetrics,
-    zoomTargetRef, isZoomingRef, zoomRafRef, zoomStopTimeoutRef,
-    zoomScrollTopRef, lastWheelInfoRef, maxZoomRef, effectiveMinZoomRef,
-    displayZoomRef, initialZoomSetRef,
+    zoomSize,
+    displayZoom,
+    maxZoom,
+    minZoomForDensity,
+    effectiveMinZoom,
+    isFullWidthZoom,
+    nudgeZoom,
+    computeZoomMetrics,
+    zoomTargetRef,
+    isZoomingRef,
+    zoomRafRef,
+    zoomStopTimeoutRef,
+    zoomScrollTopRef,
+    lastWheelInfoRef,
+    maxZoomRef,
+    effectiveMinZoomRef,
+    displayZoomRef,
+    initialZoomSetRef,
   }
 }

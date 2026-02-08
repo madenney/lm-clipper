@@ -16,32 +16,32 @@ import type {
 } from '../constants/types'
 
 type WorkflowOptions = {
-  log?: (msg: string) => void
+  log?: (_msg: string) => void
 }
 
 export async function runWorkflow(
   config: ConfigInterface,
-  options: WorkflowOptions = {}
+  options: WorkflowOptions = {},
 ) {
   const log = options.log || console.log
   const sampleCount = Number.parseInt(
     process.env.LM_CLIPPER_SAMPLE_COUNT || '5',
-    10
+    10,
   )
   const filterType = process.env.LM_CLIPPER_FILTER_TYPE || 'slpParser'
   const skipVideo = process.env.LM_CLIPPER_SKIP_VIDEO === '1'
   const lowQuality = process.env.LM_CLIPPER_WORKFLOW_LOW_QUALITY === '1'
   const workflowBitrate = Number.parseInt(
     process.env.LM_CLIPPER_WORKFLOW_BITRATE_KBPS || '',
-    10
+    10,
   )
   const workflowResolution = Number.parseInt(
     process.env.LM_CLIPPER_WORKFLOW_RESOLUTION || '',
-    10
+    10,
   )
   const workflowNumProcesses = Number.parseInt(
     process.env.LM_CLIPPER_WORKFLOW_NUM_PROCESSES || '',
-    10
+    10,
   )
   const replayDir =
     process.env.LM_CLIPPER_REPLAY_DIR ||
@@ -81,7 +81,7 @@ export async function runWorkflow(
     ({ current, total }) => {
       log(`Workflow: import ${current}/${total}`)
     },
-    { maxWorkers }
+    { maxWorkers },
   )
 
   const filterTemplate = filtersConfig.find((entry) => entry.id === filterType)
@@ -106,7 +106,9 @@ export async function runWorkflow(
   log(`Workflow: adding filter ${newFilter.label}`)
   await archive.addFilter(newFilter)
 
-  const filterIndex = archive.filters.findIndex((filter) => filter.id === filterId)
+  const filterIndex = archive.filters.findIndex(
+    (filter) => filter.id === filterId,
+  )
   if (filterIndex < 0) {
     log('Workflow error: filter missing after add')
     return
@@ -120,7 +122,7 @@ export async function runWorkflow(
     Math.max(1, config.numFilterThreads || 1),
     ({ current, total }) => {
       log(`Workflow: filter progress ${current}/${total}`)
-    }
+    },
   )
 
   archive.filters[filterIndex].isProcessed = true
@@ -129,7 +131,7 @@ export async function runWorkflow(
 
   const updatedMeta = await getMetaData(dbPath)
   const updatedFilter = updatedMeta.filters.find(
-    (filter) => filter.id === filterId
+    (filter) => filter.id === filterId,
   )
   log(`Workflow: filter results ${updatedFilter?.results || 0}`)
 
@@ -180,8 +182,7 @@ export async function runWorkflow(
   finalResults.forEach((result, index) => {
     const hasStart =
       typeof result.startFrame === 'number' && result.startFrame !== 0
-    const hasEnd =
-      typeof result.endFrame === 'number' && result.endFrame !== 0
+    const hasEnd = typeof result.endFrame === 'number' && result.endFrame !== 0
     const startFrame = hasStart ? result.startFrame : -123
     const endFrame = hasEnd
       ? result.endFrame

@@ -13,15 +13,19 @@ import React, { memo, type CSSProperties, type MouseEvent } from 'react'
 import { FiPlay, FiCircle } from 'react-icons/fi'
 
 import './Clip.css'
-import type { ClipInterface, FileInterface, PlayerInterface, LiteItem } from '../../../constants/types'
-import { clipDisplayConfig, isFeatureVisible, type ClipMode } from '../../config/clipDisplay'
+import type {
+  ClipInterface,
+  FileInterface,
+  PlayerInterface,
+  LiteItem,
+} from '../../../constants/types'
+import { isFeatureVisible, type ClipMode } from '../../config/clipDisplay'
 import {
   resolveStageImage,
   resolveCharacterImage,
   getArrowImage,
   getStageName,
   getPlayerLabel,
-  getCharacterName,
 } from '../../lib/clipAssets'
 import ipcBridge from '../../ipcBridge'
 
@@ -33,14 +37,16 @@ type ClipProps = {
   mode: ClipMode
   style?: CSSProperties
   isSelected?: boolean
-  onMouseDown?: (e: React.MouseEvent) => void
+  onMouseDown?: (_e: React.MouseEvent) => void
   onMouseEnter?: () => void
 }
 
 /**
  * Extract player info from various data shapes
  */
-const getPlayers = (data: ClipData): [PlayerInterface | undefined, PlayerInterface | undefined] => {
+const getPlayers = (
+  data: ClipData,
+): [PlayerInterface | undefined, PlayerInterface | undefined] => {
   if ('comboer' in data && data.comboer) {
     return [data.comboer, data.comboee]
   }
@@ -69,7 +75,10 @@ const getClipPayload = (data: ClipData) => {
   if ('endFrame' in data && typeof data.endFrame === 'number') {
     payload.endFrame = data.endFrame
   }
-  if ('lastFrame' in data && typeof (data as FileInterface).lastFrame === 'number') {
+  if (
+    'lastFrame' in data &&
+    typeof (data as FileInterface).lastFrame === 'number'
+  ) {
     payload.lastFrame = (data as FileInterface).lastFrame
   }
 
@@ -84,7 +93,10 @@ const getDurationDisplay = (data: ClipData): string | null => {
 
   if ('endFrame' in data && 'startFrame' in data) {
     const clip = data as ClipInterface
-    if (typeof clip.endFrame === 'number' && typeof clip.startFrame === 'number') {
+    if (
+      typeof clip.endFrame === 'number' &&
+      typeof clip.startFrame === 'number'
+    ) {
       frames = clip.endFrame - clip.startFrame
     }
   } else if ('lastFrame' in data) {
@@ -105,7 +117,15 @@ const getDurationDisplay = (data: ClipData): string | null => {
   return `${seconds.toFixed(1)}s`
 }
 
-function ClipComponent({ data, size, mode, style, isSelected, onMouseDown, onMouseEnter }: ClipProps) {
+function ClipComponent({
+  data,
+  size,
+  mode,
+  style,
+  isSelected,
+  onMouseDown,
+  onMouseEnter,
+}: ClipProps) {
   const [player1, player2] = getPlayers(data)
   const stageId = data.stage
   const clipPayload = getClipPayload(data)
@@ -135,8 +155,12 @@ function ClipComponent({ data, size, mode, style, isSelected, onMouseDown, onMou
   const preventDrag = (e: React.DragEvent) => e.preventDefault()
 
   // Handlers
-  const handlePlay = clipPayload ? () => ipcBridge.playClip(clipPayload) : undefined
-  const handleRecord = clipPayload ? () => ipcBridge.recordClip(clipPayload) : undefined
+  const handlePlay = clipPayload
+    ? () => ipcBridge.playClip(clipPayload)
+    : undefined
+  const handleRecord = clipPayload
+    ? () => ipcBridge.recordClip(clipPayload)
+    : undefined
 
   const handlePlayClick = (e: MouseEvent) => {
     e.stopPropagation()
@@ -157,9 +181,10 @@ function ClipComponent({ data, size, mode, style, isSelected, onMouseDown, onMou
   if (isSelected) classNames.push('clip--selected')
 
   // Full mode: horizontal rectangle. Other modes: square
-  const containerStyle: CSSProperties = mode === 'full'
-    ? { ...style, width: '100%', height: size }
-    : { ...style, width: size, height: size }
+  const containerStyle: CSSProperties =
+    mode === 'full'
+      ? { ...style, width: '100%', height: size }
+      : { ...style, width: size, height: size }
 
   // Full mode: horizontal layout with stage on left, info on right
   if (mode === 'full') {
@@ -180,9 +205,15 @@ function ClipComponent({ data, size, mode, style, isSelected, onMouseDown, onMou
           </div>
           {showCharIcons && (char1Image || char2Image) && (
             <div className="clip-characters">
-              {char1Image && <img className="clip-char" src={char1Image} alt="" />}
-              {arrowImage && <img className="clip-arrow" src={arrowImage} alt="" />}
-              {char2Image && <img className="clip-char" src={char2Image} alt="" />}
+              {char1Image && (
+                <img className="clip-char" src={char1Image} alt="" />
+              )}
+              {arrowImage && (
+                <img className="clip-arrow" src={arrowImage} alt="" />
+              )}
+              {char2Image && (
+                <img className="clip-char" src={char2Image} alt="" />
+              )}
             </div>
           )}
         </div>
@@ -204,7 +235,8 @@ function ClipComponent({ data, size, mode, style, isSelected, onMouseDown, onMou
               {combo.moves && <span>{combo.moves.length} hits</span>}
               {typeof combo.startPercent === 'number' && (
                 <span>
-                  {combo.startPercent.toFixed(0)}% → {combo.endPercent?.toFixed(0) ?? '?'}%
+                  {combo.startPercent.toFixed(0)}% →{' '}
+                  {combo.endPercent?.toFixed(0) ?? '?'}%
                 </span>
               )}
               {combo.didKill && <span className="clip-kill">Kill</span>}
@@ -251,9 +283,7 @@ function ClipComponent({ data, size, mode, style, isSelected, onMouseDown, onMou
     >
       {/* Background: Stage Image */}
       <div className="clip-bg">
-        {stageImage && (
-          <img className="clip-stage" src={stageImage} alt="" />
-        )}
+        {stageImage && <img className="clip-stage" src={stageImage} alt="" />}
       </div>
 
       {/* Characters Overlay */}

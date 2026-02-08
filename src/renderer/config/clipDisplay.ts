@@ -13,9 +13,9 @@ export type ClipMode = 'full' | 'mode2' | 'mode3' | 'mode4'
 export const clipDisplayConfig = {
   // Zoom size thresholds (px) for mode transitions
   thresholds: {
-    full: 300,   // >= 300px = full mode (DOM, scrollable)
-    mode2: 5,    // >= 5px = mode 2 (DOM grid)
-    mode3: 2,    // >= 2px = mode 3 (GPU)
+    full: 300, // >= 300px = full mode (DOM, scrollable)
+    mode2: 5, // >= 5px = mode 2 (DOM grid)
+    mode3: 2, // >= 2px = mode 3 (GPU)
     // below 2px = mode 4 (GPU micro)
   },
 
@@ -35,10 +35,10 @@ export const clipDisplayConfig = {
 
   // Visual styling
   style: {
-    gapRatio: 0.05,       // gap as fraction of tile size
-    minGap: 2,            // minimum gap in px
-    borderWidth: 1,       // border width in px
-    infoMaxHeight: 0.4,   // info overlay max height as fraction
+    gapRatio: 0.05, // gap as fraction of tile size
+    minGap: 2, // minimum gap in px
+    borderWidth: 1, // border width in px
+    infoMaxHeight: 0.4, // info overlay max height as fraction
     borderColor: '#ffffff',
     borderColorFull: '#2a2a2a',
     backgroundColor: '#000000',
@@ -47,12 +47,12 @@ export const clipDisplayConfig = {
 
   // Stage colors for GPU mode - averaged from 9px stage images
   stageColors: {
-    bf: '#201B20',    // Battlefield
-    fd: '#271739',    // Final Destination
-    dl: '#74A982',    // Dreamland
-    fod: '#494257',   // Fountain of Dreams
-    ys: '#AAC0A3',    // Yoshi's Story
-    ps: '#313A38',    // Pokemon Stadium
+    bf: '#201B20', // Battlefield
+    fd: '#271739', // Final Destination
+    dl: '#74A982', // Dreamland
+    fod: '#494257', // Fountain of Dreams
+    ys: '#AAC0A3', // Yoshi's Story
+    ps: '#313A38', // Pokemon Stadium
     default: '#2a2a2a',
   },
 } as const
@@ -60,7 +60,10 @@ export const clipDisplayConfig = {
 /**
  * Determine the display mode based on zoom size and visible count
  */
-export const getClipMode = (zoomSize: number, visibleCount: number): ClipMode => {
+export const getClipMode = (
+  zoomSize: number,
+  visibleCount: number,
+): ClipMode => {
   const { thresholds, limits } = clipDisplayConfig
 
   if (zoomSize >= thresholds.full) {
@@ -84,7 +87,7 @@ export const getClipMode = (zoomSize: number, visibleCount: number): ClipMode =>
  */
 export const isFeatureVisible = (
   feature: keyof typeof clipDisplayConfig.features,
-  clipSize: number
+  clipSize: number,
 ): boolean => {
   return clipSize >= clipDisplayConfig.features[feature].minSize
 }

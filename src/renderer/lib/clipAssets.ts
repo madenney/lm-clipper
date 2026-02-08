@@ -9,14 +9,14 @@ import { characters } from '../../constants/characters'
 import { stages } from '../../constants/stages'
 import { getVariantUrl } from '../stageVariantAssets'
 
+// Arrow images
+import NextArrow from '../../images/next.png'
+import WhiteNextArrow from '../../images/whitenext.png'
+
 type ImageModule = string | { default: string }
 
 const resolveModule = (value: ImageModule): string | undefined =>
   typeof value === 'string' ? value : value?.default
-
-// Arrow images
-import NextArrow from '../../images/next.png'
-import WhiteNextArrow from '../../images/whitenext.png'
 
 export const arrowImages = {
   dark: NextArrow,
@@ -34,7 +34,7 @@ export const getArrowImage = (stageId: number): string => {
 const charContext = (require as any).context(
   '../../images/character-icons',
   true,
-  /\.(png|jpe?g)$/
+  /\.(png|jpe?g)$/,
 )
 const charImages = new Map<string, string>()
 charContext.keys().forEach((key: string) => {
@@ -50,7 +50,7 @@ charContext.keys().forEach((key: string) => {
 const stageContext = (require as any).context(
   '../../images/stages',
   false,
-  /\.(png|jpe?g|jpg)$/
+  /\.(png|jpe?g|jpg)$/,
 )
 const stageBaseImages = new Map<string, string>()
 stageContext.keys().forEach((key: string) => {
@@ -76,8 +76,13 @@ Object.values(stages).forEach((stage) => {
 /**
  * Resolve stage image URL, using variant if available for the tile size
  */
-export const resolveStageImage = (stageId: number, tileSize?: number): string | null => {
-  const stageInfo = stages[stageId as keyof typeof stages] as { tag?: string } | undefined
+export const resolveStageImage = (
+  stageId: number,
+  tileSize?: number,
+): string | null => {
+  const stageInfo = stages[stageId as keyof typeof stages] as
+    | { tag?: string }
+    | undefined
   const tag = stageInfo?.tag || 'bf'
 
   if (tileSize) {
@@ -92,7 +97,9 @@ export const resolveStageImage = (stageId: number, tileSize?: number): string | 
  * Get stage tag from stage ID
  */
 export const getStageTag = (stageId: number): string => {
-  const stageInfo = stages[stageId as keyof typeof stages] as { tag?: string } | undefined
+  const stageInfo = stages[stageId as keyof typeof stages] as
+    | { tag?: string }
+    | undefined
   return stageInfo?.tag || 'unknown'
 }
 
@@ -100,20 +107,26 @@ export const getStageTag = (stageId: number): string => {
  * Get stage name from stage ID
  */
 export const getStageName = (stageId: number): string => {
-  const stageInfo = stages[stageId as keyof typeof stages] as { name?: string; shortName?: string } | undefined
+  const stageInfo = stages[stageId as keyof typeof stages] as
+    | { name?: string; shortName?: string }
+    | undefined
   return stageInfo?.shortName || stageInfo?.name || 'Unknown'
 }
 
 /**
  * Resolve character icon URL for a player
  */
-export const resolveCharacterImage = (player?: PlayerInterface): string | undefined => {
+export const resolveCharacterImage = (
+  player?: PlayerInterface,
+): string | undefined => {
   if (!player) return undefined
   const character = characters[player.characterId]
   if (!character) return undefined
   const color = character.colors[player.characterColor]
   if (!color) return undefined
-  const folder = character.img?.replace(/^character-icons\//, '').replace(/\/$/, '')
+  const folder = character.img
+    ?.replace(/^character-icons\//, '')
+    .replace(/\/$/, '')
   if (!folder) return undefined
   return charImages.get(`${folder}/${color}`)
 }

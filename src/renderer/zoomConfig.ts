@@ -35,7 +35,7 @@ export const zoomConfig = {
     ps: '#3b382c', // Pokemon Stadium
   },
   infoStageAt: 800,
-  
+
   infoPlayersAt: 500,
   infoLengthAt: 300,
   infoFileAt: 150,

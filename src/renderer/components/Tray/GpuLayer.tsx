@@ -12,7 +12,14 @@
  * We can enable this later if needed.
  */
 
-import React, { useRef, useEffect, useCallback, useMemo, useState, type CSSProperties } from 'react'
+import React, {
+  useRef,
+  useEffect,
+  useCallback,
+  useMemo,
+  useState,
+  type CSSProperties,
+} from 'react'
 import { debugLog } from '../../debugLog'
 import type { ClipMode } from '../../config/clipDisplay'
 import { clipDisplayConfig } from '../../config/clipDisplay'
@@ -29,7 +36,11 @@ type GpuLayerProps = {
   visible: boolean
   // Selection props - implemented but disabled for now, can enable later
   selectedIds?: Set<string>
-  onClipClick?: (index: number, clipId: string, event: React.MouseEvent) => void
+  onClipClick?: (
+    _index: number,
+    _clipId: string,
+    _event: React.MouseEvent,
+  ) => void
 }
 
 // Stage color palette for GPU rendering
@@ -39,11 +50,14 @@ const buildStageColorPalette = (): Float32Array => {
   const defaultColors = clipDisplayConfig.stageColors
 
   for (let i = 0; i < maxStages; i++) {
-    const stageInfo = stages[i as keyof typeof stages] as { tag?: string } | undefined
+    const stageInfo = stages[i as keyof typeof stages] as
+      | { tag?: string }
+      | undefined
     const tag = stageInfo?.tag
-    const colorHex = (tag && tag in defaultColors)
-      ? defaultColors[tag as keyof typeof defaultColors]
-      : defaultColors.default
+    const colorHex =
+      tag && tag in defaultColors
+        ? defaultColors[tag as keyof typeof defaultColors]
+        : defaultColors.default
 
     // Parse hex color
     const hex = colorHex.replace('#', '')
@@ -91,12 +105,24 @@ export function GpuLayer({
 
   // DEBUG
   useEffect(() => {
-    debugLog('[GpuLayer] state', { visible, clips: clips.length, mode, canUseWebgl, workerExists: !!workerRef.current, transferred: canvasTransferredRef.current })
+    debugLog('[GpuLayer] state', {
+      visible,
+      clips: clips.length,
+      mode,
+      canUseWebgl,
+      workerExists: !!workerRef.current,
+      transferred: canvasTransferredRef.current,
+    })
   }, [visible, clips.length, mode, canUseWebgl])
 
   // Initialize worker - only once, don't depend on visible
   useEffect(() => {
-    debugLog('[GpuLayer] Init effect', { canUseWebgl, canvas: !!canvasRef.current, worker: !!workerRef.current, transferred: canvasTransferredRef.current })
+    debugLog('[GpuLayer] Init effect', {
+      canUseWebgl,
+      canvas: !!canvasRef.current,
+      worker: !!workerRef.current,
+      transferred: canvasTransferredRef.current,
+    })
     if (!canUseWebgl) return
     const canvas = canvasRef.current
     if (!canvas || workerRef.current || canvasTransferredRef.current) return
@@ -108,13 +134,13 @@ export function GpuLayer({
 
       const worker = new Worker(
         new URL('../../workers/trayWebglWorker.ts', import.meta.url),
-        { type: 'module' }
+        { type: 'module' },
       )
 
       const offscreen = canvas.transferControlToOffscreen()
       worker.postMessage(
         { type: 'init', canvas: offscreen, dpr: window.devicePixelRatio || 1 },
-        [offscreen]
+        [offscreen],
       )
 
       // Send palette
@@ -136,7 +162,9 @@ export function GpuLayer({
         workerRef.current = null
       }
     } catch (err) {
-      debugLog('[GpuLayer] Failed to initialize WebGL worker', { error: String(err) })
+      debugLog('[GpuLayer] Failed to initialize WebGL worker', {
+        error: String(err),
+      })
     }
   }, [canUseWebgl, stageColorPalette])
 
@@ -186,13 +214,22 @@ export function GpuLayer({
       limit: clips.length,
       tileSize: clipSize,
       variantSize: clipSize,
-      useSolid: true,     // Use solid colors (not textures)
+      useSolid: true, // Use solid colors (not textures)
       useFallback: false, // Use actual stage IDs from buffer, not index-based
       layerCount: 1,
     }
     debugLog('[GpuLayer] draw()', drawParams)
     worker.postMessage(drawParams)
-  }, [visible, clipSize, gap, columns, trayWidth, trayHeight, clips.length, mode])
+  }, [
+    visible,
+    clipSize,
+    gap,
+    columns,
+    trayWidth,
+    trayHeight,
+    clips.length,
+    mode,
+  ])
 
   // Schedule draw on RAF
   const scheduleDraw = useCallback(() => {
@@ -208,7 +245,16 @@ export function GpuLayer({
     if (visible && workerRef.current) {
       scheduleDraw()
     }
-  }, [visible, clipSize, gap, columns, trayWidth, trayHeight, clips.length, scheduleDraw])
+  }, [
+    visible,
+    clipSize,
+    gap,
+    columns,
+    trayWidth,
+    trayHeight,
+    clips.length,
+    scheduleDraw,
+  ])
 
   // Cleanup RAF on unmount
   useEffect(() => {
@@ -220,43 +266,52 @@ export function GpuLayer({
   }, [])
 
   // Calculate grid position from mouse coordinates
-  const getClipAtPosition = useCallback((x: number, y: number): { index: number; id: string } | null => {
-    const cellSize = clipSize + gap
-    const padding = gap
+  const getClipAtPosition = useCallback(
+    (x: number, y: number): { index: number; id: string } | null => {
+      const cellSize = clipSize + gap
+      const padding = gap
 
-    const col = Math.floor((x - padding) / cellSize)
-    const row = Math.floor((y - padding) / cellSize)
+      const col = Math.floor((x - padding) / cellSize)
+      const row = Math.floor((y - padding) / cellSize)
 
-    if (col < 0 || col >= columns || row < 0) return null
+      if (col < 0 || col >= columns || row < 0) return null
 
-    const index = row * columns + col
-    if (index < 0 || index >= clips.length) return null
+      const index = row * columns + col
+      if (index < 0 || index >= clips.length) return null
 
-    return { index, id: clips[index].id }
-  }, [clipSize, gap, columns, clips])
+      return { index, id: clips[index].id }
+    },
+    [clipSize, gap, columns, clips],
+  )
 
   // Handle click on overlay (only if selection enabled)
-  const handleClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    if (!onClipClick) return
-    const rect = e.currentTarget.getBoundingClientRect()
-    const x = e.clientX - rect.left
-    const y = e.clientY - rect.top
+  const handleClick = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      if (!onClipClick) return
+      const rect = e.currentTarget.getBoundingClientRect()
+      const x = e.clientX - rect.left
+      const y = e.clientY - rect.top
 
-    const hit = getClipAtPosition(x, y)
-    if (hit) {
-      onClipClick(hit.index, hit.id, e)
-    }
-  }, [getClipAtPosition, onClipClick])
+      const hit = getClipAtPosition(x, y)
+      if (hit) {
+        onClipClick(hit.index, hit.id, e)
+      }
+    },
+    [getClipAtPosition, onClipClick],
+  )
 
   // Handle mouse move for hover effect
-  const handleMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    const rect = e.currentTarget.getBoundingClientRect()
-    const x = e.clientX - rect.left
-    const y = e.clientY - rect.top
+  const handleMouseMove = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      const rect = e.currentTarget.getBoundingClientRect()
+      const x = e.clientX - rect.left
+      const y = e.clientY - rect.top
 
-    const hit = getClipAtPosition(x, y)
-    setHoverIndex(hit ? hit.index : null)
-  }, [getClipAtPosition])
+      const hit = getClipAtPosition(x, y)
+      setHoverIndex(hit ? hit.index : null)
+    },
+    [getClipAtPosition],
+  )
 
   const handleMouseLeave = useCallback(() => {
     setHoverIndex(null)
@@ -328,12 +383,21 @@ export function GpuLayer({
             outlineOffset: '-2px',
             pointerEvents: 'none',
           }}
-        />
+        />,
       )
     }
 
     return overlays
-  }, [selectionEnabled, selectedIds, clips, clipSize, gap, columns, trayWidth, trayHeight])
+  }, [
+    selectionEnabled,
+    selectedIds,
+    clips,
+    clipSize,
+    gap,
+    columns,
+    trayWidth,
+    trayHeight,
+  ])
 
   const containerStyle: CSSProperties = {
     display: visible ? 'block' : 'none',
@@ -362,19 +426,14 @@ export function GpuLayer({
   if (!canUseWebgl) {
     return (
       <div style={containerStyle}>
-        <div style={{ padding: 20, color: '#666' }}>
-          WebGL not supported
-        </div>
+        <div style={{ padding: 20, color: '#666' }}>WebGL not supported</div>
       </div>
     )
   }
 
   return (
     <div style={containerStyle}>
-      <canvas
-        ref={canvasRef}
-        style={canvasStyle}
-      />
+      <canvas ref={canvasRef} style={canvasStyle} />
       {/* Click detection and selection overlay - only rendered if selection enabled */}
       {selectionEnabled && (
         <div

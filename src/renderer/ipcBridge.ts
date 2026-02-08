@@ -1,6 +1,11 @@
-import { ShallowFilterInterface, ClipInterface, FileInterface, LiteItem } from 'constants/types'
+import {
+  ShallowFilterInterface,
+  ClipInterface,
+  FileInterface,
+  LiteItem,
+} from 'constants/types'
 
-type ResponseHandler<T> = (payload: T) => void
+type ResponseHandler<T> = (_payload: T) => void
 
 type ResponseEnvelope<T> = {
   requestId?: string
@@ -28,7 +33,9 @@ setInterval(() => {
       if (ts && now - ts > STALE_REQUEST_MS) {
         pending.delete(requestId)
         requestTimestamps.delete(requestId)
-        console.warn(`[ipcBridge] Reaped stale request ${requestId} on ${channel}`)
+        console.warn(
+          `[ipcBridge] Reaped stale request ${requestId} on ${channel}`,
+        )
       }
     }
   }
@@ -40,7 +47,7 @@ const ensureListener = (channel: string) => {
     channel,
     (data: ResponseEnvelope<any>) => {
       if (!data || typeof data !== 'object') return
-      const requestId = data.requestId
+      const { requestId } = data
       if (!requestId) return
       const pending = pendingByChannel.get(channel)
       if (!pending) return
@@ -49,7 +56,7 @@ const ensureListener = (channel: string) => {
       pending.delete(requestId)
       requestTimestamps.delete(requestId)
       handler(data.payload)
-    }
+    },
   )
   responseListeners.set(channel, remove)
 }
@@ -58,7 +65,7 @@ const request = <TPayload, TResponse>(
   channel: string,
   payload: TPayload,
   responseChannel: string,
-  handler?: ResponseHandler<TResponse>
+  handler?: ResponseHandler<TResponse>,
 ) => {
   const requestId = nextRequestId()
   if (handler) {
@@ -91,7 +98,10 @@ export default {
   getDirectory(handler?: ResponseHandler<any>) {
     return request('getDirectory', null, 'directory', handler)
   },
-  createNewArchive(params: { name: string; location: string }, handler?: ResponseHandler<any>) {
+  createNewArchive(
+    params: { name: string; location: string },
+    handler?: ResponseHandler<any>,
+  ) {
     return request('createNewArchive', params, 'createNewArchive', handler)
   },
   openExistingArchive(handler?: ResponseHandler<any>) {
@@ -107,7 +117,12 @@ export default {
     return request('getRecentProjects', null, 'getRecentProjects', handler)
   },
   openRecentProject(projectPath: string, handler?: ResponseHandler<any>) {
-    return request('openRecentProject', projectPath, 'openRecentProject', handler)
+    return request(
+      'openRecentProject',
+      projectPath,
+      'openRecentProject',
+      handler,
+    )
   },
   importSlpFiles(handler?: ResponseHandler<any>) {
     return request('addFilesManual', null, 'addFilesManual', handler)
@@ -136,7 +151,10 @@ export default {
       limit?: number
       lite?: boolean
     },
-    handler?: ResponseHandler<{ items: (ClipInterface | FileInterface | LiteItem)[]; total: number }>
+    handler?: ResponseHandler<{
+      items: (ClipInterface | FileInterface | LiteItem)[]
+      total: number
+    }>,
   ) {
     return request('getResults', params, 'getResults', handler)
   },
@@ -148,7 +166,7 @@ export default {
       filterIndex: number
       newFilter: ShallowFilterInterface
     },
-    handler?: ResponseHandler<any>
+    handler?: ResponseHandler<any>,
   ) {
     return request('updateFilter', params, 'updateFilter', handler)
   },
@@ -159,7 +177,12 @@ export default {
     return request('runFilters', null, 'runFilters', handler)
   },
   cancelRunningFilters(handler?: ResponseHandler<any>) {
-    return request('cancelRunningFilters', null, 'cancelRunningFilters', handler)
+    return request(
+      'cancelRunningFilters',
+      null,
+      'cancelRunningFilters',
+      handler,
+    )
   },
   stopRunningFilters(handler?: ResponseHandler<any>) {
     return request('stopRunningFilters', null, 'stopRunningFilters', handler)
@@ -176,13 +199,19 @@ export default {
   stopImport(handler?: ResponseHandler<any>) {
     return request('stopImport', null, 'stopImport', handler)
   },
-  updateConfig(config: { key: string; value: string | number | boolean | null }) {
+  updateConfig(config: {
+    key: string
+    value: string | number | boolean | null
+  }) {
     return send('updateConfig', config)
   },
   getPath(type: 'openFile' | 'openDirectory', handler?: ResponseHandler<any>) {
     return request('getPath', type, 'getPath', handler)
   },
-  generateVideo(payload: { filterId: string, selectedIds: string[] }, handler?: ResponseHandler<any>) {
+  generateVideo(
+    payload: { filterId: string; selectedIds: string[] },
+    handler?: ResponseHandler<any>,
+  ) {
     return request('generateVideo', payload, 'generateVideo', handler)
   },
   stopVideo(handler?: ResponseHandler<any>) {

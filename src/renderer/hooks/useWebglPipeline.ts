@@ -1,4 +1,10 @@
-import { useState, useEffect, useMemo, useRef, useCallback, type MutableRefObject } from 'react'
+import {
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+  type MutableRefObject,
+} from 'react'
 import { perfLog } from '../perfLogger'
 import { stageVariantSizes } from '../stageVariant'
 import {
@@ -8,19 +14,28 @@ import {
 import { roundNumber, type Layout } from '../lib/layoutMath'
 
 type DebugFns = {
-  logZoomTrace: (event: string, meta?: Record<string, string | number | boolean | null>) => void
-  setTaskLabel: (label: string) => void
+  logZoomTrace: (
+    _event: string,
+    _meta?: Record<string, string | number | boolean | null>,
+  ) => void
+  setTaskLabel: (_label: string) => void
 }
 
 type Range = { offset: number; limit: number }
 
 const loadStageBitmap = (url: string) =>
   new Promise<ImageBitmap | null>((resolve) => {
-    if (!url) { resolve(null); return }
+    if (!url) {
+      resolve(null)
+      return
+    }
     const image = new Image()
     image.onload = async () => {
-      try { resolve(await createImageBitmap(image)) }
-      catch { resolve(null) }
+      try {
+        resolve(await createImageBitmap(image))
+      } catch {
+        resolve(null)
+      }
     }
     image.onerror = () => resolve(null)
     image.src = url
@@ -43,13 +58,22 @@ export type UseWebglPipelineParams = {
 
 export const useWebglPipeline = (params: UseWebglPipelineParams) => {
   const {
-    canUseWebglWorker, stageColorPalette,
-    trayRef, traySizeRef, resultsTopRef, layoutRef,
-    visibleRangeRef, windowRangeRef, webglDataRangeRef,
-    displayZoomRef, variantBucketRef, debugRef,
+    canUseWebglWorker,
+    stageColorPalette,
+    trayRef,
+    traySizeRef,
+    resultsTopRef,
+    layoutRef,
+    visibleRangeRef,
+    windowRangeRef,
+    webglDataRangeRef,
+    displayZoomRef,
+    variantBucketRef,
+    debugRef,
   } = params
 
-  const [webglCanvasNode, setWebglCanvasNode] = useState<HTMLCanvasElement | null>(null)
+  const [webglCanvasNode, setWebglCanvasNode] =
+    useState<HTMLCanvasElement | null>(null)
   const [webglTextureVersion, setWebglTextureVersion] = useState(0)
   const webglCanvasRef = useRef<HTMLCanvasElement | null>(null)
   const webglWorkerRef = useRef<Worker | null>(null)
@@ -75,25 +99,49 @@ export const useWebglPipeline = (params: UseWebglPipelineParams) => {
     const visible = visibleRangeRef.current
     const windowRangeValue = windowRangeRef.current
     const limit = Math.min(visible.limit, windowRangeValue.limit)
-    const offset = visible.offset
+    const { offset } = visible
     const dataRange = webglDataRangeRef.current
     const tileSize = displayZoomRef.current
     const variantSize = variantBucketRef.current || stageVariantSizes[0] || 1
     const useSolid = false
     const visibleEnd = offset + limit
     const dataEnd = dataRange.offset + dataRange.limit
-    const useFallback = dataRange.limit <= 0 || offset < dataRange.offset || visibleEnd > dataEnd
+    const useFallback =
+      dataRange.limit <= 0 || offset < dataRange.offset || visibleEnd > dataEnd
     const drawLimit = useFallback ? visible.limit : limit
-    const layerCount = stageVariantLayersBySize.get(variantSize)?.length || stageVariantBaseNames.length || 0
+    const layerCount =
+      stageVariantLayersBySize.get(variantSize)?.length ||
+      stageVariantBaseNames.length ||
+      0
     debugRef.current.logZoomTrace('draw_webgl', {
-      width, height, columns, cell: roundNumber(cell, 2), padding,
+      width,
+      height,
+      columns,
+      cell: roundNumber(cell, 2),
+      padding,
       scrollOffset: roundNumber(scrollOffset, 2),
-      offset, limit: drawLimit,
-      tileSize: roundNumber(tileSize, 2), variantSize, useSolid, useFallback,
+      offset,
+      limit: drawLimit,
+      tileSize: roundNumber(tileSize, 2),
+      variantSize,
+      useSolid,
+      useFallback,
     })
     worker.postMessage({
-      type: 'draw', width, height, columns, cell, padding, scrollOffset,
-      offset, limit: drawLimit, tileSize, variantSize, useSolid, useFallback, layerCount,
+      type: 'draw',
+      width,
+      height,
+      columns,
+      cell,
+      padding,
+      scrollOffset,
+      offset,
+      limit: drawLimit,
+      tileSize,
+      variantSize,
+      useSolid,
+      useFallback,
+      layerCount,
     })
   }
 
@@ -111,15 +159,20 @@ export const useWebglPipeline = (params: UseWebglPipelineParams) => {
     if (webglWorkerRef.current) return
     const worker = new Worker(
       new URL('../workers/trayWebglWorker.ts', import.meta.url),
-      { type: 'module' }
+      { type: 'module' },
     )
     const offscreen = webglCanvasNode.transferControlToOffscreen()
     worker.onmessage = (event) => {
-      const data = event.data
-      if (data?.type === 'perf') perfLog.duration(data.name, data.durationMs, data.meta)
-      if (data?.type === 'error') perfLog.event('webgl_error', { message: data.message })
+      const { data } = event
+      if (data?.type === 'perf')
+        perfLog.duration(data.name, data.durationMs, data.meta)
+      if (data?.type === 'error')
+        perfLog.event('webgl_error', { message: data.message })
     }
-    worker.postMessage({ type: 'init', canvas: offscreen, dpr: window.devicePixelRatio || 1 }, [offscreen])
+    worker.postMessage(
+      { type: 'init', canvas: offscreen, dpr: window.devicePixelRatio || 1 },
+      [offscreen],
+    )
     webglWorkerRef.current = worker
     return () => {
       worker.terminate()
@@ -169,14 +222,20 @@ export const useWebglPipeline = (params: UseWebglPipelineParams) => {
       if (!cancelled) debugRef.current.setTaskLabel('idle')
     }
     run()
-    return () => { cancelled = true }
+    return () => {
+      cancelled = true
+    }
   }, [canUseWebglWorker])
 
   return {
-    webglCanvasNode, setWebglCanvasRef,
-    webglWorkerRef, webglDrawRafRef,
-    webglTextureSizesRef, webglTexturesLoadingRef,
+    webglCanvasNode,
+    setWebglCanvasRef,
+    webglWorkerRef,
+    webglDrawRafRef,
+    webglTextureSizesRef,
+    webglTexturesLoadingRef,
     webglTextureVersion,
-    scheduleWebglDraw, drawWebgl,
+    scheduleWebglDraw,
+    drawWebgl,
   }
 }

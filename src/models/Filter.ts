@@ -1,10 +1,10 @@
+import { Worker } from 'worker_threads'
 import {
   FilterInterface,
   EventEmitterInterface,
   WorkerMessage,
 } from '../constants/types'
 import { getTableLength, createFilter, deleteFilter } from '../main/db'
-import { Worker } from 'worker_threads'
 
 type Slice = {
   bottom: number
@@ -43,7 +43,7 @@ export default class Filter {
     prevTableId: string,
     numFilterThreads: number,
     eventEmitter: EventEmitterInterface,
-    abortSignal?: AbortSignal
+    abortSignal?: AbortSignal,
   ) {
     const prevResultsLength = await getTableLength(dbPath, prevTableId)
     let maxFiles = prevResultsLength
@@ -65,7 +65,8 @@ export default class Filter {
     }
 
     const minThreads = Math.max(1, numFilterThreads)
-    const threadCount = this.type === 'sort' ? 1 : Math.min(minThreads, maxFiles)
+    const threadCount =
+      this.type === 'sort' ? 1 : Math.min(minThreads, maxFiles)
     const slices = createSlices(maxFiles, threadCount)
     const workerResults = new Array(slices.length).fill(0)
     const workers: Worker[] = []
@@ -113,12 +114,16 @@ export default class Filter {
               if (e.results !== undefined) workerResults[i] = e.results
               const totalCompleted = slices.reduce(
                 (acc, s) => acc + s.completed,
-                0
+                0,
               )
               if (totalCompleted !== lastProgress) {
                 lastProgress = totalCompleted
                 const totalResults = workerResults.reduce((a, b) => a + b, 0)
-                eventEmitter({ current: totalCompleted, total: maxFiles, newItemCount: totalResults })
+                eventEmitter({
+                  current: totalCompleted,
+                  total: maxFiles,
+                  newItemCount: totalResults,
+                })
               }
             }
 
@@ -145,7 +150,11 @@ export default class Filter {
 
       // Ensure all workers are terminated even if something threw
       workers.forEach((worker) => {
-        try { worker.terminate() } catch (_) {}
+        try {
+          worker.terminate()
+        } catch (_) {
+          // empty
+        }
       })
     }
 

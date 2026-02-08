@@ -47,7 +47,7 @@ export default (prevResults, params, eventEmitter) => {
       if (_startFromNthMove) {
         if (!moves)
           throw Error(
-            'moves is not defined. This is likely not a parsed combo clip'
+            'moves is not defined. This is likely not a parsed combo clip',
           )
         _startFrame =
           _startFromNthMove > -1
@@ -57,7 +57,7 @@ export default (prevResults, params, eventEmitter) => {
       if (_startFrom && _startFromNthMove) {
         if (!moves)
           throw Error(
-            'moves is not defined. This is likely not a parsed combo clip'
+            'moves is not defined. This is likely not a parsed combo clip',
           )
         const moveFrame =
           _startFromNthMove > -1
@@ -76,7 +76,7 @@ export default (prevResults, params, eventEmitter) => {
       let comboeeStates
       if (comboerActionState) {
         comboerStates = actionStates.find(
-          (s) => s.id == comboerActionState
+          (s) => s.id == comboerActionState,
         ).actionStateID
       }
       comboerStates = Array.isArray(comboerStates)
@@ -84,7 +84,7 @@ export default (prevResults, params, eventEmitter) => {
         : [comboerStates]
       if (comboeeActionState) {
         comboeeStates = actionStates.find(
-          (s) => s.id == comboeeActionState
+          (s) => s.id == comboeeActionState,
         ).actionStateID
       }
       comboeeStates = Array.isArray(comboeeStates)
@@ -105,11 +105,11 @@ export default (prevResults, params, eventEmitter) => {
         let _comboee
         if (comboerActionState)
           _comboer = currentFrame.players.find(
-            (p) => p && p.post.playerIndex == comboer.playerIndex
+            (p) => p && p.post.playerIndex == comboer.playerIndex,
           )
         if (comboeeActionState)
           _comboee = currentFrame.players.find(
-            (p) => p && p.post.playerIndex == comboee.playerIndex
+            (p) => p && p.post.playerIndex == comboee.playerIndex,
           )
 
         if (comboerActionState && comboeeActionState) {
@@ -131,7 +131,6 @@ export default (prevResults, params, eventEmitter) => {
             break
           }
         }
-
       }
       if (exclude) {
         return !found

@@ -9,14 +9,13 @@ function postMessage(message: WorkerMessage) {
 }
 
 function run() {
-  const { dbPath, prevTableId, nextTableId, type, slice, params } =
-    workerData
+  const { dbPath, prevTableId, nextTableId, type, slice, params } = workerData
 
   const db = new Database(dbPath, { readonly: false })
   db.pragma('journal_mode = WAL')
   db.pragma('busy_timeout = 5000')
 
-  const FLUSH_SIZE = 100 // default for non-parser paths
+  const _FLUSH_SIZE = 100 // default for non-parser paths
 
   try {
     const method = methods[type]
@@ -33,9 +32,10 @@ function run() {
     })
 
     // Sort loads all rows upfront; parsers and other filters stream in chunks
-    const prevResults = type === 'sort'
-      ? parseRows(prevTableId, getRows(db, prevTableId, slice))
-      : []
+    const prevResults =
+      type === 'sort'
+        ? parseRows(prevTableId, getRows(db, prevTableId, slice))
+        : []
 
     if (type === 'slpParser') {
       // Parser methods read .slp files from disk (slow) — stream from DB
@@ -47,10 +47,7 @@ function run() {
       // large runs flush less often to minimize SQLite transaction overhead.
       // First flush always at 100 so partial results are available quickly.
       const parserFlushSize =
-        total < 1000 ? 100 :
-        total < 10000 ? 500 :
-        total < 100000 ? 2000 :
-        5000
+        total < 1000 ? 100 : total < 10000 ? 500 : total < 100000 ? 2000 : 5000
 
       let totalInserted = 0
       let buffer: any[] = []
@@ -60,13 +57,21 @@ function run() {
 
       while (currentBottom <= slice.top) {
         const currentTop = Math.min(currentBottom + LOAD_CHUNK - 1, slice.top)
-        const chunkRows = getRows(db, prevTableId, { bottom: currentBottom, top: currentTop })
+        const chunkRows = getRows(db, prevTableId, {
+          bottom: currentBottom,
+          top: currentTop,
+        })
         const chunk = parseRows(prevTableId, chunkRows)
 
         for (const item of chunk) {
           const now = Date.now()
           if (now - lastProgressTime >= 200) {
-            postMessage({ type: 'progress', current: processed, total, results: totalInserted })
+            postMessage({
+              type: 'progress',
+              current: processed,
+              total,
+              results: totalInserted,
+            })
             lastProgressTime = now
           }
           const res = method(item, params)
@@ -116,7 +121,10 @@ function run() {
 
       while (currentBottom <= slice.top) {
         const currentTop = Math.min(currentBottom + CHUNK_SIZE - 1, slice.top)
-        const chunkRows = getRows(db, prevTableId, { bottom: currentBottom, top: currentTop })
+        const chunkRows = getRows(db, prevTableId, {
+          bottom: currentBottom,
+          top: currentTop,
+        })
         const chunk = parseRows(prevTableId, chunkRows)
 
         // Progress is reported per-chunk below; no need for per-item messages
@@ -145,7 +153,11 @@ function run() {
       postMessage({ type: 'done', results: totalInserted })
     }
   } finally {
-    try { db.close() } catch (_) {}
+    try {
+      db.close()
+    } catch (_) {
+      // empty
+    }
   }
 }
 
@@ -170,12 +182,10 @@ function createProgressEmitter() {
 function getRows(
   db: Database.Database,
   tableId: string,
-  slice: { bottom: number; top: number }
+  slice: { bottom: number; top: number },
 ) {
   return db
-    .prepare(
-      `SELECT * FROM "${tableId}" WHERE id >= ? AND id <= ? ORDER BY id`
-    )
+    .prepare(`SELECT * FROM "${tableId}" WHERE id >= ? AND id <= ? ORDER BY id`)
     .all(slice.bottom, slice.top)
 }
 

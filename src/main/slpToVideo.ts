@@ -8,7 +8,11 @@ https://github.com/kevinsung/slp-to-video
 
 */
 
-import { ChildProcess, ChildProcessWithoutNullStreams, spawn } from 'child_process'
+import {
+  ChildProcess,
+  ChildProcessWithoutNullStreams,
+  spawn,
+} from 'child_process'
 import { app } from 'electron'
 import crypto from 'crypto'
 import fs, { promises as fsPromises } from 'fs'
@@ -62,7 +66,10 @@ const killDolphinOnEndFrame = (proc: ChildProcessWithoutNullStreams) => {
     } else if (line.includes('[GAME_END_FRAME]')) {
       const match = /\[GAME_END_FRAME\] ([0-9]+)/.exec(line)
       if (match?.[1]) endFrame = Math.min(endFrame, parseInt(match[1], 10))
-    } else if (endFrame !== Infinity && line.includes(`[CURRENT_FRAME] ${endFrame}`)) {
+    } else if (
+      endFrame !== Infinity &&
+      line.includes(`[CURRENT_FRAME] ${endFrame}`)
+    ) {
       proc.kill()
     }
   })
@@ -71,7 +78,7 @@ const killDolphinOnEndFrame = (proc: ChildProcessWithoutNullStreams) => {
 const processOneReplay = async (
   replay: ReplayInterface,
   config: ConfigInterface & { numProcesses: number; gameMusicOn: boolean },
-  signal: VideoSignal
+  signal: VideoSignal,
 ): Promise<boolean> => {
   const fileBasename = pad(replay.index, 4)
   const basePath = (suffix: string) =>
@@ -87,8 +94,7 @@ const processOneReplay = async (
   }
 
   const metadata = game.getMetadata()
-  const gameLastFrame =
-    metadata?.lastFrame ?? game.getLatestFrame()?.frame
+  const gameLastFrame = metadata?.lastFrame ?? game.getLatestFrame()?.frame
 
   let endFrame: number
   if (gameLastFrame) {
@@ -159,7 +165,10 @@ const processOneReplay = async (
   const mergeCode = await exit(mergeProcess)
   signal.activeProcesses.delete(mergeProcess)
   if (mergeCode !== 0) {
-    console.log(`ffmpeg merge failed (code ${mergeCode}):`, mergeStderr.slice(-500))
+    console.log(
+      `ffmpeg merge failed (code ${mergeCode}):`,
+      mergeStderr.slice(-500),
+    )
   }
 
   if (signal.stopped || signal.cancelled) return false
@@ -186,7 +195,10 @@ const processOneReplay = async (
   const trimCode = await exit(trimProcess)
   signal.activeProcesses.delete(trimProcess)
   if (trimCode !== 0) {
-    console.log(`ffmpeg trim failed (code ${trimCode}):`, trimStderr.slice(-500))
+    console.log(
+      `ffmpeg trim failed (code ${trimCode}):`,
+      trimStderr.slice(-500),
+    )
   }
 
   if (signal.stopped || signal.cancelled) return false
@@ -219,7 +231,10 @@ const processOneReplay = async (
     const mp4Code = await exit(mp4Process)
     signal.activeProcesses.delete(mp4Process)
     if (mp4Code !== 0) {
-      console.log(`ffmpeg mp4 convert failed (code ${mp4Code}):`, mp4Stderr.slice(-500))
+      console.log(
+        `ffmpeg mp4 convert failed (code ${mp4Code}):`,
+        mp4Stderr.slice(-500),
+      )
     }
 
     // Delete the .avi now that we have the .mp4
@@ -240,8 +255,8 @@ const processOneReplay = async (
 const processReplays = async (
   replays: ReplayInterface[],
   config: ConfigInterface & { numProcesses: number; gameMusicOn: boolean },
-  eventEmitter: (msg: string) => void,
-  signal: VideoSignal
+  eventEmitter: (_msg: string) => void,
+  signal: VideoSignal,
 ) => {
   const queue = [...replays]
   let completed = 0
@@ -249,8 +264,8 @@ const processReplays = async (
   eventEmitter(`0/${replays.length} clips`)
 
   const worker = async () => {
-    let replay
-    while ((replay = queue.shift()) !== undefined) {
+    let replay = queue.shift()
+    while (replay !== undefined) {
       if (signal.stopped || signal.cancelled) break
       const ok = await processOneReplay(replay, config, signal)
       if (!ok && (signal.stopped || signal.cancelled)) break
@@ -258,6 +273,7 @@ const processReplays = async (
         completed += 1
         eventEmitter(`${completed}/${replays.length} clips`)
       }
+      replay = queue.shift()
     }
   }
 
@@ -275,19 +291,14 @@ const processReplays = async (
       .readdirSync(config.outputPath)
       .filter(
         (f) =>
-          f.endsWith(ext) &&
-          !f.includes('-unmerged') &&
-          !f.includes('-merged')
+          f.endsWith(ext) && !f.includes('-unmerged') && !f.includes('-merged'),
       )
       .sort()
 
     if (outputFiles.length > 1) {
-      const concatListPath = path.resolve(
-        config.outputPath,
-        'concat_list.txt'
-      )
+      const concatListPath = path.resolve(config.outputPath, 'concat_list.txt')
       const concatLines = outputFiles.map(
-        (f) => `file '${path.resolve(config.outputPath, f)}'`
+        (f) => `file '${path.resolve(config.outputPath, f)}'`,
       )
       await fsPromises.writeFile(concatListPath, concatLines.join('\n'))
 
@@ -316,7 +327,7 @@ const processReplays = async (
           '-c:a',
           'aac',
           '-b:a',
-          '128k'
+          '128k',
         )
       }
       concatArgs.push(finalPath)
@@ -333,7 +344,10 @@ const processReplays = async (
       const concatCode = await exit(concatProcess)
       signal.activeProcesses.delete(concatProcess)
       if (concatCode !== 0) {
-        console.log(`ffmpeg concat failed (code ${concatCode}):`, concatStderr.slice(-500))
+        console.log(
+          `ffmpeg concat failed (code ${concatCode}):`,
+          concatStderr.slice(-500),
+        )
       }
 
       // Clean up concat list
@@ -349,7 +363,7 @@ const processReplays = async (
 
 const configureDolphin = async (
   config: ConfigInterface,
-  eventEmitter: (msg: string) => void
+  eventEmitter: (_msg: string) => void,
 ) => {
   eventEmitter('Configuring Dolphin...')
   let gameSettingsPath = null
@@ -357,7 +371,7 @@ const configureDolphin = async (
   let dolphinSettingsPath = null
 
   // Linux
-  if (os.type() == 'Linux') {
+  if (os.type() === 'Linux') {
     const dolphinDirname = path.resolve(getAppDataPath(), 'SlippiPlayback')
     gameSettingsPath = path.join(dolphinDirname, 'GameSettings', 'GALE01.ini')
     graphicsSettingsPath = path.join(dolphinDirname, 'Config', 'GFX.ini')
@@ -370,29 +384,25 @@ const configureDolphin = async (
       dolphinDirname,
       'User',
       'GameSettings',
-      'GALE01.ini'
+      'GALE01.ini',
     )
     graphicsSettingsPath = path.join(
       dolphinDirname,
       'User',
       'Config',
-      'GFX.ini'
+      'GFX.ini',
     )
     dolphinSettingsPath = path.join(
       dolphinDirname,
       'User',
       'Config',
-      'Dolphin.ini'
+      'Dolphin.ini',
     )
 
     if (!fs.existsSync(gameSettingsPath)) {
       eventEmitter('Creating game settings file')
-      try {
-        const fd = fs.openSync(gameSettingsPath, 'a')
-        fs.closeSync(fd)
-      } catch (err) {
-        throw err
-      }
+      const fd = fs.openSync(gameSettingsPath, 'a')
+      fs.closeSync(fd)
     }
   }
 
@@ -411,8 +421,7 @@ const configureDolphin = async (
   if (config.disableScreenShake)
     newSettings.push('$Optional: Disable Screen Shake')
   if (config.noElectricSFX) newSettings.push('$Optional: No Electric SFX')
-  if (config.noCrowdNoise)
-    newSettings.push('$Optional: Prevent Crowd Noises')
+  if (config.noCrowdNoise) newSettings.push('$Optional: Prevent Crowd Noises')
   if (!config.enableChants)
     newSettings.push('$Optional: Prevent Character Crowd Chants')
   if (config.disableMagnifyingGlass)
@@ -472,7 +481,7 @@ const configureDolphin = async (
 const slpToVideo = (
   replays: ReplayInterface[],
   config: ConfigInterface & { numProcesses: number; gameMusicOn: boolean },
-  eventEmitter: (msg: string) => void
+  eventEmitter: (_msg: string) => void,
 ): VideoJobController => {
   const signal: VideoSignal = {
     stopped: false,
@@ -486,7 +495,7 @@ const slpToVideo = (
       .catch((err) => {
         if (err.code === 'ENOENT') {
           throw new Error(
-            `Error: Could not read SSBM iso from path ${config.ssbmIsoPath}. `
+            `Error: Could not read SSBM iso from path ${config.ssbmIsoPath}. `,
           )
         } else {
           throw err
@@ -496,7 +505,7 @@ const slpToVideo = (
       .catch((err) => {
         if (err.code === 'ENOENT') {
           throw new Error(
-            `Error: Could not open Dolphin from path ${config.dolphinPath}. `
+            `Error: Could not open Dolphin from path ${config.dolphinPath}. `,
           )
         } else {
           throw err

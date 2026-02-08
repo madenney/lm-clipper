@@ -26,10 +26,10 @@ export default (prevResults, params, eventEmitter) => {
     // Lets just assume star KO frames happen at the end of the clip
     // find them and work backwards
     let newEndFrame
-    for (var i = parseInt(endFrame, 10); i > parseInt(startFrame, 10); i--) {
+    for (let i = parseInt(endFrame, 10); i > parseInt(startFrame, 10); i--) {
       const currentFrame = frames[i]
       const _comboee = currentFrame.players.find(
-        (p) => p && p.post.playerIndex == comboee.playerIndex
+        (p) => p && p.post.playerIndex == comboee.playerIndex,
       )
       if (starKOIDs.indexOf(_comboee.post.actionStateId) > -1) {
         newEndFrame = i - 1

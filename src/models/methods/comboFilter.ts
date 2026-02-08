@@ -4,7 +4,7 @@ import { ClipInterface, EventEmitterInterface } from 'constants/types'
 export default (
   prevResults: ClipInterface[],
   params: { [key: string]: any },
-  eventEmitter: EventEmitterInterface
+  eventEmitter: EventEmitterInterface,
 ) => {
   return prevResults.filter((clip, index) => {
     eventEmitter({ current: index, total: prevResults.length })
@@ -26,28 +26,32 @@ export default (
     if (!comboer || !comboee) return false
     if (!clip.combo || !clip.combo.moves) return false
     const { moves } = clip.combo
-    if (minHits){
-      const numHits = countPummels ? moves.length : moves.filter(move => move.moveId != 52).length
-      if(numHits < minHits) return false
-    } 
-    if (maxHits){
-      const numHits = countPummels ? moves.length : moves.filter(move => move.moveId != 52).length
-      if(numHits > maxHits) return false
-    } 
+    if (minHits) {
+      const numHits = countPummels
+        ? moves.length
+        : moves.filter((move) => move.moveId != 52).length
+      if (numHits < minHits) return false
+    }
+    if (maxHits) {
+      const numHits = countPummels
+        ? moves.length
+        : moves.filter((move) => move.moveId != 52).length
+      if (numHits > maxHits) return false
+    }
     if (minDamage && !(moves.reduce((n, m) => n + m.damage, 0) >= minDamage))
       return false
     if (excludeICs && comboer.characterId == 14) return false
     if (comboerChar && comboerChar != comboer.characterId) return false
-    if (comboerTag){
-      const splitComboerTag = comboerTag.toLowerCase().split(";")
-      if(splitComboerTag.indexOf(comboer.displayName.toLowerCase()) == -1){
+    if (comboerTag) {
+      const splitComboerTag = comboerTag.toLowerCase().split(';')
+      if (splitComboerTag.indexOf(comboer.displayName.toLowerCase()) == -1) {
         return false
       }
     }
     if (comboeeChar && comboeeChar != comboee.characterId) return false
-    if (comboeeTag){
-      const splitComboeeTag = comboeeTag.toLowerCase().split(";")
-      if(splitComboeeTag.indexOf(comboee.displayName.toLowerCase()) == -1){
+    if (comboeeTag) {
+      const splitComboeeTag = comboeeTag.toLowerCase().split(';')
+      if (splitComboeeTag.indexOf(comboee.displayName.toLowerCase()) == -1) {
         return false
       }
     }

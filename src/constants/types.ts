@@ -8,7 +8,7 @@ export interface RecentProject {
 export interface ConfigInterface {
   recentProjects: RecentProject[]
   outputPath: string
-  lastArchivePath: string|null
+  lastArchivePath: string | null
   hideHud: boolean
   gameMusic: boolean
   enableChants: boolean
@@ -43,7 +43,7 @@ export interface ConfigInterface {
 export interface PlayerInterface {
   playerIndex: number
   port: number
-  characterId: number  
+  characterId: number
   characterColor: number
   nametag: string
   displayName: string
@@ -62,7 +62,7 @@ export interface FileInterface {
   info: string
   startFrame: number
   endFrame: number
-  //generateJSON?(): void
+  // generateJSON?(): void
 }
 
 export interface ClipInterface {
@@ -98,7 +98,7 @@ export interface LiteItem {
 }
 
 export interface EventEmitterInterface {
-  (arg1: { current: number; total: number, newItemCount?: number }): void
+  (arg1: { current: number; total: number; newItemCount?: number }): void
 }
 
 export interface FilterInterface {
@@ -113,7 +113,7 @@ export interface FilterInterface {
     prevTable: string,
     numFilterThreads: number,
     arg2: EventEmitterInterface,
-    abortSignal?: AbortSignal
+    abortSignal?: AbortSignal,
   ): void
   // run?(
   //   arg1: ClipInterface[] | FileInterface[],
@@ -147,16 +147,16 @@ export interface ArchiveInterface {
   createdAt: number
   files: number
   filters: FilterInterface[]
-  //save?(): void
+  // save?(): void
   runFilter?(
     filterId: string,
     numFilterThreads: number,
-    filterMsgEventEmitter: EventEmitterInterface
+    filterMsgEventEmitter: EventEmitterInterface,
   ): void
   runFilters?(
     numFilterThreads: number,
     currentFilterEventEmitter: EventEmitterInterface,
-    filterMsgEventEmitter: EventEmitterInterface
+    filterMsgEventEmitter: EventEmitterInterface,
   ): void
   getNames?(): Promise<{ name: string; total: number }[]>
   shallowCopy?(): Promise<ShallowArchiveInterface>
@@ -167,7 +167,7 @@ export interface ArchiveInterface {
       detectDuplicates?: boolean
       abortSignal?: AbortSignal
       maxWorkers?: number
-    }
+    },
   ): Promise<boolean>
   getItems?(params: {
     filterId: string
@@ -176,8 +176,8 @@ export interface ArchiveInterface {
     offset?: number
     limit?: number
     lite?: boolean
-  }): Promise<ClipInterface[]|FileInterface[]|LiteItem[]>
-  getAllItems?(filterId: string): Promise<ClipInterface[]|FileInterface[]>
+  }): Promise<ClipInterface[] | FileInterface[] | LiteItem[]>
+  getAllItems?(filterId: string): Promise<ClipInterface[] | FileInterface[]>
   addFilter?(newFilterJSON: FilterInterface): Promise<ArchiveInterface>
   deleteFilter?(filterId: string): Promise<ArchiveInterface>
   saveMetaData?(): Promise<void>

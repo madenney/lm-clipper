@@ -15,8 +15,16 @@ export function getDb(dbPath: string): Database.Database {
 
 export function closeDb(): void {
   if (currentDb) {
-    try { currentDb.pragma('wal_checkpoint(TRUNCATE)') } catch (_) {}
-    try { currentDb.close() } catch (_) {}
+    try {
+      currentDb.pragma('wal_checkpoint(TRUNCATE)')
+    } catch (_) {
+      // empty
+    }
+    try {
+      currentDb.close()
+    } catch (_) {
+      // empty
+    }
     currentDb = null
     currentDbPath = null
   }

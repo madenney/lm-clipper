@@ -55,7 +55,12 @@ function resolveStageColorHex(stageId: number) {
 }
 
 function resolveStageColorUint(stageId: number) {
-  return resolveStageColorUintBase(stageId, paletteHex, stageColorHexCache, stageColorUintCache)
+  return resolveStageColorUintBase(
+    stageId,
+    paletteHex,
+    stageColorHexCache,
+    stageColorUintCache,
+  )
 }
 
 function drawDensity(payload: DrawPayload) {
@@ -110,8 +115,8 @@ function drawDensity(payload: DrawPayload) {
         typeof stageId === 'number' && stageId >= 0
           ? resolveStageColorUint(stageId)
           : paletteLength > 0
-          ? palette[Math.floor(index * stride) % paletteLength]
-          : 0xff333333
+            ? palette[Math.floor(index * stride) % paletteLength]
+            : 0xff333333
       buffer[y * width + x] = color
     }
 
@@ -133,8 +138,10 @@ function drawDensity(payload: DrawPayload) {
       typeof stageId === 'number' && stageId >= 0
         ? resolveStageColorHex(stageId)
         : paletteHex.length
-        ? paletteHex[Math.floor(index * payload.densityStride) % paletteHex.length]
-        : '#333333'
+          ? paletteHex[
+              Math.floor(index * payload.densityStride) % paletteHex.length
+            ]
+          : '#333333'
     ctx.fillRect(x, y, cellSize, cellSize)
   }
   return { count: limit, columns, cell: cellSize }

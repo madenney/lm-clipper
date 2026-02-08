@@ -15,7 +15,7 @@ export function fileProcessor(path: string) {
     isProcessed: true,
     info: '',
     startFrame: -123,
-    endFrame: 0
+    endFrame: 0,
   }
 
   // check settings for indicators of invalid game
@@ -54,16 +54,15 @@ export function fileProcessor(path: string) {
   // check metadata for indicators of invalid game
   const metadata = game.getMetadata()
 
-  if(!metadata){
+  if (!metadata) {
     fileJSON.isValid = false
     fileJSON.info = 'Bad metadata'
     return fileJSON
   }
 
   const emptyObject = {}
-  if(JSON.stringify(emptyObject) == JSON.stringify(metadata)){
+  if (JSON.stringify(emptyObject) === JSON.stringify(metadata)) {
     fileJSON.info = 'Metadata removed'
-
   } else {
     if (!metadata.lastFrame || !metadata.startAt) {
       fileJSON.isValid = false
@@ -82,7 +81,7 @@ export function fileProcessor(path: string) {
       return fileJSON
     }
 
-    fileJSON.startedAt = Math.floor(new Date(metadata.startAt).getTime()/1000)
+    fileJSON.startedAt = Math.floor(new Date(metadata.startAt).getTime() / 1000)
     fileJSON.lastFrame = metadata.lastFrame
   }
 

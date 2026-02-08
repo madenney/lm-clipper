@@ -6,15 +6,15 @@ export const sortOptions = [
       return (resultA: any, resultB: any) => {
         const totalDamageA = resultA.combo.moves.reduce(
           (total: number, move: { damage: number }) => {
-          return total + move.damage
-        },
-          0
+            return total + move.damage
+          },
+          0,
         )
         const totalDamageB = resultB.combo.moves.reduce(
           (total: number, move: { damage: number }) => {
-          return total + move.damage
-        },
-          0
+            return total + move.damage
+          },
+          0,
         )
 
         const dpsA = totalDamageA / (resultA.endFrame - resultA.startFrame)

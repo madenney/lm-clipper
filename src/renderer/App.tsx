@@ -26,7 +26,7 @@ export default function App() {
       () => {
         setArchive(null)
         ipcBridge.closeArchive()
-      }
+      },
     )
 
     const removeOpenListener = window.electron.ipcRenderer.on(
@@ -40,7 +40,7 @@ export default function App() {
           }
           setArchive(newArchive)
         })
-      }
+      },
     )
 
     const removeImportListener = window.electron.ipcRenderer.on(
@@ -53,7 +53,7 @@ export default function App() {
           }
           setArchive(newArchive)
         })
-      }
+      },
     )
 
     const removeNewProjectListener = window.electron.ipcRenderer.on(
@@ -66,7 +66,7 @@ export default function App() {
           }
           setArchive(newArchive)
         })
-      }
+      },
     )
 
     const removeSaveAsListener = window.electron.ipcRenderer.on(
@@ -80,7 +80,7 @@ export default function App() {
           }
           setArchive(result)
         })
-      }
+      },
     )
 
     return () => {
@@ -105,12 +105,16 @@ export default function App() {
     }
 
     const handleRejection = (event: PromiseRejectionEvent) => {
-      const reason = event.reason
+      const { reason } = event
       window.electron.ipcRenderer.sendMessage('rendererError', {
         type: 'unhandledrejection',
         reason:
           reason instanceof Error
-            ? { name: reason.name, message: reason.message, stack: reason.stack }
+            ? {
+                name: reason.name,
+                message: reason.message,
+                stack: reason.stack,
+              }
             : { message: String(reason) },
       })
     }
@@ -131,7 +135,7 @@ export default function App() {
         if (finished && freshArchive) {
           setArchive(freshArchive)
         }
-      }
+      },
     )
 
     return () => {

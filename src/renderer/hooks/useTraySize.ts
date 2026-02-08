@@ -12,7 +12,7 @@ export type TraySizeResult = {
 export const useTraySize = (
   trayRef: MutableRefObject<HTMLDivElement | null>,
   resultsRef: MutableRefObject<HTMLDivElement | null>,
-  totalResults: number
+  totalResults: number,
 ): TraySizeResult => {
   const [trayWidth, setTrayWidth] = useState(0)
   const [trayHeight, setTrayHeight] = useState(0)
@@ -44,5 +44,12 @@ export const useTraySize = (
     setResultsTop(resultsRef.current?.offsetTop ?? 0)
   }, [totalResults])
 
-  return { trayWidth, trayHeight, resultsTop, traySizeRef, resultsTopRef, refreshResultsTop }
+  return {
+    trayWidth,
+    trayHeight,
+    resultsTop,
+    traySizeRef,
+    resultsTopRef,
+    refreshResultsTop,
+  }
 }

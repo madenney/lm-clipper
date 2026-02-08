@@ -32,11 +32,11 @@ type DomLayerProps = {
   visible: boolean
   selectedIds: Set<string>
   onClipMouseDown: (
-    index: number,
-    clipId: string,
-    event: React.MouseEvent,
+    _index: number,
+    _clipId: string,
+    _event: React.MouseEvent,
   ) => void
-  onClipMouseEnter: (index: number) => void
+  onClipMouseEnter: (_index: number) => void
   startIndex?: number // For pagination - offset to add to local indices
 }
 
@@ -65,7 +65,7 @@ const MemoClip = memo(
     mode: ClipMode
     style: CSSProperties
     isSelected: boolean
-    onMouseDown: (e: React.MouseEvent) => void
+    onMouseDown: (_e: React.MouseEvent) => void
     onMouseEnter: () => void
   }) {
     return (
@@ -98,7 +98,7 @@ export function DomLayer({
   clipSize,
   gap,
   columns,
-  trayWidth,
+  trayWidth: _trayWidth,
   trayHeight,
   visible,
   selectedIds,

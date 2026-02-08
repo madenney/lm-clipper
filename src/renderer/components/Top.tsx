@@ -37,7 +37,7 @@ export default function Top({ archive, config, setConfig }: TopProps) {
       'videoMsg',
       async (msg: string) => {
         setVideoMsg(msg)
-      }
+      },
     )
 
     return () => {
@@ -60,7 +60,7 @@ export default function Top({ archive, config, setConfig }: TopProps) {
       'importStatus',
       (status) => {
         applyStatus(status)
-      }
+      },
     )
 
     ipcBridge.getImportStatus((status) => {
@@ -114,7 +114,11 @@ export default function Top({ archive, config, setConfig }: TopProps) {
               id={c.id}
               className="settings-path-input"
               value={config[c.id] || ''}
-              placeholder={c.type === 'openDirectory' ? '/path/to/directory' : '/path/to/file'}
+              placeholder={
+                c.type === 'openDirectory'
+                  ? '/path/to/directory'
+                  : '/path/to/file'
+              }
               onChange={(e) => handleChange(c.id, e.target.value)}
             />
             <button
@@ -184,7 +188,10 @@ export default function Top({ archive, config, setConfig }: TopProps) {
     if (!configModalOpen) return null
 
     return (
-      <div className="settings-overlay" onClick={() => setConfigModalOpen(false)}>
+      <div
+        className="settings-overlay"
+        onClick={() => setConfigModalOpen(false)}
+      >
         <div className="settings-modal" onClick={(e) => e.stopPropagation()}>
           <div className="settings-header">
             <h2 className="settings-title">Settings</h2>
@@ -195,34 +202,49 @@ export default function Top({ archive, config, setConfig }: TopProps) {
               aria-label="Close settings"
             >
               <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                <path d="M1 1L13 13M1 13L13 1" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                <path
+                  d="M1 1L13 13M1 13L13 1"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                />
               </svg>
             </button>
           </div>
           <div className="settings-body">
             {settingsCategories.map((cat) => {
-              const items = videoConfig.filter((c: any) => c.category === cat.key)
+              const items = videoConfig.filter(
+                (c: any) => c.category === cat.key,
+              )
               if (items.length === 0) return null
               const isPathCategory = items.every(
-                (c: any) => c.type === 'openFile' || c.type === 'openDirectory'
+                (c: any) => c.type === 'openFile' || c.type === 'openDirectory',
               )
               return (
                 <div className="settings-section" key={cat.key}>
                   <h3 className="settings-section-title">{cat.label}</h3>
-                  <div className={`settings-list${isPathCategory ? '' : ' settings-list--grid'}`}>
+                  <div
+                    className={`settings-list${isPathCategory ? '' : ' settings-list--grid'}`}
+                  >
                     {items.map((c: any) => {
-                      const isPath = c.type === 'openFile' || c.type === 'openDirectory'
+                      const isPath =
+                        c.type === 'openFile' || c.type === 'openDirectory'
                       return (
                         <div
                           className={`settings-item${isPath ? ' settings-item--path' : ''}`}
                           key={c.id}
                         >
                           <div className="settings-item-info">
-                            <label className="settings-item-label" htmlFor={c.id}>
+                            <label
+                              className="settings-item-label"
+                              htmlFor={c.id}
+                            >
                               {c.label}
                             </label>
                             {c.warning && config[c.id] && (
-                              <span className="settings-item-warning">{c.warning}</span>
+                              <span className="settings-item-warning">
+                                {c.warning}
+                              </span>
                             )}
                           </div>
                           <div className="settings-item-control">

@@ -11,7 +11,7 @@ const normalizeExtensions = (extensions: string[]) =>
 async function* streamFilePathsByExtension(
   _paths: string | string[],
   extensions: string[],
-  options: StreamOptions = {}
+  options: StreamOptions = {},
 ) {
   const paths = Array.isArray(_paths) ? _paths : [_paths]
   const extSet = normalizeExtensions(extensions)
@@ -54,7 +54,7 @@ async function* streamFilePathsByExtension(
           }
         }
       } catch (error) {
-        const code = (error as NodeJS.ErrnoException).code
+        const { code } = error as NodeJS.ErrnoException
         if (options.signal?.aborted && code === 'ERR_DIR_CLOSED') return
         throw error
       }
@@ -71,8 +71,7 @@ async function* streamFilePathsByExtension(
 
 export async function* streamSlpFilePaths(
   _paths: string | string[],
-  options: StreamOptions = {}
+  options: StreamOptions = {},
 ) {
   yield* streamFilePathsByExtension(_paths, ['.slp'], options)
 }
-

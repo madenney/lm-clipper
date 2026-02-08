@@ -196,8 +196,12 @@ export default function Filters({
     const config = filtersConfig.find((entry) => entry.id === filter.type)
     if (!config || !config.options || config.options.length === 0) return null
 
-    const gridOptions = (config.options as any[]).filter((o) => o.type !== 'nthMoves')
-    const nthMovesOption = (config.options as any[]).find((o) => o.type === 'nthMoves')
+    const gridOptions = (config.options as any[]).filter(
+      (o) => o.type !== 'nthMoves',
+    )
+    const nthMovesOption = (config.options as any[]).find(
+      (o) => o.type === 'nthMoves',
+    )
 
     return (
       <div className="filter-controls">

@@ -1,11 +1,13 @@
+import { FileInterface } from 'constants/types'
 import { getDb } from './dbConnection'
 import { archive as defaultArchive } from '../constants/defaults'
-import { FileInterface } from 'constants/types'
 
 export function dbExists(path: string) {
   try {
     const db = getDb(path)
-    db.prepare("SELECT name FROM sqlite_master WHERE type='table' LIMIT 1").get()
+    db.prepare(
+      "SELECT name FROM sqlite_master WHERE type='table' LIMIT 1",
+    ).get()
     return true
   } catch (e) {
     return false
@@ -37,10 +39,12 @@ export function createDB(path: string, name: string) {
   const extra = JSON.stringify({ filters: metadata.filters })
 
   // Only insert if the table is empty (don't duplicate on re-open)
-  const existing = db.prepare('SELECT COUNT(*) AS count FROM metadata').get() as { count: number }
+  const existing = db
+    .prepare('SELECT COUNT(*) AS count FROM metadata')
+    .get() as { count: number }
   if (existing.count === 0) {
     db.prepare(
-      'INSERT INTO metadata (name, path, createdAt, extra) VALUES (?, ?, ?, ?)'
+      'INSERT INTO metadata (name, path, createdAt, extra) VALUES (?, ?, ?, ?)',
     ).run(metadata.name, metadata.path, metadata.createdAt, extra)
   }
 
@@ -94,7 +98,7 @@ function migrateMetadataIfNeeded(db: ReturnType<typeof getDb>) {
       filters: old.filters || [],
     })
     db.prepare(
-      'INSERT INTO metadata (name, path, createdAt, extra) VALUES (?, ?, ?, ?)'
+      'INSERT INTO metadata (name, path, createdAt, extra) VALUES (?, ?, ?, ?)',
     ).run(old.name || '', old.path || '', old.createdAt || 0, extra)
     db.exec('DROP TABLE metadata_old')
   }
@@ -118,7 +122,9 @@ export function getMetaData(path: string) {
   let extra: { filters?: any[] } = {}
   try {
     extra = JSON.parse(row.extra || '{}')
-  } catch (_) {}
+  } catch (_) {
+    // empty
+  }
 
   const metadata: any = {
     name: row.name,
@@ -130,15 +136,15 @@ export function getMetaData(path: string) {
   let needsUpdate = false
 
   const gameFilterIndex = metadata.filters.findIndex(
-    (filter: { type?: string }) => filter.type === 'files'
+    (filter: { type?: string }) => filter.type === 'files',
   )
   if (gameFilterIndex === -1) {
     const template = defaultArchive.filters.find(
-      (filter) => filter.type === 'files'
+      (filter) => filter.type === 'files',
     )
     if (template) {
       const usedIds = new Set(
-        metadata.filters.map((filter: { id: string }) => filter.id)
+        metadata.filters.map((filter: { id: string }) => filter.id),
       )
       let id = template.id || `filter_${Date.now()}`
       if (usedIds.has(id)) {
@@ -157,9 +163,9 @@ export function getMetaData(path: string) {
     needsUpdate = true
   }
 
-  const countRow = db
-    .prepare('SELECT COUNT(*) AS count FROM files')
-    .get() as { count: number }
+  const countRow = db.prepare('SELECT COUNT(*) AS count FROM files').get() as {
+    count: number
+  }
   metadata.files = countRow.count
 
   for (const filter of metadata.filters) {
@@ -191,15 +197,17 @@ export function updateMetaData(
     path?: string
     createdAt?: number
     filters?: any[]
-  }
+  },
 ) {
   const db = getDb(path)
   const extra = JSON.stringify({ filters: metadata.filters || [] })
-  db.prepare('UPDATE metadata SET name = ?, path = ?, createdAt = ?, extra = ?').run(
+  db.prepare(
+    'UPDATE metadata SET name = ?, path = ?, createdAt = ?, extra = ?',
+  ).run(
     metadata.name || '',
     metadata.path || '',
     metadata.createdAt || 0,
-    extra
+    extra,
   )
 }
 
@@ -213,10 +221,12 @@ export function getFileByPath(path: string, filePath: string) {
 
 export function insertFile(path: string, fileJSON: FileInterface) {
   const db = getDb(path)
-  db.prepare(`
+  db.prepare(
+    `
     INSERT INTO files (path, players, winner, stage, startedAt, lastFrame, isProcessed, info)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
+  `,
+  ).run(
     fileJSON.path,
     JSON.stringify(fileJSON.players),
     fileJSON.winner,
@@ -224,7 +234,7 @@ export function insertFile(path: string, fileJSON: FileInterface) {
     fileJSON.startedAt || 0,
     fileJSON.lastFrame,
     fileJSON.isProcessed ? 1 : 0,
-    fileJSON.info || ''
+    fileJSON.info || '',
   )
 }
 
@@ -248,7 +258,7 @@ export function insertFiles(path: string, files: FileInterface[]) {
         f.startedAt || 0,
         f.lastFrame,
         f.isProcessed ? 1 : 0,
-        f.info || ''
+        f.info || '',
       )
     }
   })
@@ -278,7 +288,7 @@ export function getItemsByIds(path: string, tableId: string, ids: number[]) {
 export function insertRow(path: string, tableId: string, rowJSON: any) {
   const db = getDb(path)
   db.prepare(`INSERT INTO "${tableId}" (JSON) VALUES (?)`).run(
-    JSON.stringify(rowJSON)
+    JSON.stringify(rowJSON),
   )
 }
 
@@ -313,7 +323,7 @@ export function getItems(
   path: string,
   tableId: string,
   limit: number,
-  offset: number
+  offset: number,
 ) {
   const db = getDb(path)
   return db
@@ -330,9 +340,9 @@ export function getItemsLite(path: string, limit: number, offset: number) {
 
 export function getTableCount(path: string, tableId: string): number {
   const db = getDb(path)
-  const row = db
-    .prepare(`SELECT COUNT(*) AS count FROM "${tableId}"`)
-    .get() as { count: number } | undefined
+  const row = db.prepare(`SELECT COUNT(*) AS count FROM "${tableId}"`).get() as
+    | { count: number }
+    | undefined
   return row?.count ?? 0
 }
 

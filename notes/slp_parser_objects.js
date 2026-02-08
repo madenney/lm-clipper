@@ -14,9 +14,9 @@ const stats = {
       endPercent: 104.70000457763672,
       currentPercent: 104.70000457763672,
       count: 4,
-      deathAnimation: 0
+      deathAnimation: 0,
     },
-    ...{}
+    ...{},
   ],
   conversions: [
     {
@@ -33,20 +33,20 @@ const stats = {
           frame: 143,
           moveId: 21,
           hitCount: 1,
-          damage: 5
+          damage: 5,
         },
         {
           playerIndex: 0,
           frame: 222,
           moveId: 11,
           hitCount: 1,
-          damage: 18
-        }
+          damage: 18,
+        },
       ],
       didKill: false,
-      openingType: 'neutral-win'
+      openingType: 'neutral-win',
     },
-    ...{}
+    ...{},
   ],
   combos: [
     {
@@ -62,26 +62,26 @@ const stats = {
           frame: 143,
           moveId: 21,
           hitCount: 1,
-          damage: 5
+          damage: 5,
         },
         {
           playerIndex: 0,
           frame: 222,
           moveId: 11,
           hitCount: 1,
-          damage: 18
+          damage: 18,
         },
         {
           playerIndex: 0,
           frame: 280,
           moveId: 11,
           hitCount: 1,
-          damage: 16.37999725341797
-        }
+          damage: 16.37999725341797,
+        },
       ],
       didKill: false,
-      lastHitBy: 0
-    }
+      lastHitBy: 0,
+    },
   ],
   actionCounts: [
     {
@@ -95,7 +95,7 @@ const stats = {
       rollCount: 1,
       lCancelCount: {
         success: 0,
-        fail: 0
+        fail: 0,
       },
       attackCount: {
         jab1: 2,
@@ -113,28 +113,28 @@ const stats = {
         fair: 1,
         bair: 11,
         uair: 1,
-        dair: 9
+        dair: 9,
       },
       grabCount: {
         success: 1,
-        fail: 7
+        fail: 7,
       },
       throwCount: {
         up: 1,
         forward: 0,
         back: 0,
-        down: 0
+        down: 0,
       },
       groundTechCount: {
         away: 0,
         in: 0,
         neutral: 1,
-        fail: 3
+        fail: 3,
       },
       wallTechCount: {
         success: 0,
-        fail: 0
-      }
+        fail: 0,
+      },
     },
     {
       playerIndex: 1,
@@ -147,7 +147,7 @@ const stats = {
       rollCount: 4,
       lCancelCount: {
         success: 0,
-        fail: 0
+        fail: 0,
       },
       attackCount: {
         jab1: 2,
@@ -165,29 +165,29 @@ const stats = {
         fair: 1,
         bair: 9,
         uair: 0,
-        dair: 17
+        dair: 17,
       },
       grabCount: {
         success: 6,
-        fail: 7
+        fail: 7,
       },
       throwCount: {
         up: 2,
         forward: 2,
         back: 2,
-        down: 0
+        down: 0,
       },
       groundTechCount: {
         away: 1,
         in: 0,
         neutral: 1,
-        fail: 8
+        fail: 8,
       },
       wallTechCount: {
         success: 0,
-        fail: 0
-      }
-    }
+        fail: 0,
+      },
+    },
   ],
   overall: [
     {
@@ -197,7 +197,7 @@ const stats = {
         triggers: 67,
         cstick: 42,
         joystick: 481,
-        total: 832
+        total: 832,
       },
       conversionCount: 15,
       totalDamage: 248.50000381469727,
@@ -205,43 +205,43 @@ const stats = {
       successfulConversions: {
         count: 6,
         total: 15,
-        ratio: 0.4
+        ratio: 0.4,
       },
       inputsPerMinute: {
         count: 832,
         total: 2.406388888888889,
-        ratio: 345.7462772711532
+        ratio: 345.7462772711532,
       },
       digitalInputsPerMinute: {
         count: 242,
         total: 2.406388888888889,
-        ratio: 100.56562391781138
+        ratio: 100.56562391781138,
       },
       openingsPerKill: {
         count: 15,
         total: 2,
-        ratio: 7.5
+        ratio: 7.5,
       },
       damagePerOpening: {
         count: 248.50000381469727,
         total: 15,
-        ratio: 16.566666920979817
+        ratio: 16.566666920979817,
       },
       neutralWinRatio: {
         count: 7,
         total: 13,
-        ratio: 0.5384615384615384
+        ratio: 0.5384615384615384,
       },
       counterHitRatio: {
         count: 8,
         total: 18,
-        ratio: 0.4444444444444444
+        ratio: 0.4444444444444444,
       },
       beneficialTradeRatio: {
         count: 0,
         total: 0,
-        ratio: null
-      }
+        ratio: null,
+      },
     },
     {
       playerIndex: 1,
@@ -250,7 +250,7 @@ const stats = {
         triggers: 87,
         cstick: 126,
         joystick: 704,
-        total: 1246
+        total: 1246,
       },
       conversionCount: 16,
       totalDamage: 345.64000511169434,
@@ -258,51 +258,51 @@ const stats = {
       successfulConversions: {
         count: 10,
         total: 16,
-        ratio: 0.625
+        ratio: 0.625,
       },
       inputsPerMinute: {
         count: 1246,
         total: 2.406388888888889,
-        ratio: 517.7882950479049
+        ratio: 517.7882950479049,
       },
       digitalInputsPerMinute: {
         count: 329,
         total: 2.406388888888889,
-        ratio: 136.71938127669398
+        ratio: 136.71938127669398,
       },
       openingsPerKill: {
         count: 16,
         total: 3,
-        ratio: 5.333333333333333
+        ratio: 5.333333333333333,
       },
       damagePerOpening: {
         count: 345.64000511169434,
         total: 16,
-        ratio: 21.602500319480896
+        ratio: 21.602500319480896,
       },
       neutralWinRatio: {
         count: 6,
         total: 13,
-        ratio: 0.46153846153846156
+        ratio: 0.46153846153846156,
       },
       counterHitRatio: {
         count: 10,
         total: 18,
-        ratio: 0.5555555555555556
+        ratio: 0.5555555555555556,
       },
       beneficialTradeRatio: {
         count: 0,
         total: 0,
-        ratio: null
-      }
-    }
+        ratio: null,
+      },
+    },
   ],
-  gameComplete: true
+  gameComplete: true,
 }
 
 // Get Frames
 const frames = {
-  '0': {
+  0: {
     frame: 0,
     players: [
       null,
@@ -325,7 +325,7 @@ const frames = {
           physicalButtons: 0,
           physicalLTrigger: 0,
           physicalRTrigger: 0.0357142873108387,
-          percent: 0
+          percent: 0,
         },
         post: {
           frame: 0,
@@ -354,11 +354,11 @@ const frames = {
             y: null,
             attackX: null,
             attackY: null,
-            groundX: null
+            groundX: null,
           },
           hitlagRemaining: null,
-          animationIndex: null
-        }
+          animationIndex: null,
+        },
       },
       null,
       {
@@ -380,7 +380,7 @@ const frames = {
           physicalButtons: 256,
           physicalLTrigger: 0.02857142873108387,
           physicalRTrigger: 0.02857142873108387,
-          percent: 0
+          percent: 0,
         },
         post: {
           frame: 0,
@@ -409,14 +409,14 @@ const frames = {
             y: null,
             attackX: null,
             attackY: null,
-            groundX: null
+            groundX: null,
           },
           hitlagRemaining: null,
-          animationIndex: null
-        }
-      }
-    ]
-  }
+          animationIndex: null,
+        },
+      },
+    ],
+  },
 }
 
 // Get Settings
@@ -438,7 +438,7 @@ const settings = {
       nametag: '',
       displayName: '',
       connectCode: '',
-      userId: ''
+      userId: '',
     },
     {
       playerIndex: 1,
@@ -452,12 +452,12 @@ const settings = {
       nametag: '',
       displayName: '',
       connectCode: '',
-      userId: ''
-    }
+      userId: '',
+    },
   ],
   scene: 2,
   gameMode: 8,
-  language: null
+  language: null,
 }
 
 // Get Metadata
@@ -465,24 +465,24 @@ const metadata = {
   startAt: '2020-12-15T19:41:40Z',
   lastFrame: 6245,
   players: {
-    '0': {
+    0: {
       names: {
         netplay: 'Captain Planet',
-        code: 'WOOG#832'
+        code: 'WOOG#832',
       },
       characters: {
-        '22': 6590
-      }
+        22: 6590,
+      },
     },
-    '1': {
+    1: {
       names: {
         netplay: 'mang0',
-        code: 'MANG#0'
+        code: 'MANG#0',
       },
       characters: {
-        '22': 6590
-      }
-    }
+        22: 6590,
+      },
+    },
   },
-  playedOn: 'dolphin'
+  playedOn: 'dolphin',
 }

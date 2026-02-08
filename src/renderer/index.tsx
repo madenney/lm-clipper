@@ -5,7 +5,11 @@ const preventDragDefault = (event: DragEvent) => {
   event.preventDefault()
 }
 
-const dragEvents: Array<keyof WindowEventMap> = ['dragenter', 'dragover', 'drop']
+const dragEvents: Array<keyof WindowEventMap> = [
+  'dragenter',
+  'dragover',
+  'drop',
+]
 const dragListenerOptions: AddEventListenerOptions = { capture: true }
 dragEvents.forEach((eventName) => {
   document.addEventListener(eventName, preventDragDefault, dragListenerOptions)

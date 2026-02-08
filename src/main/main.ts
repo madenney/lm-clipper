@@ -18,7 +18,6 @@ import { runWorkflow } from './workflow'
 import { logMain } from './logger'
 import { closeDb } from './dbConnection'
 
-
 let mainWindow: BrowserWindow | null = null
 let controller: Controller | null = null
 
@@ -65,7 +64,7 @@ const installExtensions = async () => {
   return installer
     .default(
       extensions.map((name) => installer[name]),
-      forceDownload
+      forceDownload,
     )
     .catch(console.log)
 }
@@ -101,10 +100,13 @@ const createWindow = async () => {
   await controller.initArchive()
   controller.initiateListeners()
 
-  mainWindow.webContents.on('console-message', (_event, level, message, line, sourceId) => {
-    if (level < 2) return
-    logMain('renderer-console', { level, message, line, sourceId })
-  })
+  mainWindow.webContents.on(
+    'console-message',
+    (_event, level, message, line, sourceId) => {
+      if (level < 2) return
+      logMain('renderer-console', { level, message, line, sourceId })
+    },
+  )
 
   const allowedUrl = resolveHtmlPath('index.html')
   const isAllowedNavigation = (url: string) => {

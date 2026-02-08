@@ -19,9 +19,10 @@ const flush = () => {
 
 export const debugLog = (label: string, data?: any) => {
   const ts = new Date().toISOString()
-  const line = data !== undefined
-    ? `[${ts}] ${label} ${JSON.stringify(data)}`
-    : `[${ts}] ${label}`
+  const line =
+    data !== undefined
+      ? `[${ts}] ${label} ${JSON.stringify(data)}`
+      : `[${ts}] ${label}`
 
   queue.push(line)
 

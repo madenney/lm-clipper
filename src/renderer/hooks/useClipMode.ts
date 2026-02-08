@@ -7,7 +7,6 @@
 
 import { useMemo } from 'react'
 import {
-  clipDisplayConfig,
   getClipMode,
   isFeatureVisible,
   getGapSize,
@@ -52,7 +51,7 @@ const calculateLayout = (
   gap: number,
   trayWidth: number,
   trayHeight: number,
-  totalClips: number
+  totalClips: number,
 ) => {
   const cellSize = clipSize + gap
   const padding = gap
@@ -62,14 +61,14 @@ const calculateLayout = (
   const availableHeight = Math.max(0, trayHeight - padding * 2)
 
   // Calculate columns (at least 1)
-  const columns = cellSize > 0
-    ? Math.max(1, Math.floor((availableWidth + gap) / cellSize))
-    : 1
+  const columns =
+    cellSize > 0
+      ? Math.max(1, Math.floor((availableWidth + gap) / cellSize))
+      : 1
 
   // Calculate rows that fit in viewport
-  const rowsInView = cellSize > 0
-    ? Math.max(1, Math.ceil(availableHeight / cellSize))
-    : 1
+  const rowsInView =
+    cellSize > 0 ? Math.max(1, Math.ceil(availableHeight / cellSize)) : 1
 
   // Total visible clips (capped at total)
   const visibleCount = Math.min(columns * rowsInView, totalClips)
@@ -100,7 +99,7 @@ export const useClipMode = ({
       gap,
       trayWidth,
       trayHeight,
-      totalClips
+      totalClips,
     )
 
     // Determine mode

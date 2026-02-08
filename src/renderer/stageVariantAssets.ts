@@ -36,7 +36,7 @@ const urlBySizeAndBase = new Map<number, Map<string, string>>()
 const context = (require as any).context(
   '../images/stages/variants',
   false,
-  /\.(png|jpe?g)$/
+  /\.(png|jpe?g)$/,
 )
 context.keys().forEach((key: string) => {
   const match = key.match(/^\.\/(.+)_([0-9]+)\.(png|jpe?g)$/)
@@ -95,7 +95,7 @@ stageVariantSizes.forEach((size) => {
 
 export const getVariantUrl = (
   stageTag: string,
-  tileSize: number
+  tileSize: number,
 ): string | null => {
   const sizes = sizesByTag.get(stageTag)
   if (!sizes || sizes.length === 0) return null

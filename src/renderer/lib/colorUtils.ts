@@ -24,7 +24,7 @@ export const hexToRgbaFloat = (hex: string) => {
 export const resolveStageColorHex = (
   stageId: number,
   palette: string[],
-  cache: Map<number, string>
+  cache: Map<number, string>,
 ) => {
   const cached = cache.get(stageId)
   if (cached) return cached
@@ -34,9 +34,7 @@ export const resolveStageColorHex = (
   const stageTag = entry?.tag
   const solidColors: Record<string, string> = zoomConfig.stageSolidColors
   let color =
-    stageTag && stageTag in solidColors
-      ? solidColors[stageTag]
-      : undefined
+    stageTag && stageTag in solidColors ? solidColors[stageTag] : undefined
   if (!color) {
     color = palette.length
       ? palette[Math.abs(stageId) % palette.length]
@@ -50,7 +48,7 @@ export const resolveStageColorUint = (
   stageId: number,
   palette: string[],
   hexCache: Map<number, string>,
-  uintCache: Map<number, number>
+  uintCache: Map<number, number>,
 ) => {
   const cached = uintCache.get(stageId)
   if (cached != null) return cached

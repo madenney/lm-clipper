@@ -47,7 +47,7 @@ export type TrayDebugContext = {
   webglWantedRef: MutableRefObject<boolean>
   renderModeRef: MutableRefObject<string>
   elementsOnScreenRef: MutableRefObject<number>
-  loadingStore: { set: (value: boolean) => void }
+  loadingStore: { set: (_value: boolean) => void }
 }
 
 const maxVisibleItems = zoomConfig.densityMaxVisibleItems
@@ -71,9 +71,13 @@ export function createTrayDebug(ctx: TrayDebugContext) {
     const visibleEnd = visible.offset + visible.limit
     const dataEnd = dataRange.offset + dataRange.limit
     const varSize = ctx.variantBucketRef.current || stageVariantSizes[0] || 1
-    const useFallback = dataRange.limit <= 0 || visible.offset < dataRange.offset || visibleEnd > dataEnd
+    const useFallback =
+      dataRange.limit <= 0 ||
+      visible.offset < dataRange.offset ||
+      visibleEnd > dataEnd
+    seq += 1
     return {
-      seq: (seq += 1),
+      seq,
       perfNow: roundNumber(performance.now(), 2),
       zoomTarget: roundNumber(ctx.zoomTargetRef.current, 3),
       displayZoom: roundNumber(ctx.displayZoomRef.current, 3),
@@ -111,16 +115,23 @@ export function createTrayDebug(ctx: TrayDebugContext) {
 
   const logZoomTrace = (
     event: string,
-    meta?: Record<string, string | number | boolean | null>
+    meta?: Record<string, string | number | boolean | null>,
   ) => {
-    perfLog.event('zoom_trace', { event, ...getZoomTraceBase(), ...(meta || {}) })
+    perfLog.event('zoom_trace', {
+      event,
+      ...getZoomTraceBase(),
+      ...(meta || {}),
+    })
   }
 
   const buildDebugLines = (source: string) => {
     const wheel = ctx.lastWheelInfoRef.current
     const now = Date.now()
-    const wheelTimeLabel = wheel.time ? new Date(wheel.time).toLocaleTimeString() : 'n/a'
-    const wheelAgeLabel = wheel.time > 0 ? `${Math.max(0, now - wheel.time)}ms` : 'n/a'
+    const wheelTimeLabel = wheel.time
+      ? new Date(wheel.time).toLocaleTimeString()
+      : 'n/a'
+    const wheelAgeLabel =
+      wheel.time > 0 ? `${Math.max(0, now - wheel.time)}ms` : 'n/a'
     const traySize = ctx.traySizeRef.current
     const scrollTop = ctx.trayRef.current?.scrollTop || 0
     const rTop = ctx.resultsTopRef.current
@@ -134,7 +145,10 @@ export function createTrayDebug(ctx: TrayDebugContext) {
     const dataEnd = dataRange.offset + dataRange.limit
     const varSize = ctx.variantBucketRef.current || stageVariantSizes[0] || 1
     const textureReady = ctx.webglTextureSizesRef.current.has(varSize)
-    const useFallback = dataRange.limit <= 0 || visible.offset < dataRange.offset || visibleEnd > dataEnd
+    const useFallback =
+      dataRange.limit <= 0 ||
+      visible.offset < dataRange.offset ||
+      visibleEnd > dataEnd
     const pendingWebglFetch = ctx.webglFetchTimeoutRef.current != null
     const pendingZoomCommit = ctx.zoomStopTimeoutRef.current != null
     const pendingZoomRaf = ctx.zoomRafRef.current != null

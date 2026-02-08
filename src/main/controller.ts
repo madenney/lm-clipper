@@ -17,7 +17,6 @@ import {
   ShallowArchiveInterface,
   ShallowFilterInterface,
   ReplayInterface,
-  RecentProject,
 } from '../constants/types'
 import Archive from '../models/Archive'
 import Filter from '../models/Filter'
@@ -46,7 +45,9 @@ type ImportStatus = {
   queueLength: number
 }
 
-const unpackRequest = <T>(data: unknown): { requestId?: string; payload: T } => {
+const unpackRequest = <T>(
+  data: unknown,
+): { requestId?: string; payload: T } => {
   if (data && typeof data === 'object') {
     const record = data as { requestId?: string; payload?: T }
     if ('requestId' in record && 'payload' in record) {
@@ -60,7 +61,7 @@ const reply = (
   event: IpcMainEvent,
   channel: string,
   requestId: string | undefined,
-  payload?: unknown
+  payload?: unknown,
 ) => {
   if (requestId) {
     event.reply(channel, { requestId, payload })
@@ -72,19 +73,18 @@ const reply = (
 const resolveClipFrames = (payload: ClipPayload) => {
   const hasStart =
     typeof payload.startFrame === 'number' && payload.startFrame !== 0
-  const hasEnd =
-    typeof payload.endFrame === 'number' && payload.endFrame !== 0
+  const hasEnd = typeof payload.endFrame === 'number' && payload.endFrame !== 0
   const startFrame = hasStart ? payload.startFrame : -123
   const endFrame = hasEnd
     ? payload.endFrame
     : typeof payload.lastFrame === 'number' && payload.lastFrame > 0
-    ? payload.lastFrame
-    : 99999
+      ? payload.lastFrame
+      : 99999
   return { startFrame, endFrame }
 }
 
 const buildShallowArchive = (
-  archive: ArchiveInterface | null
+  archive: ArchiveInterface | null,
 ): ShallowArchiveInterface | null => {
   if (!archive) return null
   return {
@@ -196,7 +196,6 @@ export default class Controller {
       total: null,
       queueLength: 0,
     }
-
   }
 
   cleanup() {
@@ -208,7 +207,11 @@ export default class Controller {
 
     // Kill playback Dolphin process
     if (this.activePlaybackProcess) {
-      try { this.activePlaybackProcess.kill() } catch (_) {}
+      try {
+        this.activePlaybackProcess.kill()
+      } catch (_) {
+        // empty
+      }
       this.activePlaybackProcess = null
     }
 
@@ -232,7 +235,11 @@ export default class Controller {
 
     // Clean up temp directories
     for (const dir of this.activeTmpDirs) {
-      try { fs.rmSync(dir, { recursive: true, force: true }) } catch (_) {}
+      try {
+        fs.rmSync(dir, { recursive: true, force: true })
+      } catch (_) {
+        // empty
+      }
     }
     this.activeTmpDirs.clear()
   }
@@ -240,7 +247,7 @@ export default class Controller {
   private addToRecentProjects(name: string, projectPath: string) {
     if (!this.config.recentProjects) this.config.recentProjects = []
     this.config.recentProjects = this.config.recentProjects.filter(
-      (p) => p.path !== projectPath
+      (p) => p.path !== projectPath,
     )
     this.config.recentProjects.unshift({
       name,
@@ -256,7 +263,7 @@ export default class Controller {
   private removeFromRecentProjects(projectPath: string) {
     if (!this.config.recentProjects) return
     this.config.recentProjects = this.config.recentProjects.filter(
-      (p) => p.path !== projectPath
+      (p) => p.path !== projectPath,
     )
     fs.writeFileSync(this.configPath, JSON.stringify(this.config, null, 2))
   }
@@ -275,15 +282,21 @@ export default class Controller {
     const docsDir = path.resolve(app.getPath('documents'), 'LM Clipper')
     if (!fs.existsSync(docsDir)) fs.mkdirSync(docsDir, { recursive: true })
     const name = this.getUntitledName(docsDir)
-    const metadata = await this.createNewArchiveInternal({ name, location: docsDir })
+    const metadata = await this.createNewArchiveInternal({
+      name,
+      location: docsDir,
+    })
     return metadata
   }
 
-  private async createNewArchiveInternal(payload: { name?: string; location?: string }) {
+  private async createNewArchiveInternal(payload: {
+    name?: string
+    location?: string
+  }) {
     closeDb()
     const newArchivePath = path.resolve(
       payload.location || app.getPath('documents'),
-      `${payload.name ? payload.name : 'lm-clipper-default-db'}`
+      `${payload.name ? payload.name : 'lm-clipper-default-db'}`,
     )
 
     await createDB(newArchivePath, payload.name || 'lm-clipper-default')
@@ -298,7 +311,7 @@ export default class Controller {
     return metadata
   }
 
-  async initArchive(){
+  async initArchive() {
     if (!this.config.lastArchivePath) {
       this.archive = null
       return
@@ -332,7 +345,7 @@ export default class Controller {
     data: RequestEnvelope<{
       key: string
       value: string | number | boolean | null
-    }>
+    }>,
   ) {
     const { requestId, payload } = unpackRequest<{
       key: string
@@ -348,7 +361,7 @@ export default class Controller {
 
   async getArchive(event: IpcMainEvent, data?: RequestEnvelope<null>) {
     const { requestId } = unpackRequest<null>(data)
-    if (this.archive ) {
+    if (this.archive) {
       try {
         const metadata = await getMetaData(this.archive.path)
         this.archive = new Archive(metadata)
@@ -372,7 +385,7 @@ export default class Controller {
 
   async createNewArchive(
     event: IpcMainEvent,
-    data: RequestEnvelope<{ name?: string; location?: string }>
+    data: RequestEnvelope<{ name?: string; location?: string }>,
   ) {
     try {
       const { requestId, payload } = unpackRequest<{
@@ -412,17 +425,16 @@ export default class Controller {
       if (canceled) return reply(event, 'openExistingArchive', requestId)
 
       closeDb()
-      try{
-        const metadata = await getMetaData(filePaths[0]) 
+      try {
+        const metadata = await getMetaData(filePaths[0])
         this.archive = new Archive(metadata)
-      } catch(e){
-        console.log("Error opening archive", e)
+      } catch (e) {
+        console.log('Error opening archive', e)
         return reply(event, 'openExistingArchive', requestId, {
           error: 'Failed to open given filepath',
         })
       }
-      
-      
+
       if (!this.archive || !this.archive.shallowCopy)
         throw new Error('Something went wrong :(')
       this.config.lastArchivePath = this.archive.path
@@ -452,30 +464,38 @@ export default class Controller {
   private startCountWorker(filePaths: string[]) {
     this.stopCountWorker()
     if (!filePaths || filePaths.length === 0) return
-    const worker = new Worker(new URL('./ImportCountWorker.ts', import.meta.url), {
-      ...(this.countWorkerExecArgv ? { execArgv: this.countWorkerExecArgv } : {}),
-    })
+    const worker = new Worker(
+      new URL('./ImportCountWorker.ts', import.meta.url),
+      {
+        ...(this.countWorkerExecArgv
+          ? { execArgv: this.countWorkerExecArgv }
+          : {}),
+      },
+    )
     this.currentCountWorker = worker
     this.mainWindow.webContents.send('importingFileTotal', { total: null })
     this.setImportStatus({ total: null })
 
-    worker.on('message', (message: { type?: string; total?: number; error?: string }) => {
-      if (worker !== this.currentCountWorker) return
-      if (message?.type === 'done') {
-        if (typeof message.total === 'number') {
-          this.mainWindow.webContents.send('importingFileTotal', {
-            total: message.total,
-          })
-          this.setImportStatus({ total: message.total })
+    worker.on(
+      'message',
+      (message: { type?: string; total?: number; error?: string }) => {
+        if (worker !== this.currentCountWorker) return
+        if (message?.type === 'done') {
+          if (typeof message.total === 'number') {
+            this.mainWindow.webContents.send('importingFileTotal', {
+              total: message.total,
+            })
+            this.setImportStatus({ total: message.total })
+          }
+          this.stopCountWorker()
+          return
         }
-        this.stopCountWorker()
-        return
-      }
-      if (message?.type === 'error') {
-        console.log('Count worker error:', message.error)
-        this.stopCountWorker()
-      }
-    })
+        if (message?.type === 'error') {
+          console.log('Count worker error:', message.error)
+          this.stopCountWorker()
+        }
+      },
+    )
 
     worker.on('error', (error) => {
       if (worker !== this.currentCountWorker) return
@@ -572,7 +592,7 @@ export default class Controller {
         detectDuplicates,
         abortSignal: importAbortController.signal,
         maxWorkers,
-      }
+      },
     )
     const { terminated, failed } = result
 
@@ -632,7 +652,12 @@ export default class Controller {
       filters: [{ name: 'slp files', extensions: ['slp'] }],
     })
     if (canceled || !filePaths || filePaths.length === 0) {
-      return reply(event, 'addFilesManual', requestId, buildShallowArchive(this.archive))
+      return reply(
+        event,
+        'addFilesManual',
+        requestId,
+        buildShallowArchive(this.archive),
+      )
     }
 
     reply(event, 'addFilesManual', requestId, buildShallowArchive(this.archive))
@@ -640,13 +665,9 @@ export default class Controller {
     return undefined
   }
 
-
-  async addDroppedFiles(
-    event: IpcMainEvent,
-    data: RequestEnvelope<string[]>
-  ) {
+  async addDroppedFiles(event: IpcMainEvent, data: RequestEnvelope<string[]>) {
     const { requestId, payload } = unpackRequest<string[]>(data)
-    if(!this.archive){
+    if (!this.archive) {
       try {
         await this.autoCreateUntitledProject()
       } catch (error) {
@@ -660,7 +681,12 @@ export default class Controller {
       return reply(event, 'addDroppedFiles', requestId, {
         error: 'archive undefined',
       })
-    reply(event, 'addDroppedFiles', requestId, buildShallowArchive(this.archive))
+    reply(
+      event,
+      'addDroppedFiles',
+      requestId,
+      buildShallowArchive(this.archive),
+    )
     this.enqueueImport(payload || [])
     return undefined
   }
@@ -728,14 +754,16 @@ export default class Controller {
   async saveAsArchive(event: IpcMainEvent, data?: RequestEnvelope<null>) {
     const { requestId } = unpackRequest<null>(data)
     if (!this.archive) {
-      return reply(event, 'saveAsArchive', requestId, { error: 'No project open' })
+      return reply(event, 'saveAsArchive', requestId, {
+        error: 'No project open',
+      })
     }
 
     const { canceled, filePath: newPath } = await dialog.showSaveDialog({
       title: 'Save Project As',
       defaultPath: path.resolve(
         path.dirname(this.archive.path),
-        this.archive.name
+        this.archive.name,
       ),
       filters: [{ name: 'LM Clipper Project', extensions: [] }],
     })
@@ -764,14 +792,17 @@ export default class Controller {
       return reply(event, 'saveAsArchive', requestId, shallow)
     } catch (error) {
       console.log('Error saving project as:', error)
-      return reply(event, 'saveAsArchive', requestId, { error: true, info: error })
+      return reply(event, 'saveAsArchive', requestId, {
+        error: true,
+        info: error,
+      })
     }
   }
 
   async getRecentProjects(event: IpcMainEvent, data?: RequestEnvelope<null>) {
     const { requestId } = unpackRequest<null>(data)
-    const recents = (this.config.recentProjects || []).filter(
-      (p) => fs.existsSync(p.path)
+    const recents = (this.config.recentProjects || []).filter((p) =>
+      fs.existsSync(p.path),
     )
     // Update stored list to remove stale entries
     if (recents.length !== (this.config.recentProjects || []).length) {
@@ -805,7 +836,10 @@ export default class Controller {
       return reply(event, 'openRecentProject', requestId, shallow)
     } catch (error) {
       console.log('Error opening recent project:', error)
-      return reply(event, 'openRecentProject', requestId, { error: true, info: error })
+      return reply(event, 'openRecentProject', requestId, {
+        error: true,
+        info: error,
+      })
     }
   }
 
@@ -841,7 +875,6 @@ export default class Controller {
       newFilterId = `filter_${randomNum}`
     } while (existingIds.has(newFilterId))
 
-
     const newFilterJSON: FilterInterface = {
       id: newFilterId,
       results: 0,
@@ -853,7 +886,7 @@ export default class Controller {
     template.options.forEach((option) => {
       newFilterJSON.params[option.id] = option.default
     })
-    //this.archive.filters.push(new Filter(newFilterJSON))
+    // this.archive.filters.push(new Filter(newFilterJSON))
     await this.archive.addFilter(newFilterJSON)
     const metadata = await this.archive.shallowCopy()
     return reply(event, 'addFilter', requestId, metadata)
@@ -861,7 +894,11 @@ export default class Controller {
 
   async removeFilter(event: IpcMainEvent, data: RequestEnvelope<string>) {
     const { requestId, payload } = unpackRequest<string>(data)
-    if (!this.archive || !this.archive.shallowCopy || !this.archive.deleteFilter){
+    if (
+      !this.archive ||
+      !this.archive.shallowCopy ||
+      !this.archive.deleteFilter
+    ) {
       return reply(event, 'removeFilter', requestId, {
         error: 'archive undefined',
       })
@@ -877,7 +914,12 @@ export default class Controller {
     if (payload) {
       await this.archive.deleteFilter(payload)
     }
-    return reply(event, 'removeFilter', requestId, await this.archive.shallowCopy())
+    return reply(
+      event,
+      'removeFilter',
+      requestId,
+      await this.archive.shallowCopy(),
+    )
   }
 
   async updateFilter(
@@ -885,7 +927,7 @@ export default class Controller {
     data: RequestEnvelope<{
       filterIndex: number
       newFilter: ShallowFilterInterface
-    }>
+    }>,
   ) {
     const { requestId, payload } = unpackRequest<{
       filterIndex: number
@@ -915,7 +957,7 @@ export default class Controller {
       event,
       'updateFilter',
       requestId,
-      await this.archive.shallowCopy()
+      await this.archive.shallowCopy(),
     )
   }
 
@@ -928,7 +970,7 @@ export default class Controller {
       offset?: number
       limit?: number
       lite?: boolean
-    }>
+    }>,
   ) {
     const { requestId, payload } = unpackRequest<{
       filterId: string
@@ -966,7 +1008,7 @@ export default class Controller {
     if (!this.archive || !this.archive.getNames)
       return reply(event, 'getNames', requestId, [])
     const names = await this.archive.getNames()
-    
+
     return reply(event, 'getNames', requestId, names)
   }
 
@@ -980,12 +1022,14 @@ export default class Controller {
   async runFilter(event: IpcMainEvent, data: RequestEnvelope<string>) {
     const { requestId, payload } = unpackRequest<string>(data)
     if (!this.archive) {
-      return reply(event, 'runFilter', requestId, { error: 'archive undefined' })
+      return reply(event, 'runFilter', requestId, {
+        error: 'archive undefined',
+      })
     }
 
     const filterId = payload
     const filterJSON = this.archive.filters.find(
-      (filter) => filter.id === filterId
+      (filter) => filter.id === filterId,
     )
     if (!filterJSON) {
       return reply(event, 'runFilter', requestId, {
@@ -1022,7 +1066,11 @@ export default class Controller {
       this.archive.path,
       prevResultsTableId,
       numFilterThreads,
-      (eventUpdate: { current: number; total: number; newItemCount?: number }) => {
+      (eventUpdate: {
+        current: number
+        total: number
+        newItemCount?: number
+      }) => {
         const { total, current, newItemCount } = eventUpdate
         this.mainWindow.webContents.send('filterUpdate', {
           filterId,
@@ -1032,7 +1080,7 @@ export default class Controller {
           results: newItemCount,
         })
       },
-      abortController.signal
+      abortController.signal,
     )
 
     // Check if upstream filter is still running (before cleanup)
@@ -1042,9 +1090,10 @@ export default class Controller {
       if (prevFilterId && this.runningFilterControllers.has(prevFilterId)) {
         try {
           const prevCount = getTableCount(this.archive.path, prevFilterId)
-          filterMessage = prevCount === 0
-            ? 'Previous filter has no results yet'
-            : `Ran on ${prevCount.toLocaleString()} partial results`
+          filterMessage =
+            prevCount === 0
+              ? 'Previous filter has no results yet'
+              : `Ran on ${prevCount.toLocaleString()} partial results`
         } catch (_) {
           filterMessage = 'Previous filter has no results yet'
         }
@@ -1082,8 +1131,13 @@ export default class Controller {
     }
 
     // Reset downstream filters that are NOT currently running
-    const refreshedIndex = this.archive.filters.findIndex((f) => f.id === filterId)
-    if (refreshedIndex >= 0 && refreshedIndex + 1 < this.archive.filters.length) {
+    const refreshedIndex = this.archive.filters.findIndex(
+      (f) => f.id === filterId,
+    )
+    if (
+      refreshedIndex >= 0 &&
+      refreshedIndex + 1 < this.archive.filters.length
+    ) {
       const downstream = this.archive.filters.slice(refreshedIndex + 1)
       for (const df of downstream) {
         if (!this.runningFilterControllers.has(df.id)) {
@@ -1107,7 +1161,9 @@ export default class Controller {
   async runFilters(event: IpcMainEvent, data?: RequestEnvelope<null>) {
     const { requestId } = unpackRequest<null>(data)
     if (!this.archive || !this.archive.shallowCopy) {
-      return reply(event, 'runFilters', requestId, { error: 'archive undefined' })
+      return reply(event, 'runFilters', requestId, {
+        error: 'archive undefined',
+      })
     }
 
     const numFilterThreads = this.config.numFilterThreads || 1
@@ -1135,7 +1191,7 @@ export default class Controller {
             current,
           })
         },
-        batchAbort.signal
+        batchAbort.signal,
       )
 
       this.runningFilterControllers.delete(filterJSON.id)
@@ -1162,7 +1218,10 @@ export default class Controller {
     return reply(event, 'runFilters', requestId, metadata)
   }
 
-  async cancelRunningFilters(event: IpcMainEvent, data?: RequestEnvelope<null>) {
+  async cancelRunningFilters(
+    event: IpcMainEvent,
+    data?: RequestEnvelope<null>,
+  ) {
     const { requestId } = unpackRequest<null>(data)
     for (const [filterId, controller] of this.runningFilterControllers) {
       this.filterCancelIds.add(filterId)
@@ -1195,7 +1254,7 @@ export default class Controller {
       }
       if (this.archive) {
         const filterIndex = this.archive.filters.findIndex(
-          (f) => f.id === filterId
+          (f) => f.id === filterId,
         )
         if (filterIndex >= 0) {
           this.runningFilterIndices.delete(filterIndex)
@@ -1220,10 +1279,10 @@ export default class Controller {
 
   async getPath(
     event: IpcMainEvent,
-    data: RequestEnvelope<'openFile' | 'openDirectory'>
+    data: RequestEnvelope<'openFile' | 'openDirectory'>,
   ) {
     const { requestId, payload } = unpackRequest<'openFile' | 'openDirectory'>(
-      data
+      data,
     )
     const { canceled, filePaths } = await dialog.showOpenDialog({
       properties: [payload || 'openFile'],
@@ -1248,12 +1307,13 @@ export default class Controller {
       const { payload } = unpackRequest<any>(data)
       const lines = Array.isArray(payload) ? payload : []
       if (lines.length === 0) return
-      const fs = await import('fs')
-      const path = await import('path')
-      const logPath = path.resolve(process.cwd(), 'logs', 'debug.log')
-      const logDir = path.dirname(logPath)
-      if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true })
-      fs.appendFileSync(logPath, lines.join('\n') + '\n')
+      const fsModule = await import('fs')
+      const pathModule = await import('path')
+      const logPath = pathModule.resolve(process.cwd(), 'logs', 'debug.log')
+      const logDir = pathModule.dirname(logPath)
+      if (!fsModule.existsSync(logDir))
+        fsModule.mkdirSync(logDir, { recursive: true })
+      fsModule.appendFileSync(logPath, `${lines.join('\n')}\n`)
     } catch (error) {
       console.log('Debug log error:', error)
     }
@@ -1276,7 +1336,7 @@ export default class Controller {
     if (!dolphinPath || !ssbmIsoPath) {
       this.mainWindow.webContents.send(
         'videoMsg',
-        'Error: dolphinPath or ssbmIsoPath not set.'
+        'Error: dolphinPath or ssbmIsoPath not set.',
       )
       return reply(event, 'playClip', requestId)
     }
@@ -1286,7 +1346,7 @@ export default class Controller {
     } catch (error) {
       this.mainWindow.webContents.send(
         'videoMsg',
-        `Error: Could not open Dolphin from path ${dolphinPath}. `
+        `Error: Could not open Dolphin from path ${dolphinPath}. `,
       )
       return reply(event, 'playClip', requestId)
     }
@@ -1296,7 +1356,7 @@ export default class Controller {
     } catch (error) {
       this.mainWindow.webContents.send(
         'videoMsg',
-        `Error: Could not access ISO from path ${ssbmIsoPath}. `
+        `Error: Could not access ISO from path ${ssbmIsoPath}. `,
       )
       return reply(event, 'playClip', requestId)
     }
@@ -1306,7 +1366,7 @@ export default class Controller {
     } catch (error) {
       this.mainWindow.webContents.send(
         'videoMsg',
-        `Error: Could not access replay ${payload.path}. `
+        `Error: Could not access replay ${payload.path}. `,
       )
       return reply(event, 'playClip', requestId)
     }
@@ -1338,7 +1398,7 @@ export default class Controller {
       const gfxContent = await fsPromises.readFile(gfxPath, 'utf8')
       const updatedContent = gfxContent.replace(
         /^EFBScale\s*=.*$/m,
-        `EFBScale = ${efbScale}`
+        `EFBScale = ${efbScale}`,
       )
       await fsPromises.writeFile(gfxPath, updatedContent)
     } catch {
@@ -1346,17 +1406,28 @@ export default class Controller {
     }
 
     const tmpDir = await fsPromises.mkdtemp(
-      path.join(os.tmpdir(), 'lm-clipper-')
+      path.join(os.tmpdir(), 'lm-clipper-'),
     )
     this.activeTmpDirs.add(tmpDir)
     const filePath = path.resolve(tmpDir, 'dolphinConfig.json')
     await fsPromises.writeFile(filePath, JSON.stringify(dolphinConfig))
 
-    const args = ['-i', filePath, '-b', '-e', path.resolve(ssbmIsoPath), '--cout']
+    const args = [
+      '-i',
+      filePath,
+      '-b',
+      '-e',
+      path.resolve(ssbmIsoPath),
+      '--cout',
+    ]
     try {
       // Kill any previous playback process
       if (this.activePlaybackProcess) {
-        try { this.activePlaybackProcess.kill() } catch (_) {}
+        try {
+          this.activePlaybackProcess.kill()
+        } catch (_) {
+          // empty
+        }
       }
 
       const dolphinProcess = spawn(path.resolve(dolphinPath), args)
@@ -1400,7 +1471,7 @@ export default class Controller {
     } catch (error) {
       this.mainWindow.webContents.send(
         'videoMsg',
-        `Error: Failed to launch Dolphin.`
+        `Error: Failed to launch Dolphin.`,
       )
     }
 
@@ -1445,14 +1516,16 @@ export default class Controller {
     } catch (err) {
       this.mainWindow.webContents.send(
         'videoMsg',
-        `Error: Could not access given output path ${outputPath} `
+        `Error: Could not access given output path ${outputPath} `,
       )
       return reply(event, 'recordClip', requestId)
     }
 
     let outputDirectoryName = 'output'
     let count = 1
-    while (fs.existsSync(path.resolve(`${outputPath}/${outputDirectoryName}`))) {
+    while (
+      fs.existsSync(path.resolve(`${outputPath}/${outputDirectoryName}`))
+    ) {
       outputDirectoryName = `output_${count}`
       count += 1
     }
@@ -1502,8 +1575,14 @@ export default class Controller {
     return reply(event, 'recordClip', requestId)
   }
 
-  async generateVideo(event: IpcMainEvent, data?: RequestEnvelope<{ filterId: string, selectedIds: string[] }>) {
-    const { requestId, payload } = unpackRequest<{ filterId: string, selectedIds: string[] }>(data)
+  async generateVideo(
+    event: IpcMainEvent,
+    data?: RequestEnvelope<{ filterId: string; selectedIds: string[] }>,
+  ) {
+    const { requestId, payload } = unpackRequest<{
+      filterId: string
+      selectedIds: string[]
+    }>(data)
     if (!this.archive || !this.archive.getAllItems) {
       this.mainWindow.webContents.send('videoMsg', 'No archive loaded.')
       return reply(event, 'generateVideo', requestId)
@@ -1537,12 +1616,14 @@ export default class Controller {
 
     const effectiveNumCPUs = numCPUs || 1
 
-
     // check if output directory exist
     try {
       await fsPromises.access(outputPath)
-    } catch(err){
-      this.mainWindow.webContents.send('videoMsg',`Error: Could not access given output path ${outputPath} `)
+    } catch (err) {
+      this.mainWindow.webContents.send(
+        'videoMsg',
+        `Error: Could not access given output path ${outputPath} `,
+      )
       return reply(event, 'generateVideo', requestId)
     }
 
@@ -1576,9 +1657,8 @@ export default class Controller {
       fixedCamera,
       bitrateKbps,
       resolution,
-      dolphinCutoff
+      dolphinCutoff,
     }
-
 
     const metadata = await getMetaData(this.archive.path)
     this.archive = new Archive(metadata)
@@ -1588,7 +1668,9 @@ export default class Controller {
 
     let finalResults: any[]
     if (selectedIds.length > 0) {
-      const numericIds = selectedIds.map((id) => parseInt(id, 10)).filter((n) => !isNaN(n))
+      const numericIds = selectedIds
+        .map((id) => parseInt(id, 10))
+        .filter((n) => !Number.isNaN(n))
       finalResults = await this.archive.getItemsByIds(filterId, numericIds)
     } else {
       finalResults = await this.archive.getAllItems(filterId)
@@ -1603,24 +1685,28 @@ export default class Controller {
     if (slice) finalResults = finalResults.slice(0, slice)
 
     const replays: ReplayInterface[] = []
-    finalResults.forEach((result: ClipInterface | FileInterface, index: number) => {
-      const hasStart = typeof result.startFrame === 'number' && result.startFrame !== 0
-      const hasEnd = typeof result.endFrame === 'number' && result.endFrame !== 0
-      const startFrame = hasStart ? result.startFrame : -123
-      const endFrame = hasEnd
-        ? result.endFrame
-        : (result as FileInterface).lastFrame || 99999
+    finalResults.forEach(
+      (result: ClipInterface | FileInterface, index: number) => {
+        const hasStart =
+          typeof result.startFrame === 'number' && result.startFrame !== 0
+        const hasEnd =
+          typeof result.endFrame === 'number' && result.endFrame !== 0
+        const startFrame = hasStart ? result.startFrame : -123
+        const endFrame = hasEnd
+          ? result.endFrame
+          : (result as FileInterface).lastFrame || 99999
 
-      const adjustedStart = startFrame - addStartFrames
-      const adjustedEnd = endFrame + addEndFrames
+        const adjustedStart = startFrame - addStartFrames
+        const adjustedEnd = endFrame + addEndFrames
 
-      replays.push({
-        index,
-        path: result.path,
-        startFrame: adjustedStart < -123 ? -123 : adjustedStart,
-        endFrame: adjustedEnd,
-      })
-    })
+        replays.push({
+          index,
+          path: result.path,
+          startFrame: adjustedStart < -123 ? -123 : adjustedStart,
+          endFrame: adjustedEnd,
+        })
+      },
+    )
     if (lastClipOffset && replays.length > 0) {
       replays[replays.length - 1].endFrame += lastClipOffset
     }
@@ -1698,21 +1784,30 @@ export default class Controller {
   async testDolphin() {
     const { dolphinPath, ssbmIsoPath } = this.config
     if (!dolphinPath || !ssbmIsoPath) {
-      this.mainWindow.webContents.send('videoMsg', 'Error: Set Dolphin and ISO paths first.')
+      this.mainWindow.webContents.send(
+        'videoMsg',
+        'Error: Set Dolphin and ISO paths first.',
+      )
       return
     }
 
     try {
       await fsPromises.access(dolphinPath)
     } catch {
-      this.mainWindow.webContents.send('videoMsg', `Error: Dolphin not found at ${dolphinPath}`)
+      this.mainWindow.webContents.send(
+        'videoMsg',
+        `Error: Dolphin not found at ${dolphinPath}`,
+      )
       return
     }
 
     try {
       await fsPromises.access(ssbmIsoPath)
     } catch {
-      this.mainWindow.webContents.send('videoMsg', `Error: ISO not found at ${ssbmIsoPath}`)
+      this.mainWindow.webContents.send(
+        'videoMsg',
+        `Error: ISO not found at ${ssbmIsoPath}`,
+      )
       return
     }
 
@@ -1725,7 +1820,10 @@ export default class Controller {
     try {
       await fsPromises.access(testSlp)
     } catch {
-      this.mainWindow.webContents.send('videoMsg', `Error: test.slp not found at ${testSlp}`)
+      this.mainWindow.webContents.send(
+        'videoMsg',
+        `Error: test.slp not found at ${testSlp}`,
+      )
       return
     }
 
@@ -1738,7 +1836,9 @@ export default class Controller {
       commandId: crypto.randomBytes(12).toString('hex'),
     }
 
-    const tmpDir = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'lm-clipper-test-'))
+    const tmpDir = await fsPromises.mkdtemp(
+      path.join(os.tmpdir(), 'lm-clipper-test-'),
+    )
     this.activeTmpDirs.add(tmpDir)
     const configFile = path.resolve(tmpDir, 'testDolphinConfig.json')
     await fsPromises.writeFile(configFile, JSON.stringify(dolphinConfig))
@@ -1747,9 +1847,11 @@ export default class Controller {
 
     try {
       const dolphinProcess = spawn(path.resolve(dolphinPath), [
-        '-i', configFile,
+        '-i',
+        configFile,
         '-b',
-        '-e', path.resolve(ssbmIsoPath),
+        '-e',
+        path.resolve(ssbmIsoPath),
         '--cout',
       ])
 
@@ -1760,16 +1862,29 @@ export default class Controller {
       }
 
       dolphinProcess.stdout?.on('data', (data: Buffer) => {
-        data.toString().split('\n').forEach(l => { if (l.trim()) addLog(`stdout: ${l.trim()}`) })
+        data
+          .toString()
+          .split('\n')
+          .forEach((l) => {
+            if (l.trim()) addLog(`stdout: ${l.trim()}`)
+          })
       })
 
       dolphinProcess.stderr?.on('data', (data: Buffer) => {
-        data.toString().split('\n').forEach(l => { if (l.trim()) addLog(`stderr: ${l.trim()}`) })
+        data
+          .toString()
+          .split('\n')
+          .forEach((l) => {
+            if (l.trim()) addLog(`stderr: ${l.trim()}`)
+          })
       })
 
       dolphinProcess.on('error', (err) => {
         addLog(`spawn error: ${err.message}`)
-        this.mainWindow.webContents.send('videoMsg', `Dolphin error: ${err.message}`)
+        this.mainWindow.webContents.send(
+          'videoMsg',
+          `Dolphin error: ${err.message}`,
+        )
       })
 
       dolphinProcess.on('exit', (code) => {
@@ -1790,18 +1905,30 @@ export default class Controller {
 
         if (code !== 0 && logLines.length > 0) {
           const lastErr = logLines[logLines.length - 1]
-          this.mainWindow.webContents.send('videoMsg', `Dolphin failed (code ${code}): ${lastErr} — Log: ${logPath}`)
+          this.mainWindow.webContents.send(
+            'videoMsg',
+            `Dolphin failed (code ${code}): ${lastErr} — Log: ${logPath}`,
+          )
         } else if (code !== 0) {
-          this.mainWindow.webContents.send('videoMsg', `Dolphin exited with code ${code}. Log: ${logPath}`)
+          this.mainWindow.webContents.send(
+            'videoMsg',
+            `Dolphin exited with code ${code}. Log: ${logPath}`,
+          )
         } else {
-          this.mainWindow.webContents.send('videoMsg', `Dolphin test finished. Log: ${logPath}`)
+          this.mainWindow.webContents.send(
+            'videoMsg',
+            `Dolphin test finished. Log: ${logPath}`,
+          )
           setTimeout(() => {
             this.mainWindow.webContents.send('videoMsg', '')
           }, 5000)
         }
       })
     } catch (err: any) {
-      this.mainWindow.webContents.send('videoMsg', `Failed to launch Dolphin: ${err.message}`)
+      this.mainWindow.webContents.send(
+        'videoMsg',
+        `Failed to launch Dolphin: ${err.message}`,
+      )
     }
   }
 }

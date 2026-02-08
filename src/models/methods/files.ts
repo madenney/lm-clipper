@@ -3,7 +3,7 @@ import { FileInterface, EventEmitterInterface } from '../../constants/types'
 export default (
   prevResults: FileInterface[],
   params: { [key: string]: any },
-  eventEmitter: EventEmitterInterface
+  eventEmitter: EventEmitterInterface,
 ) => {
   console.log(prevResults)
   return prevResults.filter((file: FileInterface, index) => {
@@ -17,7 +17,7 @@ export default (
       const stageArray = Array.isArray(stage) ? stage : [stage]
       if (stageArray.indexOf(file.stage.toString()) === -1) return false
     }
-  
+
     if (char1 || char2) {
       let c1 = char1
       let c2 = char2
@@ -42,8 +42,8 @@ export default (
       }
     }
     if (player1 || player2) {
-      const p1 = player1.toLowerCase().split(";")
-      const p2 = player2.toLowerCase().split(";")
+      const p1 = player1.toLowerCase().split(';')
+      const p2 = player2.toLowerCase().split(';')
       const lp1 = file.players[0].displayName.toLowerCase()
       const lp2 = file.players[1].displayName.toLowerCase()
       if (player1 && player2) {
