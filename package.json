@@ -176,11 +176,17 @@
     "productName": "LM Clipper",
     "appId": "com.github.madenney.lm-clipper",
     "asar": true,
-    "asarUnpack": "**\\*.{node,dll}",
+    "asarUnpack": [
+      "**/*.{node,dll}",
+      "ffmpeg/*",
+      "sqlite3/*"
+    ],
     "files": [
       "dist",
       "node_modules",
-      "package.json"
+      "package.json",
+      "ffmpeg",
+      "sqlite3"
     ],
     "afterSign": ".erb/scripts/notarize.js",
     "mac": {

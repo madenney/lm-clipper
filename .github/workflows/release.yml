@@ -33,6 +33,25 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      - name: Download ffmpeg (Linux)
+        if: matrix.platform == 'linux'
+        run: |
+          mkdir -p release/app/ffmpeg
+          curl -L -o /tmp/ffmpeg.tar.xz https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz
+          tar -xf /tmp/ffmpeg.tar.xz -C /tmp
+          cp /tmp/ffmpeg-*-amd64-static/ffmpeg release/app/ffmpeg/ffmpeg-linux-x64
+          chmod +x release/app/ffmpeg/ffmpeg-linux-x64
+
+      - name: Download ffmpeg (Windows)
+        if: matrix.platform == 'win'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path release/app/ffmpeg
+          Invoke-WebRequest -Uri "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip" -OutFile "$env:TEMP\ffmpeg.zip"
+          Expand-Archive -Path "$env:TEMP\ffmpeg.zip" -DestinationPath "$env:TEMP\ffmpeg"
+          $ffmpegExe = Get-ChildItem -Path "$env:TEMP\ffmpeg" -Recurse -Filter "ffmpeg.exe" | Select-Object -First 1
+          Copy-Item $ffmpegExe.FullName -Destination "release/app/ffmpeg/ffmpeg-win32-x64"
+
       - name: Build
         run: npm run build
 
