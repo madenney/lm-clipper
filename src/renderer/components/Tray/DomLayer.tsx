@@ -8,7 +8,15 @@
  * - Virtualized in full mode (only visible clips rendered)
  */
 
-import React, { useMemo, useRef, useEffect, useState, useCallback, memo, type CSSProperties } from 'react'
+import React, {
+  useMemo,
+  useRef,
+  useEffect,
+  useState,
+  useCallback,
+  memo,
+  type CSSProperties,
+} from 'react'
 import { Clip, type ClipData } from '../Clip'
 import type { ClipMode } from '../../config/clipDisplay'
 import './DomLayer.css'
@@ -23,7 +31,11 @@ type DomLayerProps = {
   trayHeight: number
   visible: boolean
   selectedIds: Set<string>
-  onClipMouseDown: (index: number, clipId: string, event: React.MouseEvent) => void
+  onClipMouseDown: (
+    index: number,
+    clipId: string,
+    event: React.MouseEvent,
+  ) => void
   onClipMouseEnter: (index: number) => void
   startIndex?: number // For pagination - offset to add to local indices
 }
@@ -38,44 +50,47 @@ type LayoutInfo = {
 const SCROLL_BUFFER = 2 // Extra rows to render above/below viewport
 
 // Memoized clip wrapper to prevent re-renders when only position changes
-const MemoClip = memo(function MemoClip({
-  data,
-  size,
-  mode,
-  style,
-  isSelected,
-  onMouseDown,
-  onMouseEnter,
-}: {
-  data: ClipData
-  size: number
-  mode: ClipMode
-  style: CSSProperties
-  isSelected: boolean
-  onMouseDown: (e: React.MouseEvent) => void
-  onMouseEnter: () => void
-}) {
-  return (
-    <Clip
-      data={data}
-      size={size}
-      mode={mode}
-      style={style}
-      isSelected={isSelected}
-      onMouseDown={onMouseDown}
-      onMouseEnter={onMouseEnter}
-    />
-  )
-}, (prev, next) => {
-  // Only re-render if data, size, mode, or selection changes
-  // Don't compare handlers - they use refs so always call current handler
-  return (
-    prev.data === next.data &&
-    prev.size === next.size &&
-    prev.mode === next.mode &&
-    prev.isSelected === next.isSelected
-  )
-})
+const MemoClip = memo(
+  function MemoClip({
+    data,
+    size,
+    mode,
+    style,
+    isSelected,
+    onMouseDown,
+    onMouseEnter,
+  }: {
+    data: ClipData
+    size: number
+    mode: ClipMode
+    style: CSSProperties
+    isSelected: boolean
+    onMouseDown: (e: React.MouseEvent) => void
+    onMouseEnter: () => void
+  }) {
+    return (
+      <Clip
+        data={data}
+        size={size}
+        mode={mode}
+        style={style}
+        isSelected={isSelected}
+        onMouseDown={onMouseDown}
+        onMouseEnter={onMouseEnter}
+      />
+    )
+  },
+  (prev, next) => {
+    // Only re-render if data, size, mode, or selection changes
+    // Don't compare handlers - they use refs so always call current handler
+    return (
+      prev.data === next.data &&
+      prev.size === next.size &&
+      prev.mode === next.mode &&
+      prev.isSelected === next.isSelected
+    )
+  },
+)
 
 export function DomLayer({
   clips,
@@ -151,10 +166,17 @@ export function DomLayer({
       const { cellSize, padding } = layout
       if (cellSize <= 0) return { start: 0, end: 0 }
 
-      const firstVisible = Math.max(0, Math.floor((scrollTop - padding) / cellSize) - SCROLL_BUFFER)
-      const lastVisible = Math.ceil((scrollTop + trayHeight) / cellSize) + SCROLL_BUFFER
+      const firstVisible = Math.max(
+        0,
+        Math.floor((scrollTop - padding) / cellSize) - SCROLL_BUFFER,
+      )
+      const lastVisible =
+        Math.ceil((scrollTop + trayHeight) / cellSize) + SCROLL_BUFFER
 
-      return { start: firstVisible, end: Math.min(lastVisible + 1, clips.length) }
+      return {
+        start: firstVisible,
+        end: Math.min(lastVisible + 1, clips.length),
+      }
     }
 
     // Mode 2: render all clips (already capped by parent)
@@ -162,19 +184,25 @@ export function DomLayer({
   }, [mode, scrollTop, trayHeight, layout, clips.length])
 
   // Container styles - update instantly on prop changes
-  const containerStyle: CSSProperties = useMemo(() => ({
-    display: visible ? 'block' : 'none',
-    overflowY: mode === 'full' ? 'auto' : 'hidden',
-    overflowX: 'hidden',
-  }), [visible, mode])
+  const containerStyle: CSSProperties = useMemo(
+    () => ({
+      display: visible ? 'block' : 'none',
+      overflowY: mode === 'full' ? 'auto' : 'hidden',
+      overflowX: 'hidden',
+    }),
+    [visible, mode],
+  )
 
   // Inner container (sets scroll height for virtualization)
-  const innerStyle: CSSProperties = useMemo(() => ({
-    position: 'relative',
-    width: '100%',
-    height: mode === 'full' ? layout.totalHeight : 'auto',
-    minHeight: mode === 'full' ? layout.totalHeight : undefined,
-  }), [mode, layout.totalHeight])
+  const innerStyle: CSSProperties = useMemo(
+    () => ({
+      position: 'relative',
+      width: '100%',
+      height: mode === 'full' ? layout.totalHeight : 'auto',
+      minHeight: mode === 'full' ? layout.totalHeight : undefined,
+    }),
+    [mode, layout.totalHeight],
+  )
 
   // Store handlers in refs so callbacks don't go stale
   const onClipMouseDownRef = useRef(onClipMouseDown)
@@ -194,9 +222,12 @@ export function DomLayer({
       const clip = clips[i]
       if (!clip) continue
 
-      const clipId = 'id' in clip && clip.id != null
-        ? String(clip.id)
-        : ('path' in clip ? clip.path : String(i))
+      const clipId =
+        'id' in clip && clip.id != null
+          ? String(clip.id)
+          : 'path' in clip && clip.path
+            ? clip.path
+            : String(i)
 
       const key = clipId ? `${clipId}-${i}` : `clip-${i}`
       const isSelected = selectedIds.has(clipId)
@@ -230,7 +261,7 @@ export function DomLayer({
             isSelected={isSelected}
             onMouseDown={handleMouseDown}
             onMouseEnter={handleMouseEnter}
-          />
+          />,
         )
       } else {
         // Grid mode
@@ -253,13 +284,23 @@ export function DomLayer({
             isSelected={isSelected}
             onMouseDown={handleMouseDown}
             onMouseEnter={handleMouseEnter}
-          />
+          />,
         )
       }
     }
 
     return result
-  }, [clips, columns, layout, visibleRange.start, visibleRange.end, clipSize, mode, selectedIds, startIndex])
+  }, [
+    clips,
+    columns,
+    layout,
+    visibleRange.start,
+    visibleRange.end,
+    clipSize,
+    mode,
+    selectedIds,
+    startIndex,
+  ])
 
   return (
     <div
@@ -268,9 +309,7 @@ export function DomLayer({
       style={containerStyle}
       onScroll={handleScroll}
     >
-      <div style={innerStyle}>
-        {renderedClips}
-      </div>
+      <div style={innerStyle}>{renderedClips}</div>
     </div>
   )
 }

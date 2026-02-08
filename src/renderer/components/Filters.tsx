@@ -36,19 +36,27 @@ export default function Filters({
   const [filterMsgs, setFilterMsgs] = useState<Record<string, string>>({})
   const [liveResults, setLiveResults] = useState<Record<string, number>>({})
   // Filters start collapsed by default — toggling sets them to expanded (false)
-  const [expandedFilters, setExpandedFilters] = useState<Record<string, boolean>>({})
+  const [expandedFilters, setExpandedFilters] = useState<
+    Record<string, boolean>
+  >({})
 
   useEffect(() => {
     const removeRunningListener = window.electron.ipcRenderer.on(
       'currentlyRunningFilter',
       (event: { running: number[] }) => {
         setRunningFilters(new Set(event.running))
-      }
+      },
     )
 
     const removeUpdateListener = window.electron.ipcRenderer.on(
       'filterUpdate',
-      (event: { filterId?: string; filterIndex?: number; total: number; current: number; results?: number }) => {
+      (event: {
+        filterId?: string
+        filterIndex?: number
+        total: number
+        current: number
+        results?: number
+      }) => {
         const key = event.filterId || String(event.filterIndex ?? '')
         if (key) {
           setFilterMsgs((prev) => ({
@@ -56,10 +64,13 @@ export default function Filters({
             [key]: `${event.current}/${event.total}`,
           }))
           if (event.results !== undefined) {
-            setLiveResults((prev) => ({ ...prev, [key]: event.results as number }))
+            setLiveResults((prev) => ({
+              ...prev,
+              [key]: event.results as number,
+            }))
           }
         }
-      }
+      },
     )
 
     return () => {
@@ -129,7 +140,7 @@ export default function Filters({
 
   function toggleFilterCollapse(
     event: MouseEvent<HTMLButtonElement>,
-    filterId: string
+    filterId: string,
   ) {
     event.stopPropagation()
     setExpandedFilters((prev) => ({
@@ -152,7 +163,7 @@ export default function Filters({
 
   function updateFilter(
     newFilter: ShallowFilterInterface,
-    previousFilter: ShallowFilterInterface
+    previousFilter: ShallowFilterInterface,
   ) {
     if (!archive) return
     const prevFilterIndex = archive.filters.indexOf(previousFilter)
@@ -167,7 +178,7 @@ export default function Filters({
           return
         }
         setArchive(response)
-      }
+      },
     )
   }
 
@@ -185,15 +196,11 @@ export default function Filters({
     const config = filtersConfig.find((entry) => entry.id === filter.type)
     if (!config || !config.options || config.options.length === 0) return null
 
-    const gridOptions = config.options.filter(
-      (o) => o.type !== 'nthMoves'
-    )
-    const nthMovesOption = config.options.find((o) => o.type === 'nthMoves')
+    const gridOptions = (config.options as any[]).filter((o) => o.type !== 'nthMoves')
+    const nthMovesOption = (config.options as any[]).find((o) => o.type === 'nthMoves')
 
     return (
-      <div
-        className="filter-controls"
-      >
+      <div className="filter-controls">
         {gridOptions.length > 0 && (
           <div className="filter-controls-grid">
             {gridOptions.map((option) => {
@@ -229,7 +236,7 @@ export default function Filters({
                       {filter.type === 'sort' ? null : (
                         <option value="">Any</option>
                       )}
-                      {option.options?.map((entry) => (
+                      {option.options?.map((entry: any) => (
                         <option key={entry.id} value={entry.id}>
                           {entry.shortName || entry.name}
                         </option>
@@ -282,7 +289,9 @@ export default function Filters({
         {nthMovesOption && (
           <div className="filter-nth-moves">
             <div className="filter-nth-moves-header">
-              <span className="filter-control-label">{nthMovesOption.name}</span>
+              <span className="filter-control-label">
+                {nthMovesOption.name}
+              </span>
               <button
                 type="button"
                 className="filter-nth-add"
@@ -303,7 +312,7 @@ export default function Filters({
             {(filter.params?.[nthMovesOption.id] || []).map(
               (
                 move: { moveId: string; n: string; d: string; t: string },
-                index: number
+                index: number,
               ) => (
                 <div key={index} className="filter-nth-row">
                   <label className="filter-nth-field">
@@ -313,7 +322,8 @@ export default function Filters({
                       value={move.n}
                       onChange={(e) => {
                         const filterClone = cloneDeep(filter)
-                        filterClone.params[nthMovesOption.id][index].n = e.target.value
+                        filterClone.params[nthMovesOption.id][index].n =
+                          e.target.value
                         updateFilter(filterClone, filter)
                       }}
                     />
@@ -325,7 +335,8 @@ export default function Filters({
                       value={move.t}
                       onChange={(e) => {
                         const filterClone = cloneDeep(filter)
-                        filterClone.params[nthMovesOption.id][index].t = e.target.value
+                        filterClone.params[nthMovesOption.id][index].t =
+                          e.target.value
                         updateFilter(filterClone, filter)
                       }}
                     />
@@ -337,7 +348,8 @@ export default function Filters({
                       value={move.d}
                       onChange={(e) => {
                         const filterClone = cloneDeep(filter)
-                        filterClone.params[nthMovesOption.id][index].d = e.target.value
+                        filterClone.params[nthMovesOption.id][index].d =
+                          e.target.value
                         updateFilter(filterClone, filter)
                       }}
                     />
@@ -349,12 +361,13 @@ export default function Filters({
                       value={move.moveId}
                       onChange={(e) => {
                         const filterClone = cloneDeep(filter)
-                        filterClone.params[nthMovesOption.id][index].moveId = e.target.value
+                        filterClone.params[nthMovesOption.id][index].moveId =
+                          e.target.value
                         updateFilter(filterClone, filter)
                       }}
                     >
                       <option value="">Any</option>
-                      {nthMovesOption.options?.map((o) => (
+                      {nthMovesOption.options?.map((o: any) => (
                         <option key={o.id} value={o.id}>
                           {o.shortName}
                         </option>
@@ -373,7 +386,7 @@ export default function Filters({
                     ✕
                   </button>
                 </div>
-              )
+              ),
             )}
           </div>
         )}
@@ -416,7 +429,8 @@ export default function Filters({
                 <div className="filter-title">{filter.label}</div>
                 <div className="filter-meta">
                   <div className="filter-results">
-                    Results: {isRunning
+                    Results:{' '}
+                    {isRunning
                       ? (liveResults[filter.id] ?? 0).toLocaleString()
                       : resultsCount}
                   </div>
@@ -432,15 +446,15 @@ export default function Filters({
                 <button
                   type="button"
                   className={`filter-button${isRunning ? ' filter-button-stop' : ''}`}
-                  onClick={() => isRunning ? stopFilter(filter.id, index) : runFilter(filter)}
+                  onClick={() =>
+                    isRunning ? stopFilter(filter.id, index) : runFilter(filter)
+                  }
                 >
                   {isRunning ? 'Stop' : 'Run'}
                 </button>
                 <div
                   className={`filterIsProcessed ${
-                    !isRunning && filter.isProcessed
-                      ? 'greenCheck'
-                      : ''
+                    !isRunning && filter.isProcessed ? 'greenCheck' : ''
                   }`}
                 >
                   &#10004;
@@ -480,7 +494,11 @@ export default function Filters({
         <div className="filters-title">Filters</div>
         <div className="filters-subtitle">Stack your clips</div>
       </div>
-      {archive ? renderFilters() : <div className="no-archive">Import replays to start.</div>}
+      {archive ? (
+        renderFilters()
+      ) : (
+        <div className="no-archive">Import replays to start.</div>
+      )}
       <div className="filters-footer">
         <select
           value="default"
@@ -500,10 +518,18 @@ export default function Filters({
         </select>
         {runningFilters.size > 0 ? (
           <>
-            <button type="button" className="stopButton" onClick={stopAllFilters}>
+            <button
+              type="button"
+              className="stopButton"
+              onClick={stopAllFilters}
+            >
               Stop All
             </button>
-            <button type="button" className="cancelButton" onClick={cancelAllFilters}>
+            <button
+              type="button"
+              className="cancelButton"
+              onClick={cancelAllFilters}
+            >
               Cancel All
             </button>
           </>

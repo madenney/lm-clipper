@@ -15,7 +15,12 @@ import { GpuLayer } from './GpuLayer'
 import { useClipMode } from '../../hooks/useClipMode'
 import { clipDisplayConfig, isGpuMode } from '../../config/clipDisplay'
 import type { ClipData } from '../Clip'
-import type { ShallowArchiveInterface, ClipInterface, FileInterface, LiteItem } from '../../../constants/types'
+import type {
+  ShallowArchiveInterface,
+  ClipInterface,
+  FileInterface,
+  LiteItem,
+} from '../../../constants/types'
 import ipcBridge from '../../ipcBridge'
 import './Tray.css'
 import { debugLog } from '../../debugLog'
@@ -37,9 +42,9 @@ const ZOOM_STEP_SMALL = 1
 const ZOOM_STEP_MEDIUM = 2
 const ZOOM_STEP_LARGE = 4
 const ZOOM_STEP_XLARGE = 8
-const ZOOM_STEP_THRESHOLD_MEDIUM = 40   // Switch to medium step
-const ZOOM_STEP_THRESHOLD_LARGE = 100   // Switch to large step
-const ZOOM_STEP_THRESHOLD_XLARGE = 200  // Switch to xlarge step
+const ZOOM_STEP_THRESHOLD_MEDIUM = 40 // Switch to medium step
+const ZOOM_STEP_THRESHOLD_LARGE = 100 // Switch to large step
+const ZOOM_STEP_THRESHOLD_XLARGE = 200 // Switch to xlarge step
 
 // Debounce delay for fetching (ms)
 const FETCH_DEBOUNCE_MS = 150
@@ -59,7 +64,9 @@ export function Tray({
   const contentRef = useRef<HTMLDivElement>(null)
 
   // Track which filters are currently running
-  const [runningFilterIndices, setRunningFilterIndices] = useState<Set<number>>(new Set())
+  const [runningFilterIndices, setRunningFilterIndices] = useState<Set<number>>(
+    new Set(),
+  )
   // Bumped on a timer while viewing a running filter to trigger re-fetches
   const [previewTick, setPreviewTick] = useState(0)
 
@@ -68,9 +75,11 @@ export function Tray({
       'currentlyRunningFilter',
       (event: { running: number[] }) => {
         setRunningFilterIndices(new Set(event.running))
-      }
+      },
     )
-    return () => { remove() }
+    return () => {
+      remove()
+    }
   }, [])
 
   // Tray dimensions
@@ -82,7 +91,9 @@ export function Tray({
 
   // Clip data - this updates after debounced fetch
   const [clips, setClips] = useState<ClipData[]>([])
-  const [lightData, setLightData] = useState<{ id: string; stage: number }[]>([])
+  const [lightData, setLightData] = useState<{ id: string; stage: number }[]>(
+    [],
+  )
   const [isLoading, setIsLoading] = useState(false)
   // Real total count from DB (returned alongside items)
   const [fetchedTotal, setFetchedTotal] = useState(0)
@@ -97,20 +108,22 @@ export function Tray({
 
   // Detect if the active filter is the core game filter (type === 'files')
   const activeFilter = useMemo(
-    () => archive?.filters.find(f => f.id === activeFilterId),
-    [archive, activeFilterId]
+    () => archive?.filters.find((f) => f.id === activeFilterId),
+    [archive, activeFilterId],
   )
   const isGameFilter = activeFilter?.type === 'files'
 
   // Check if the active filter is one of the currently running filters
-  const activeFilterIndex = archive?.filters.findIndex(f => f.id === activeFilterId) ?? -1
-  const isActiveFilterRunning = activeFilterIndex >= 0 && runningFilterIndices.has(activeFilterIndex)
+  const activeFilterIndex =
+    archive?.filters.findIndex((f) => f.id === activeFilterId) ?? -1
+  const isActiveFilterRunning =
+    activeFilterIndex >= 0 && runningFilterIndices.has(activeFilterIndex)
 
   // Auto-refresh while viewing a running filter
   useEffect(() => {
     if (!isActiveFilterRunning) return
     const interval = setInterval(() => {
-      setPreviewTick(t => t + 1)
+      setPreviewTick((t) => t + 1)
     }, 2000)
     return () => clearInterval(interval)
   }, [isActiveFilterRunning])
@@ -193,7 +206,15 @@ export function Tray({
 
   // DEBUG: Log mode switches
   useEffect(() => {
-    debugLog('[Tray] Mode', { mode, isDom, isGpu, clipSize, visibleCount, totalClips, lightDataLen: lightData.length })
+    debugLog('[Tray] Mode', {
+      mode,
+      isDom,
+      isGpu,
+      clipSize,
+      visibleCount,
+      totalClips,
+      lightDataLen: lightData.length,
+    })
   }, [mode, isDom, isGpu, clipSize, visibleCount, totalClips, lightData.length])
 
   // Track values in refs to avoid re-triggering fetch on import updates
@@ -207,8 +228,12 @@ export function Tray({
     const padding = gap
     const availableWidth = Math.max(0, trayWidth - padding * 2)
     const availableHeight = Math.max(0, trayHeight - padding * 2)
-    const cols = cellSize > 0 ? Math.max(1, Math.floor((availableWidth + gap) / cellSize)) : 1
-    const rows = cellSize > 0 ? Math.max(1, Math.ceil(availableHeight / cellSize)) : 1
+    const cols =
+      cellSize > 0
+        ? Math.max(1, Math.floor((availableWidth + gap) / cellSize))
+        : 1
+    const rows =
+      cellSize > 0 ? Math.max(1, Math.ceil(availableHeight / cellSize)) : 1
     return cols * rows
   }, [clipSize, gap, trayWidth, trayHeight])
 
@@ -237,7 +262,8 @@ export function Tray({
     // Show loading immediately when switching filters or when a non-files filter's results changed (re-run)
     // Don't clear during file import — the files count increases gradually and clearing causes blipping
     const filterChanged = prevFilterIdRef.current !== activeFilterId
-    const resultsChanged = prevTotalClipsRef.current !== totalClips && !isGameFilter
+    const resultsChanged =
+      prevTotalClipsRef.current !== totalClips && !isGameFilter
     prevFilterIdRef.current = activeFilterId
     prevTotalClipsRef.current = totalClips
     if (filterChanged || resultsChanged) {
@@ -273,7 +299,8 @@ export function Tray({
       }
 
       // For unprocessed game filter, fetch from 'files' table directly
-      const tableId = isGameFilter && !activeFilter?.isProcessed ? 'files' : activeFilterId
+      const tableId =
+        isGameFilter && !activeFilter?.isProcessed ? 'files' : activeFilterId
 
       // Show loading if we need more data than we have (zoom changes)
       // Don't flash loading during auto-refresh of a running filter or import
@@ -293,20 +320,30 @@ export function Tray({
           limit,
           lite: isGpu,
         },
-        (response: { items: (ClipInterface | FileInterface | LiteItem)[]; total: number }) => {
+        (response: {
+          items: (ClipInterface | FileInterface | LiteItem)[]
+          total: number
+        }) => {
           if (currentFetchId !== fetchIdRef.current) return
           const { items, total: dbTotal } = response
 
           if (isDom) {
             setClips(items as ClipData[])
           }
-          setLightData(items.map((item, i) => ({
-            id: 'id' in item && item.id != null ? String(item.id) : ('path' in item ? item.path : String(i)),
-            stage: item.stage,
-          })))
+          setLightData(
+            items.map((item, i) => ({
+              id:
+                'id' in item && item.id != null
+                  ? String(item.id)
+                  : 'path' in item && item.path
+                    ? item.path
+                    : String(i),
+              stage: item.stage,
+            })),
+          )
           setFetchedTotal(dbTotal)
           setIsLoading(false)
-        }
+        },
       )
     }
 
@@ -318,7 +355,18 @@ export function Tray({
         clearTimeout(debounceTimerRef.current)
       }
     }
-  }, [archive, activeFilterId, totalClips, zoomCapacity, isDom, isGpu, isGameFilter, activeFilter, isActiveFilterRunning, previewTick])
+  }, [
+    archive,
+    activeFilterId,
+    totalClips,
+    zoomCapacity,
+    isDom,
+    isGpu,
+    isGameFilter,
+    activeFilter,
+    isActiveFilterRunning,
+    previewTick,
+  ])
 
   // Get zoom step based on current size
   const getZoomStep = useCallback((currentSize: number) => {
@@ -330,14 +378,14 @@ export function Tray({
 
   // Zoom handlers - these are instant, no waiting
   const handleZoomIn = useCallback(() => {
-    setZoomSize(prev => {
+    setZoomSize((prev) => {
       const step = getZoomStep(prev)
       return Math.min(prev + step, clipDisplayConfig.thresholds.full + 200)
     })
   }, [getZoomStep])
 
   const handleZoomOut = useCallback(() => {
-    setZoomSize(prev => {
+    setZoomSize((prev) => {
       const step = getZoomStep(prev)
       return Math.max(prev - step, 1)
     })
@@ -352,7 +400,7 @@ export function Tray({
       } else if (e.key === 'a' && (e.ctrlKey || e.metaKey)) {
         e.preventDefault()
         // Select all visible clips
-        const allIds = new Set(lightData.map(item => item.id))
+        const allIds = new Set(lightData.map((item) => item.id))
         setSelectedIds(allIds)
       }
     }
@@ -368,13 +416,20 @@ export function Tray({
     const handleWheel = (e: WheelEvent) => {
       if (e.ctrlKey || e.metaKey) {
         e.preventDefault()
-        setZoomSize(prev => {
-          const step = prev >= ZOOM_STEP_THRESHOLD_XLARGE ? ZOOM_STEP_XLARGE
-            : prev >= ZOOM_STEP_THRESHOLD_LARGE ? ZOOM_STEP_LARGE
-            : prev >= ZOOM_STEP_THRESHOLD_MEDIUM ? ZOOM_STEP_MEDIUM
-            : ZOOM_STEP_SMALL
+        setZoomSize((prev) => {
+          const step =
+            prev >= ZOOM_STEP_THRESHOLD_XLARGE
+              ? ZOOM_STEP_XLARGE
+              : prev >= ZOOM_STEP_THRESHOLD_LARGE
+                ? ZOOM_STEP_LARGE
+                : prev >= ZOOM_STEP_THRESHOLD_MEDIUM
+                  ? ZOOM_STEP_MEDIUM
+                  : ZOOM_STEP_SMALL
           const delta = e.deltaY > 0 ? -step : step
-          return Math.max(1, Math.min(prev + delta, clipDisplayConfig.thresholds.full + 200))
+          return Math.max(
+            1,
+            Math.min(prev + delta, clipDisplayConfig.thresholds.full + 200),
+          )
         })
       }
     }
@@ -386,11 +441,16 @@ export function Tray({
   // Mode label for display
   const modeLabel = useMemo(() => {
     switch (mode) {
-      case 'full': return 'Full'
-      case 'mode2': return 'Detail'
-      case 'mode3': return 'Compact'
-      case 'mode4': return 'Micro'
-      default: return mode
+      case 'full':
+        return 'Full'
+      case 'mode2':
+        return 'Detail'
+      case 'mode3':
+        return 'Compact'
+      case 'mode4':
+        return 'Micro'
+      default:
+        return mode
     }
   }, [mode])
 
@@ -403,14 +463,19 @@ export function Tray({
 
     // Calculate total frames from selected clips
     let totalFrames = 0
-    const selectedClips = clips.filter(clip => {
-      const id = 'id' in clip && clip.id != null ? String(clip.id) : ('path' in clip ? clip.path : '')
-      return selectedIds.has(id)
+    const selectedClips = clips.filter((clip) => {
+      const id =
+        'id' in clip && clip.id != null
+          ? String(clip.id)
+          : 'path' in clip
+            ? clip.path
+            : ''
+      return selectedIds.has(id as string)
     })
 
     for (const clip of selectedClips) {
       const start = clip.startFrame ?? 0
-      const end = clip.endFrame > 0 ? clip.endFrame : (clip.lastFrame ?? 0)
+      const end = (clip.endFrame ?? 0) > 0 ? (clip.endFrame ?? 0) : (('lastFrame' in clip ? clip.lastFrame : 0) ?? 0)
       totalFrames += Math.max(0, end - start)
     }
 
@@ -422,60 +487,75 @@ export function Tray({
   const isDraggingRef = useRef(false)
 
   // Calculate selection range from start to end index
-  const getSelectionRange = useCallback((startIdx: number, endIdx: number): Set<string> => {
-    const minIdx = Math.min(startIdx, endIdx)
-    const maxIdx = Math.max(startIdx, endIdx)
-    const ids = new Set<string>()
-    for (let i = minIdx; i <= maxIdx; i++) {
-      const item = lightData[i]
-      if (item) {
-        ids.add(item.id)
-      }
-    }
-    return ids
-  }, [lightData])
-
-  // Handle mouse down on clip - start drag or handle click modifiers
-  const handleClipMouseDown = useCallback((index: number, clipId: string, event: React.MouseEvent) => {
-    if (event.button !== 0) return // Only left click
-
-    if (event.shiftKey && lastSelectedIndex !== null) {
-      // Shift+click: range select from last selected
-      const newSelected = new Set(selectedIds)
-      const start = Math.min(lastSelectedIndex, index)
-      const end = Math.max(lastSelectedIndex, index)
-      for (let i = start; i <= end; i++) {
+  const getSelectionRange = useCallback(
+    (startIdx: number, endIdx: number): Set<string> => {
+      const minIdx = Math.min(startIdx, endIdx)
+      const maxIdx = Math.max(startIdx, endIdx)
+      const ids = new Set<string>()
+      for (let i = minIdx; i <= maxIdx; i++) {
         const item = lightData[i]
         if (item) {
-          newSelected.add(item.id)
+          ids.add(item.id)
         }
       }
-      setSelectedIds(newSelected)
-    } else if (event.ctrlKey || event.metaKey) {
-      // Ctrl+click: toggle single item
-      const newSelected = new Set(selectedIds)
-      if (newSelected.has(clipId)) {
-        newSelected.delete(clipId)
+      return ids
+    },
+    [lightData],
+  )
+
+  // Handle mouse down on clip - start drag or handle click modifiers
+  const handleClipMouseDown = useCallback(
+    (index: number, clipId: string, event: React.MouseEvent) => {
+      if (event.button !== 0) return // Only left click
+
+      if (event.shiftKey && lastSelectedIndex !== null) {
+        // Shift+click: range select from last selected
+        const newSelected = new Set(selectedIds)
+        const start = Math.min(lastSelectedIndex, index)
+        const end = Math.max(lastSelectedIndex, index)
+        for (let i = start; i <= end; i++) {
+          const item = lightData[i]
+          if (item) {
+            newSelected.add(item.id)
+          }
+        }
+        setSelectedIds(newSelected)
+      } else if (event.ctrlKey || event.metaKey) {
+        // Ctrl+click: toggle single item
+        const newSelected = new Set(selectedIds)
+        if (newSelected.has(clipId)) {
+          newSelected.delete(clipId)
+        } else {
+          newSelected.add(clipId)
+        }
+        setSelectedIds(newSelected)
+        setLastSelectedIndex(index)
       } else {
-        newSelected.add(clipId)
+        // Normal click: start drag selection
+        isDraggingRef.current = true
+        setDragStartIndex(index)
+        setSelectedIds(new Set([clipId]))
+        setLastSelectedIndex(index)
       }
-      setSelectedIds(newSelected)
-      setLastSelectedIndex(index)
-    } else {
-      // Normal click: start drag selection
-      isDraggingRef.current = true
-      setDragStartIndex(index)
-      setSelectedIds(new Set([clipId]))
-      setLastSelectedIndex(index)
-    }
-  }, [lightData, selectedIds, lastSelectedIndex, setSelectedIds, setLastSelectedIndex])
+    },
+    [
+      lightData,
+      selectedIds,
+      lastSelectedIndex,
+      setSelectedIds,
+      setLastSelectedIndex,
+    ],
+  )
 
   // Handle mouse enter on clip during drag - update selection in real-time
-  const handleClipMouseEnter = useCallback((index: number) => {
-    if (!isDraggingRef.current || dragStartIndex === null) return
-    const newSelection = getSelectionRange(dragStartIndex, index)
-    setSelectedIds(newSelection)
-  }, [dragStartIndex, getSelectionRange, setSelectedIds])
+  const handleClipMouseEnter = useCallback(
+    (index: number) => {
+      if (!isDraggingRef.current || dragStartIndex === null) return
+      const newSelection = getSelectionRange(dragStartIndex, index)
+      setSelectedIds(newSelection)
+    },
+    [dragStartIndex, getSelectionRange, setSelectedIds],
+  )
 
   // Handle mouse up - end drag
   useEffect(() => {
@@ -574,7 +654,7 @@ export function Tray({
             <button
               type="button"
               className="tray-page-btn"
-              onClick={() => setCurrentPage(p => Math.max(0, p - 1))}
+              onClick={() => setCurrentPage((p) => Math.max(0, p - 1))}
               disabled={currentPage === 0}
             >
               Prev
@@ -585,7 +665,9 @@ export function Tray({
             <button
               type="button"
               className="tray-page-btn"
-              onClick={() => setCurrentPage(p => Math.min(totalPages - 1, p + 1))}
+              onClick={() =>
+                setCurrentPage((p) => Math.min(totalPages - 1, p + 1))
+              }
               disabled={currentPage >= totalPages - 1}
             >
               Next
