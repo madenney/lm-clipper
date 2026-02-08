@@ -1,44 +1,5 @@
 import { SlippiGame } from '@slippi/slippi-js'
-import { FileInterface, PlayerInterface } from '../constants/types'
-
-export default class File {
-  path: string
-  id: string
-  players: PlayerInterface[]
-  startedAt: number
-  winner: number
-  stage: number
-  lastFrame: number
-  isValid: boolean
-  isProcessed: boolean
-  info: string
-  constructor(fileJSON: FileInterface) {
-    this.id = fileJSON.id
-    this.players = fileJSON.players
-    this.startedAt = fileJSON.startedAt
-    this.winner = fileJSON.winner
-    this.stage = fileJSON.stage
-    this.lastFrame = fileJSON.lastFrame
-    this.path = fileJSON.path
-    this.isValid = fileJSON.isValid
-    this.isProcessed = fileJSON.isProcessed
-    this.info = fileJSON.info
-  }
-
-  // generateJSON() {
-  //   return {
-  //     id: this.id,
-  //     players: this.players,
-  //     stage: this.stage,
-  //     startedAt: this.startedAt,
-  //     lastFrame: this.lastFrame,
-  //     path: this.path,
-  //     isValid: this.isValid,
-  //     isProcessed: this.isProcessed,
-  //     info: this.info,
-  //   }
-  // }
-}
+import { FileInterface } from '../constants/types'
 
 export function fileProcessor(path: string) {
   const game = new SlippiGame(path)
@@ -81,14 +42,6 @@ export function fileProcessor(path: string) {
     fileJSON.info = 'Invalid stage'
     return fileJSON
   }
-  // if (
-  //   legalStages.map((stage: any) => stage.id).indexOf(settings.stageId) === -1
-  // ) {
-  //   fileJSON.isValid = false
-  //   fileJSON.info = 'Illegal stage'
-  //   return fileJSON
-  // }
-
   // bot check
   const p1 = settings.players[0]
   const p2 = settings.players[1]

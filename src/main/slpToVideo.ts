@@ -48,8 +48,8 @@ const getAppDataPath = () => {
 }
 
 const exit = (process: ChildProcess) =>
-  new Promise((resolve) => {
-    process.on('exit', resolve)
+  new Promise<number | null>((resolve) => {
+    process.on('exit', (code) => resolve(code))
   })
 
 const killDolphinOnEndFrame = (proc: ChildProcessWithoutNullStreams) => {
@@ -148,10 +148,19 @@ const processOneReplay = async (
   }
   ffmpegMergeArgs.push(basePath('-merged.avi'))
 
-  const mergeProcess = spawn(ffmpegPath, ffmpegMergeArgs, { stdio: 'ignore' })
+  const mergeProcess = spawn(ffmpegPath, ffmpegMergeArgs, {
+    stdio: ['ignore', 'ignore', 'pipe'],
+  })
   signal.activeProcesses.add(mergeProcess)
-  await exit(mergeProcess)
+  let mergeStderr = ''
+  mergeProcess.stderr!.on('data', (chunk: Buffer) => {
+    mergeStderr += chunk.toString()
+  })
+  const mergeCode = await exit(mergeProcess)
   signal.activeProcesses.delete(mergeProcess)
+  if (mergeCode !== 0) {
+    console.log(`ffmpeg merge failed (code ${mergeCode}):`, mergeStderr.slice(-500))
+  }
 
   if (signal.stopped || signal.cancelled) return false
 
@@ -166,12 +175,58 @@ const processOneReplay = async (
     basePath('.avi'),
   ]
 
-  const trimProcess = spawn(ffmpegPath, ffmpegTrimArgs, { stdio: 'ignore' })
+  const trimProcess = spawn(ffmpegPath, ffmpegTrimArgs, {
+    stdio: ['ignore', 'ignore', 'pipe'],
+  })
   signal.activeProcesses.add(trimProcess)
-  await exit(trimProcess)
+  let trimStderr = ''
+  trimProcess.stderr!.on('data', (chunk: Buffer) => {
+    trimStderr += chunk.toString()
+  })
+  const trimCode = await exit(trimProcess)
   signal.activeProcesses.delete(trimProcess)
+  if (trimCode !== 0) {
+    console.log(`ffmpeg trim failed (code ${trimCode}):`, trimStderr.slice(-500))
+  }
 
-  // 5. Delete intermediates
+  if (signal.stopped || signal.cancelled) return false
+
+  // 5. Convert to MP4 (optional)
+  if (config.convertToMp4) {
+    const mp4Args = [
+      '-i',
+      basePath('.avi'),
+      '-vf',
+      'scale=trunc(iw/2)*2:trunc(ih/2)*2',
+      '-c:v',
+      'libx264',
+      '-b:v',
+      `${config.bitrateKbps}k`,
+      '-c:a',
+      'aac',
+      '-b:a',
+      '128k',
+      basePath('.mp4'),
+    ]
+    const mp4Process = spawn(ffmpegPath, mp4Args, {
+      stdio: ['ignore', 'ignore', 'pipe'],
+    })
+    signal.activeProcesses.add(mp4Process)
+    let mp4Stderr = ''
+    mp4Process.stderr!.on('data', (chunk: Buffer) => {
+      mp4Stderr += chunk.toString()
+    })
+    const mp4Code = await exit(mp4Process)
+    signal.activeProcesses.delete(mp4Process)
+    if (mp4Code !== 0) {
+      console.log(`ffmpeg mp4 convert failed (code ${mp4Code}):`, mp4Stderr.slice(-500))
+    }
+
+    // Delete the .avi now that we have the .mp4
+    await fsPromises.unlink(basePath('.avi')).catch(() => {})
+  }
+
+  // 6. Delete intermediates
   await Promise.all([
     fsPromises.unlink(basePath('.json')).catch(() => {}),
     fsPromises.unlink(basePath('-unmerged.avi')).catch(() => {}),
@@ -215,11 +270,12 @@ const processReplays = async (
     console.log('Concatenating clips...')
     eventEmitter('Concatenating clips...')
 
+    const ext = config.convertToMp4 ? '.mp4' : '.avi'
     const outputFiles = fs
       .readdirSync(config.outputPath)
       .filter(
         (f) =>
-          f.endsWith('.avi') &&
+          f.endsWith(ext) &&
           !f.includes('-unmerged') &&
           !f.includes('-merged')
       )
@@ -235,18 +291,24 @@ const processReplays = async (
       )
       await fsPromises.writeFile(concatListPath, concatLines.join('\n'))
 
-      const finalPath = path.resolve(config.outputPath, 'final.avi')
-      const concatProcess = spawn(
-        ffmpegPath,
-        [
-          '-f',
-          'concat',
-          '-safe',
-          '0',
-          '-i',
-          concatListPath,
-          '-c:v',
-          'copy',
+      const finalPath = path.resolve(config.outputPath, `final${ext}`)
+      const concatArgs = [
+        '-f',
+        'concat',
+        '-safe',
+        '0',
+        '-i',
+        concatListPath,
+        '-c:v',
+        'copy',
+        '-fflags',
+        '+genpts',
+      ]
+      if (config.convertToMp4) {
+        // MP4 clips already have AAC audio, pure stream copy
+        concatArgs.push('-c:a', 'copy')
+      } else {
+        concatArgs.push(
           '-b:v',
           `${config.bitrateKbps}k`,
           '-af',
@@ -254,17 +316,25 @@ const processReplays = async (
           '-c:a',
           'aac',
           '-b:a',
-          '128k',
-          '-fflags',
-          '+genpts',
-          finalPath,
-        ],
-        { stdio: 'ignore' }
-      )
+          '128k'
+        )
+      }
+      concatArgs.push(finalPath)
+
+      const concatProcess = spawn(ffmpegPath, concatArgs, {
+        stdio: ['ignore', 'ignore', 'pipe'],
+      })
 
       signal.activeProcesses.add(concatProcess)
-      await exit(concatProcess)
+      let concatStderr = ''
+      concatProcess.stderr!.on('data', (chunk: Buffer) => {
+        concatStderr += chunk.toString()
+      })
+      const concatCode = await exit(concatProcess)
       signal.activeProcesses.delete(concatProcess)
+      if (concatCode !== 0) {
+        console.log(`ffmpeg concat failed (code ${concatCode}):`, concatStderr.slice(-500))
+      }
 
       // Clean up concat list
       await fsPromises.unlink(concatListPath).catch(() => {})

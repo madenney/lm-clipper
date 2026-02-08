@@ -94,8 +94,7 @@ const createWindow = async () => {
         : path.join(__dirname, '../../.erb/dll/preload.js'),
       nodeIntegrationInWorker: true,
     },
-    resizable: true
-    //resizable: process.env.NODE_ENV === 'development',
+    resizable: true,
   })
 
   controller = new Controller(mainWindow)
@@ -160,7 +159,6 @@ const createWindow = async () => {
 
   const menuBuilder = new MenuBuilder(mainWindow)
   menuBuilder.buildMenu()
-  //testDB()
   // Open urls in the user's browser
   mainWindow.webContents.setWindowOpenHandler((edata) => {
     if (edata.url.startsWith('http://') || edata.url.startsWith('https://')) {
