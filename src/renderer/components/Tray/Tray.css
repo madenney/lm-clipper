@@ -1,8 +1,8 @@
 /**
- * Tray2 Styles
+ * Tray Styles
  */
 
-.tray2 {
+.tray {
   display: flex;
   flex-direction: column;
   flex-grow: 1;
@@ -12,7 +12,7 @@
   overflow: hidden;
 }
 
-.tray2-controls {
+.tray-controls {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -24,7 +24,7 @@
   box-sizing: border-box;
 }
 
-.tray2-info {
+.tray-info {
   display: flex;
   align-items: center;
   gap: 16px;
@@ -32,22 +32,22 @@
   font-size: 13px;
 }
 
-.tray2-count {
+.tray-count {
   font-weight: 500;
 }
 
-.tray2-mode {
+.tray-mode {
   color: #888;
   font-size: 12px;
 }
 
-.tray2-zoom {
+.tray-zoom {
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
-.tray2-zoom-btn {
+.tray-zoom-btn {
   border: 1px solid #686868;
   border-radius: 6px;
   background-color: #2b2b2b;
@@ -62,16 +62,16 @@
   transition: background-color 100ms ease;
 }
 
-.tray2-zoom-btn:hover {
+.tray-zoom-btn:hover {
   background-color: #383838;
 }
 
-.tray2-zoom-btn:disabled {
+.tray-zoom-btn:disabled {
   opacity: 0.5;
   cursor: default;
 }
 
-.tray2-content {
+.tray-content {
   flex: 1;
   position: relative;
   overflow: hidden;
@@ -83,7 +83,7 @@
 }
 
 /* Empty state */
-.tray2-empty {
+.tray-empty {
   position: absolute;
   top: 30%;
   left: 50%;
@@ -92,18 +92,18 @@
   color: #666;
 }
 
-.tray2-empty-title {
+.tray-empty-title {
   font-size: 24px;
   margin-bottom: 12px;
 }
 
-.tray2-empty-subtitle {
+.tray-empty-subtitle {
   font-size: 16px;
   color: #555;
 }
 
 /* Loading indicator */
-.tray2-loading {
+.tray-loading {
   position: absolute;
   top: 0;
   left: 0;
@@ -116,23 +116,23 @@
   z-index: 10;
 }
 
-.tray2-spinner {
+.tray-spinner {
   width: 40px;
   height: 40px;
   border: 3px solid #444;
   border-top-color: #888;
   border-radius: 50%;
-  animation: tray2-spin 0.8s linear infinite;
+  animation: tray-spin 0.8s linear infinite;
 }
 
-@keyframes tray2-spin {
+@keyframes tray-spin {
   to {
     transform: rotate(360deg);
   }
 }
 
 /* Pagination controls */
-.tray2-pagination {
+.tray-pagination {
   position: absolute;
   bottom: 16px;
   left: 50%;
@@ -146,7 +146,7 @@
   z-index: 5;
 }
 
-.tray2-page-btn {
+.tray-page-btn {
   border: 1px solid #555;
   border-radius: 4px;
   background: #333;
@@ -157,16 +157,16 @@
   transition: background 100ms ease;
 }
 
-.tray2-page-btn:hover:not(:disabled) {
+.tray-page-btn:hover:not(:disabled) {
   background: #444;
 }
 
-.tray2-page-btn:disabled {
+.tray-page-btn:disabled {
   opacity: 0.4;
   cursor: default;
 }
 
-.tray2-page-info {
+.tray-page-info {
   color: #aaa;
   font-size: 13px;
   min-width: 60px;

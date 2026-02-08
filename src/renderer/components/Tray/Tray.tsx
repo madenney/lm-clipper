@@ -1,5 +1,5 @@
 /**
- * Tray2 - New Clip Display System
+ * Tray - Clip Display System
  *
  * Prioritizes UI responsiveness:
  * - Zoom changes are instant (layout only)
@@ -17,10 +17,10 @@ import { clipDisplayConfig, isGpuMode } from '../../config/clipDisplay'
 import type { ClipData } from '../Clip'
 import type { ShallowArchiveInterface, ClipInterface, FileInterface, LiteItem } from '../../../constants/types'
 import ipcBridge from '../../ipcBridge'
-import './Tray2.css'
+import './Tray.css'
 import { debugLog } from '../../debugLog'
 
-type Tray2Props = {
+type TrayProps = {
   archive: ShallowArchiveInterface | null
   activeFilterId: string
   isImporting: boolean
@@ -44,7 +44,7 @@ const ZOOM_STEP_THRESHOLD_XLARGE = 200  // Switch to xlarge step
 // Debounce delay for fetching (ms)
 const FETCH_DEBOUNCE_MS = 150
 
-export function Tray2({
+export function Tray({
   archive,
   activeFilterId,
   isImporting,
@@ -54,7 +54,7 @@ export function Tray2({
   setLastSelectedIndex,
   setSelectionDuration,
   setIsCalculatingDuration,
-}: Tray2Props) {
+}: TrayProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const contentRef = useRef<HTMLDivElement>(null)
 
@@ -193,7 +193,7 @@ export function Tray2({
 
   // DEBUG: Log mode switches
   useEffect(() => {
-    debugLog('[Tray2] Mode', { mode, isDom, isGpu, clipSize, visibleCount, totalClips, lightDataLen: lightData.length })
+    debugLog('[Tray] Mode', { mode, isDom, isGpu, clipSize, visibleCount, totalClips, lightDataLen: lightData.length })
   }, [mode, isDom, isGpu, clipSize, visibleCount, totalClips, lightData.length])
 
   // Track values in refs to avoid re-triggering fetch on import updates
@@ -284,7 +284,7 @@ export function Tray2({
         }
       }
 
-      debugLog('[Tray2] Fetching', { limit, isDom, isGpu, zoomCapacity })
+      debugLog('[Tray] Fetching', { limit, isDom, isGpu, zoomCapacity })
 
       ipcBridge.getResults(
         {
@@ -498,21 +498,21 @@ export function Tray2({
   const hasContent = displayTotal > 0 || (isLiveUpdating && loadedCount > 0)
 
   return (
-    <div className="tray2" ref={containerRef}>
+    <div className="tray" ref={containerRef}>
       {/* Controls - always responsive */}
-      <div className="tray2-controls">
-        <div className="tray2-info">
-          <span className="tray2-count">
+      <div className="tray-controls">
+        <div className="tray-info">
+          <span className="tray-count">
             {showCount.toLocaleString()} / {displayTotal.toLocaleString()} clips
           </span>
-          <span className="tray2-mode">
+          <span className="tray-mode">
             Mode: {modeLabel} ({clipSize}px)
           </span>
         </div>
-        <div className="tray2-zoom">
+        <div className="tray-zoom">
           <button
             type="button"
-            className="tray2-zoom-btn"
+            className="tray-zoom-btn"
             onClick={handleZoomOut}
             aria-label="Zoom out"
           >
@@ -520,7 +520,7 @@ export function Tray2({
           </button>
           <button
             type="button"
-            className="tray2-zoom-btn"
+            className="tray-zoom-btn"
             onClick={handleZoomIn}
             aria-label="Zoom in"
           >
@@ -530,19 +530,19 @@ export function Tray2({
       </div>
 
       {/* Content area */}
-      <div className="tray2-content" ref={contentRef}>
+      <div className="tray-content" ref={contentRef}>
         {/* Loading indicator - overlays content */}
         {isLoading && (
-          <div className="tray2-loading">
-            <div className="tray2-spinner" />
+          <div className="tray-loading">
+            <div className="tray-spinner" />
           </div>
         )}
 
         {/* Empty state */}
         {!hasContent && !isLoading && (
-          <div className="tray2-empty">
-            <div className="tray2-empty-title">No clips to display</div>
-            <div className="tray2-empty-subtitle">
+          <div className="tray-empty">
+            <div className="tray-empty-title">No clips to display</div>
+            <div className="tray-empty-subtitle">
               {isGameFilter
                 ? 'Drop .slp files here or use File > Import to get started'
                 : 'Run this filter to see results'}
@@ -570,21 +570,21 @@ export function Tray2({
 
         {/* Pagination controls for full mode */}
         {mode === 'full' && totalPages > 1 && (
-          <div className="tray2-pagination">
+          <div className="tray-pagination">
             <button
               type="button"
-              className="tray2-page-btn"
+              className="tray-page-btn"
               onClick={() => setCurrentPage(p => Math.max(0, p - 1))}
               disabled={currentPage === 0}
             >
               Prev
             </button>
-            <span className="tray2-page-info">
+            <span className="tray-page-info">
               {currentPage + 1} / {totalPages}
             </span>
             <button
               type="button"
-              className="tray2-page-btn"
+              className="tray-page-btn"
               onClick={() => setCurrentPage(p => Math.min(totalPages - 1, p + 1))}
               disabled={currentPage >= totalPages - 1}
             >
@@ -612,4 +612,4 @@ export function Tray2({
   )
 }
 
-export default Tray2
+export default Tray

@@ -18,7 +18,7 @@ import {
   getFileByPath,
   insertFiles,
   getFiles,
-  getItems2,
+  getItems,
   getItemsLite,
   getAllFromTable,
   getItemsByIds,
@@ -291,7 +291,7 @@ export default class Archive {
     const response =
       lite && filterId === 'files'
         ? await getItemsLite(this.path, resolvedLimit, safeOffset)
-        : await getItems2(this.path, filterId, resolvedLimit, safeOffset)
+        : await getItems(this.path, filterId, resolvedLimit, safeOffset)
 
     return this.parseRows(filterId, response, lite)
   }

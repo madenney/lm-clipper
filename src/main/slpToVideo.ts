@@ -1,7 +1,4 @@
-/* eslint-disable no-unused-vars */
 /* eslint-disable no-await-in-loop */
-/* eslint-disable no-cond-assign */
-/* eslint-disable no-underscore-dangle */
 /*
 
 Where the magic happens.
@@ -11,7 +8,7 @@ https://github.com/kevinsung/slp-to-video
 
 */
 
-import { ChildProcessWithoutNullStreams, spawn } from 'child_process'
+import { ChildProcess, ChildProcessWithoutNullStreams, spawn } from 'child_process'
 import { app } from 'electron'
 import crypto from 'crypto'
 import fs, { promises as fsPromises } from 'fs'
@@ -33,7 +30,7 @@ export type VideoJobController = {
 type VideoSignal = {
   stopped: boolean
   cancelled: boolean
-  activeProcesses: Set<ChildProcessWithoutNullStreams>
+  activeProcesses: Set<ChildProcess>
 }
 
 const ffmpegPath = getFFMPEGPath()
@@ -50,303 +47,168 @@ const getAppDataPath = () => {
   return process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config')
 }
 
-const generateDolphinConfigs = async (
-  replays: ReplayInterface[],
-  config: ConfigInterface,
-  eventEmitter: (msg: string) => void
-) => {
-  eventEmitter('Generating Dolphin config files')
-  await Promise.all(
-    replays.map((replay) => {
-      let game
-      try {
-        game = new SlippiGame(replay.path)
-      } catch (e) {
-        console.log('Broken file: ', replay.path)
-        return false
-      }
-
-      let endFrame = 0
-      const metadata = game.getMetadata()
-      const emptyObject = {}
-      if(JSON.stringify(emptyObject) == JSON.stringify(metadata)){
-        if(!replay.endFrame) throw new Error("Cannot record full length games without metadata")
-        endFrame = replay.endFrame
-      } else {
-        if (!metadata || !metadata.lastFrame) return false
-        endFrame = Math.min(replay.endFrame, metadata.lastFrame - 1)
-      }
-      const dolphinConfig = {
-        mode: 'normal',
-        replay: replay.path,
-        startFrame:
-          replay.startFrame - 60 < -123 ? -123 : replay.startFrame - 60,
-        endFrame: endFrame,
-        isRealTimeMode: false,
-        commandId: `${crypto.randomBytes(12).toString('hex')}`,
-      }
-      return fsPromises.writeFile(
-        path.join(config.outputPath, `${pad(replay.index, 4)}.json`),
-        JSON.stringify(dolphinConfig)
-      )
-    })
-  )
-}
-
-const exit = (process: ChildProcessWithoutNullStreams) =>
+const exit = (process: ChildProcess) =>
   new Promise((resolve) => {
     process.on('exit', resolve)
   })
 
-const executeCommandsInQueue = async (
-  command: string,
-  argsArray: string[][],
-  numWorkers: number,
-  options: { [key: string]: any },
-  eventEmitter: (msg: string) => void,
-  signal: VideoSignal,
-  // eslint-disable-next-line no-unused-vars
-  onSpawn?: (process_: ChildProcessWithoutNullStreams) => void
-) => {
-  const numTasks = argsArray.length
-  let count = 0
-  eventEmitter(`${count}/${numTasks}`)
-  const worker = async () => {
-    let args
-    while ((args = argsArray.pop()) !== undefined) {
-      if (signal.stopped || signal.cancelled) break
-      const process_ = spawn(command, args, options)
-      signal.activeProcesses.add(process_)
-      const exitPromise = exit(process_)
-      if (onSpawn) {
-        await onSpawn(process_)
-      }
-      await exitPromise
-      signal.activeProcesses.delete(process_)
-      if (signal.cancelled) break
-      count += 1
-      eventEmitter(`${count}/${numTasks}`)
+const killDolphinOnEndFrame = (proc: ChildProcessWithoutNullStreams) => {
+  let endFrame = Infinity
+  const rl = readline.createInterface({ input: proc.stdout })
+  rl.on('line', (line) => {
+    if (line.includes('[PLAYBACK_END_FRAME]')) {
+      const match = /\[PLAYBACK_END_FRAME\] ([0-9]+)/.exec(line)
+      if (match?.[1]) endFrame = Math.min(endFrame, parseInt(match[1], 10))
+    } else if (line.includes('[GAME_END_FRAME]')) {
+      const match = /\[GAME_END_FRAME\] ([0-9]+)/.exec(line)
+      if (match?.[1]) endFrame = Math.min(endFrame, parseInt(match[1], 10))
+    } else if (endFrame !== Infinity && line.includes(`[CURRENT_FRAME] ${endFrame}`)) {
+      proc.kill()
     }
-  }
-  const workers = []
-  while (workers.length < numWorkers) {
-    workers.push(worker())
-  }
-  while (workers.length > 0) {
-    await workers.pop()
-  }
+  })
 }
 
-const killDolphinOnEndFrame = (process: ChildProcessWithoutNullStreams) => {
-  let endFrame: string | number | null = Infinity
-  process.stdout.setEncoding('utf8')
-  process.stdout.on('data', (data) => {
-    const lines = data.split('\r\n')
-    lines.forEach((line: string) => {
-      if (line.includes(`[PLAYBACK_END_FRAME]`)) {
-        const regex = /\[PLAYBACK_END_FRAME\] ([0-9]*)/
-        const match = regex.exec(line)
-        endFrame = match && match[1] ? match[1] : Infinity
-      } else if (line.includes('[GAME_END_FRAME]')) {
-        process.kill()
-      } else if (line.includes(`[CURRENT_FRAME] ${endFrame}`)) {
-        process.kill()
-      }
-    })
-  })
+const processOneReplay = async (
+  replay: ReplayInterface,
+  config: ConfigInterface & { numProcesses: number; gameMusicOn: boolean },
+  signal: VideoSignal
+): Promise<boolean> => {
+  const fileBasename = pad(replay.index, 4)
+  const basePath = (suffix: string) =>
+    path.resolve(config.outputPath, `${fileBasename}${suffix}`)
+
+  // 1. Write JSON config for this replay
+  let game
+  try {
+    game = new SlippiGame(replay.path)
+  } catch (e) {
+    console.log('Broken file: ', replay.path)
+    return false
+  }
+
+  const metadata = game.getMetadata()
+  const gameLastFrame =
+    metadata?.lastFrame ?? game.getLatestFrame()?.frame
+
+  let endFrame: number
+  if (gameLastFrame) {
+    endFrame =
+      replay.endFrame > 0
+        ? Math.min(replay.endFrame, gameLastFrame - 1)
+        : gameLastFrame - 1
+  } else if (replay.endFrame > 0) {
+    endFrame = replay.endFrame
+  } else {
+    console.log('Cannot determine game length:', replay.path)
+    return false
+  }
+
+  const dolphinConfig = {
+    mode: 'normal',
+    replay: replay.path,
+    startFrame: replay.startFrame - 60 < -123 ? -123 : replay.startFrame - 60,
+    endFrame,
+    isRealTimeMode: false,
+    commandId: `${crypto.randomBytes(12).toString('hex')}`,
+  }
+  await fsPromises.writeFile(basePath('.json'), JSON.stringify(dolphinConfig))
+
+  // 2. Record with Dolphin
+  const dolphinArgs = [
+    '-i',
+    basePath('.json'),
+    '-o',
+    `${fileBasename}-unmerged`,
+    `--output-directory=${config.outputPath}`,
+    '-b',
+    '-e',
+    config.ssbmIsoPath,
+    '--cout',
+  ]
+  const dolphinProcess = spawn(config.dolphinPath, dolphinArgs, {})
+  signal.activeProcesses.add(dolphinProcess)
+  const dolphinExit = exit(dolphinProcess)
+  killDolphinOnEndFrame(dolphinProcess)
+  await dolphinExit
+  signal.activeProcesses.delete(dolphinProcess)
+
+  if (signal.stopped || signal.cancelled) return false
+
+  // 3. Merge video and audio with ffmpeg
+  const ffmpegMergeArgs = [
+    '-i',
+    basePath('-unmerged.avi'),
+    '-i',
+    basePath('-unmerged.wav'),
+    '-b:v',
+    `${config.bitrateKbps}k`,
+  ]
+  if (config.resolution === 4 && !config.widescreenOff) {
+    ffmpegMergeArgs.push('-vf', 'scale=1920:1080')
+  }
+  ffmpegMergeArgs.push(basePath('-merged.avi'))
+
+  const mergeProcess = spawn(ffmpegPath, ffmpegMergeArgs, { stdio: 'ignore' })
+  signal.activeProcesses.add(mergeProcess)
+  await exit(mergeProcess)
+  signal.activeProcesses.delete(mergeProcess)
+
+  if (signal.stopped || signal.cancelled) return false
+
+  // 4. Trim buffer frames
+  const ffmpegTrimArgs = [
+    '-ss',
+    '1',
+    '-i',
+    basePath('-merged.avi'),
+    '-c',
+    'copy',
+    basePath('.avi'),
+  ]
+
+  const trimProcess = spawn(ffmpegPath, ffmpegTrimArgs, { stdio: 'ignore' })
+  signal.activeProcesses.add(trimProcess)
+  await exit(trimProcess)
+  signal.activeProcesses.delete(trimProcess)
+
+  // 5. Delete intermediates
+  await Promise.all([
+    fsPromises.unlink(basePath('.json')).catch(() => {}),
+    fsPromises.unlink(basePath('-unmerged.avi')).catch(() => {}),
+    fsPromises.unlink(basePath('-unmerged.wav')).catch(() => {}),
+    fsPromises.unlink(basePath('-merged.avi')).catch(() => {}),
+  ])
+
+  return true
 }
 
 const processReplays = async (
   replays: ReplayInterface[],
-  config: ConfigInterface,
+  config: ConfigInterface & { numProcesses: number; gameMusicOn: boolean },
   eventEmitter: (msg: string) => void,
   signal: VideoSignal
 ) => {
-  const dolphinArgsArray: string[][] = []
-  const ffmpegMergeArgsArray: string[][] = []
-  const ffmpegTrimArgsArray: string[][] = []
-  // const ffmpegOverlayArgsArray = []
-  let promises: Promise<any>[] = []
+  const queue = [...replays]
+  let completed = 0
 
-  replays.forEach((replay) => {
-    const fileBasename = pad(replay.index, 4)
+  eventEmitter(`0/${replays.length} clips`)
 
-    // arguments for dolphin recording
-    dolphinArgsArray.push([
-      '-i',
-      path.resolve(config.outputPath, `${fileBasename}.json`),
-      '-o',
-      `${fileBasename}-unmerged`,
-      `--output-directory=${config.outputPath}`,
-      '-b',
-      '-e',
-      config.ssbmIsoPath,
-      '--cout',
-    ])
-
-    // Arguments for ffmpeg merging
-    const ffmpegMergeArgs = [
-      '-i',
-      path.resolve(config.outputPath, `${fileBasename}-unmerged.avi`),
-      '-i',
-      path.resolve(config.outputPath, `${fileBasename}-unmerged.wav`),
-      '-b:v',
-      `${config.bitrateKbps}k`,
-    ]
-    if (config.resolution === 4 && !config.widescreenOff) {
-      // Slightly upscale to 1920x1080
-      ffmpegMergeArgs.push('-vf')
-      ffmpegMergeArgs.push('scale=1920:1080')
+  const worker = async () => {
+    let replay
+    while ((replay = queue.shift()) !== undefined) {
+      if (signal.stopped || signal.cancelled) break
+      const ok = await processOneReplay(replay, config, signal)
+      if (!ok && (signal.stopped || signal.cancelled)) break
+      if (ok) {
+        completed += 1
+        eventEmitter(`${completed}/${replays.length} clips`)
+      }
     }
-    ffmpegMergeArgs.push(
-      path.resolve(config.outputPath, `${fileBasename}-merged.avi`)
-    )
-    ffmpegMergeArgsArray.push(ffmpegMergeArgs)
+  }
 
-    // Arguments for ffmpeg trimming
-    ffmpegTrimArgsArray.push([
-      '-ss',
-      '1',
-      '-i',
-      path.resolve(config.outputPath, `${fileBasename}-merged.avi`),
-      '-c',
-      'copy',
-    ])
-
-    // Arguments for adding overlays
-    // if(replay.overlayPath){
-    //   ffmpegTrimArgsArray[ffmpegTrimArgsArray.length - 1].push(
-    //     path.resolve(config.outputPath, `${fileBasename}-pre-overlay.avi`)
-    //     ffmpegOverlayArgsArray.push([
-    //         "-i",
-    //         path.resolve(config.outputPath,`${fileBasename}-pre-overlay.avi`),
-    //         "-i",
-    //         replay.overlayPath,
-    //         "-b:v",
-    //         `${config.bitrateKbps}k`,
-    //         "-filter_complex",
-    //         "[0:v][1:v] overlay",
-    //         path.resolve(config.outputPath,`${fileBasename}.avi`),
-    //       ])
-    //     } else {
-    ffmpegTrimArgsArray[ffmpegTrimArgsArray.length - 1].push(
-      path.resolve(config.outputPath, `${fileBasename}.avi`)
-    )
-    //    }
-  })
-
-  // Dump frames to video and audio
-  console.log('Recording video and audio...')
-  eventEmitter('Recording video and audio...')
-  await executeCommandsInQueue(
-    config.dolphinPath,
-    dolphinArgsArray,
-    config.numProcesses,
-    {},
-    (msg: string) => {
-      eventEmitter(`Recording video and audio... ${msg}`)
-    },
-    signal,
-    killDolphinOnEndFrame
-  )
-
-  if (signal.stopped || signal.cancelled) return
-
-  // Merge video and audio files
-  console.log('Merging video and audio...')
-  eventEmitter('Merging video and audio...')
-  await executeCommandsInQueue(
-    ffmpegPath,
-    ffmpegMergeArgsArray,
-    config.numProcesses,
-    { stdio: 'ignore' },
-    (msg: string) => {
-      eventEmitter(`Merging video and audio... ${msg}`)
-    },
-    signal
-  )
-
-  if (signal.stopped || signal.cancelled) return
-
-  // Trim buffer frames
-  console.log('Trimming off buffer frames...')
-  eventEmitter('Trimming off buffer frames...')
-  await executeCommandsInQueue(
-    ffmpegPath,
-    ffmpegTrimArgsArray,
-    config.numProcesses,
-    { stdio: 'ignore' },
-    (msg: string) => {
-      eventEmitter(`Trimming off buffer frames... ${msg}`)
-    },
-    signal
-  )
-
-  // Add overlays
-  // console.log("Adding overlays...")
-  // await executeCommandsInQueue(
-  //   "ffmpeg",
-  //   ffmpegOverlayArgsArray,
-  //   config.numProcesses,
-  //   { stdio: "ignore" },
-  //   eventEmitter
-  // )
-
-  // Delete unmerged video and audio files
-  console.log('Deleting unmerged audio and video files...')
-  eventEmitter('Deleting unmerged audio and video files...')
-  promises = []
-  const unmergedFiles = fs
-    .readdirSync(config.outputPath)
-    .filter((f) => f.includes('-unmerged'))
-  unmergedFiles.forEach((file) => {
-    promises.push(fsPromises.unlink(path.resolve(config.outputPath, file)))
-  })
-  await Promise.all(promises)
-
-  // Delete untrimmed video and audio files
-  console.log('Deleting untrimmed audio and video files...')
-  eventEmitter('Deleting untrimmed audio and video files...')
-  promises = []
-  const untrimmedFiles = fs
-    .readdirSync(config.outputPath)
-    .filter((f) => f.includes('-merged'))
-  untrimmedFiles.forEach((file) => {
-    promises.push(fsPromises.unlink(path.resolve(config.outputPath, file)))
-  })
-  await Promise.all(promises)
-
-  // Delete pre-overlay video files
-  // console.log('Deleting pre-overlay video files...')
-  // promises = []
-  // const preOverlayFiles = fs
-  //   .readdirSync(config.outputPath)
-  //   .filter((f) => f.includes('-pre-overlay'))
-  // preOverlayFiles.forEach((file) => {
-  //   promises.push(fsPromises.unlink(path.resolve(config.outputPath, file)))
-  // })
-  // await Promise.all(promises)
-
-  // Delete overlays
-  // console.log('Deleting overlays...')
-  // promises = []
-  // const overlays = fs.readdirSync(config.outputPath).filter(f => f.includes('.png'));
-  // overlays.forEach((file) => {
-  //   promises.push(fsPromises.unlink(path.resolve(config.outputPath, file)))
-  // })
-  // await Promise.all(promises)
-
-  // Delete dolphin config json files
-  console.log('Deleting dolphin config files...')
-  eventEmitter('Deleting dolphin config files...')
-  promises = []
-  const dolphinConfigFiles = fs
-    .readdirSync(config.outputPath)
-    .filter((f) => f.endsWith('.json'))
-  dolphinConfigFiles.forEach((file) => {
-    promises.push(fsPromises.unlink(path.resolve(config.outputPath, file)))
-  })
-  await Promise.all(promises)
+  const workers = []
+  for (let i = 0; i < config.numProcesses; i++) workers.push(worker())
+  await Promise.all(workers)
 
   // Concatenate all output clips into a single video
   if (config.concatenate && !signal.stopped && !signal.cancelled) {
@@ -355,29 +217,50 @@ const processReplays = async (
 
     const outputFiles = fs
       .readdirSync(config.outputPath)
-      .filter((f) => f.endsWith('.avi') && !f.includes('-unmerged') && !f.includes('-merged'))
+      .filter(
+        (f) =>
+          f.endsWith('.avi') &&
+          !f.includes('-unmerged') &&
+          !f.includes('-merged')
+      )
       .sort()
 
     if (outputFiles.length > 1) {
-      const concatListPath = path.resolve(config.outputPath, 'concat_list.txt')
+      const concatListPath = path.resolve(
+        config.outputPath,
+        'concat_list.txt'
+      )
       const concatLines = outputFiles.map(
         (f) => `file '${path.resolve(config.outputPath, f)}'`
       )
       await fsPromises.writeFile(concatListPath, concatLines.join('\n'))
 
       const finalPath = path.resolve(config.outputPath, 'final.avi')
-      const concatProcess = spawn(ffmpegPath, [
-        '-f', 'concat',
-        '-safe', '0',
-        '-i', concatListPath,
-        '-c:v', 'copy',
-        '-b:v', `${config.bitrateKbps}k`,
-        '-af', 'aresample=async=1:first_pts=0',
-        '-c:a', 'aac',
-        '-b:a', '128k',
-        '-fflags', '+genpts',
-        finalPath,
-      ], { stdio: 'ignore' })
+      const concatProcess = spawn(
+        ffmpegPath,
+        [
+          '-f',
+          'concat',
+          '-safe',
+          '0',
+          '-i',
+          concatListPath,
+          '-c:v',
+          'copy',
+          '-b:v',
+          `${config.bitrateKbps}k`,
+          '-af',
+          'aresample=async=1:first_pts=0',
+          '-c:a',
+          'aac',
+          '-b:a',
+          '128k',
+          '-fflags',
+          '+genpts',
+          finalPath,
+        ],
+        { stdio: 'ignore' }
+      )
 
       signal.activeProcesses.add(concatProcess)
       await exit(concatProcess)
@@ -394,38 +277,51 @@ const processReplays = async (
   }, 2000)
 }
 
-
 const configureDolphin = async (
   config: ConfigInterface,
   eventEmitter: (msg: string) => void
 ) => {
-
   eventEmitter('Configuring Dolphin...')
   let gameSettingsPath = null
   let graphicsSettingsPath = null
   let dolphinSettingsPath = null
 
-  // Linux 
-  if(os.type() == "Linux"){
+  // Linux
+  if (os.type() == 'Linux') {
     const dolphinDirname = path.resolve(getAppDataPath(), 'SlippiPlayback')
     gameSettingsPath = path.join(dolphinDirname, 'GameSettings', 'GALE01.ini')
     graphicsSettingsPath = path.join(dolphinDirname, 'Config', 'GFX.ini')
     dolphinSettingsPath = path.join(dolphinDirname, 'Config', 'Dolphin.ini')
 
-  // Windows
-  } else { 
+    // Windows
+  } else {
     const dolphinDirname = path.dirname(config.dolphinPath)
-    gameSettingsPath = path.join( dolphinDirname, 'User', 'GameSettings', 'GALE01.ini' )
-    graphicsSettingsPath = path.join(dolphinDirname, 'User', 'Config', 'GFX.ini')
-    dolphinSettingsPath = path.join(dolphinDirname, 'User', 'Config', 'Dolphin.ini' )
+    gameSettingsPath = path.join(
+      dolphinDirname,
+      'User',
+      'GameSettings',
+      'GALE01.ini'
+    )
+    graphicsSettingsPath = path.join(
+      dolphinDirname,
+      'User',
+      'Config',
+      'GFX.ini'
+    )
+    dolphinSettingsPath = path.join(
+      dolphinDirname,
+      'User',
+      'Config',
+      'Dolphin.ini'
+    )
 
     if (!fs.existsSync(gameSettingsPath)) {
-      eventEmitter('Creating game settings file');
+      eventEmitter('Creating game settings file')
       try {
-        const fd = fs.openSync(gameSettingsPath, 'a');
-        fs.closeSync(fd); 
+        const fd = fs.openSync(gameSettingsPath, 'a')
+        fs.closeSync(fd)
       } catch (err) {
-        throw err;
+        throw err
       }
     }
   }
@@ -436,7 +332,7 @@ const configureDolphin = async (
   }
 
   // Game settings
-  let newSettings = ['[Gecko]', '[Gecko_Enabled]']
+  let newSettings: string[] = ['[Gecko]', '[Gecko_Enabled]']
   if (!config.gameMusicOn) newSettings.push('$Optional: Game Music OFF')
   if (config.hideHud) newSettings.push('$Optional: Hide HUD')
   if (config.hideTags) newSettings.push('$Optional: Hide Tags')
@@ -445,17 +341,12 @@ const configureDolphin = async (
   if (config.disableScreenShake)
     newSettings.push('$Optional: Disable Screen Shake')
   if (config.noElectricSFX) newSettings.push('$Optional: No Electric SFX')
-  if (config.noCrowdNoise) newSettings.push('$Optional: Prevent Crowd Noises')
+  if (config.noCrowdNoise)
+    newSettings.push('$Optional: Prevent Crowd Noises')
   if (!config.enableChants)
     newSettings.push('$Optional: Prevent Character Crowd Chants')
   if (config.disableMagnifyingGlass)
     newSettings.push('$Optional: Disable Magnifying-glass HUD')
-  // newSettings.push("$Optional: Force 2P Center HUD")
-  // if (config.hideNeutralFalco) newSettings.push("$Optional: Hide Neutral Falco")
-  // if (true) newSettings.push("$Optional: Hide Neutral Falco")
-  // if (true) newSettings.push("$Optional: Turn Green When Actionable")
-  // if (true) newSettings.push("$Optional: DI Draw1")
-  // if (true) newSettings.push("$Optional: DI Draw")
 
   newSettings.push('[Gecko_Disabled]')
   if (config.hideNames) newSettings.push('$Optional: Show Player Names')
@@ -510,7 +401,7 @@ const configureDolphin = async (
 
 const slpToVideo = (
   replays: ReplayInterface[],
-  config: ConfigInterface,
+  config: ConfigInterface & { numProcesses: number; gameMusicOn: boolean },
   eventEmitter: (msg: string) => void
 ): VideoJobController => {
   const signal: VideoSignal = {
@@ -542,7 +433,6 @@ const slpToVideo = (
         }
       })
       .then(() => configureDolphin(config, eventEmitter))
-      .then(() => generateDolphinConfigs(replays, config, eventEmitter))
       .then(() => processReplays(replays, config, eventEmitter, signal))
       .catch((err) => {
         eventEmitter(`${err}`)
@@ -565,7 +455,11 @@ const slpToVideo = (
     cancel: () => {
       signal.cancelled = true
       signal.activeProcesses.forEach((p) => {
-        try { p.kill() } catch (_) { /* already dead */ }
+        try {
+          p.kill()
+        } catch (_) {
+          /* already dead */
+        }
       })
       signal.activeProcesses.clear()
     },

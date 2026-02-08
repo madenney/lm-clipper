@@ -37,7 +37,7 @@ function run() {
       ? parseRows(prevTableId, getRows(db, prevTableId, slice))
       : []
 
-    if (type === 'slpParser' || type === 'slpParser2') {
+    if (type === 'slpParser') {
       // Parser methods read .slp files from disk (slow) — stream from DB
       // in chunks so we don't load 100K+ rows into memory before starting
       const total = slice.top - slice.bottom + 1
@@ -56,7 +56,6 @@ function run() {
       let buffer: any[] = []
       let processed = 0
       let lastProgressTime = 0
-      const noopEmitter = () => {}
       let currentBottom = slice.bottom
 
       while (currentBottom <= slice.top) {
@@ -70,10 +69,7 @@ function run() {
             postMessage({ type: 'progress', current: processed, total, results: totalInserted })
             lastProgressTime = now
           }
-          // slpParser2 takes (item, params); slpParser takes ([item], params, emitter)
-          const res = type === 'slpParser2'
-            ? method(item, params)
-            : method([item], params, noopEmitter)
+          const res = method(item, params)
           if (Array.isArray(res)) {
             for (let i = 0; i < res.length; i += 1) {
               if (res[i]) buffer.push(res[i])
