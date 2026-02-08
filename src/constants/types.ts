@@ -34,6 +34,7 @@ export interface ConfigInterface {
   ssbmIsoPath: string
   dolphinPath: string
   concatenate: boolean
+  convertToMp4: boolean
   detectDuplicatesOnImport: boolean
   testMode?: boolean
   [key: string]: any

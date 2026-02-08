@@ -410,7 +410,7 @@ export function Tray({
 
     for (const clip of selectedClips) {
       const start = clip.startFrame ?? 0
-      const end = clip.endFrame ?? clip.lastFrame ?? 0
+      const end = clip.endFrame > 0 ? clip.endFrame : (clip.lastFrame ?? 0)
       totalFrames += Math.max(0, end - start)
     }
 

@@ -119,7 +119,7 @@ export default function Main({
 }: MainProps) {
   const [leftWidth, setLeftWidth] = useState(580)
   const [activeFilterId, setActiveFilterId] = useState('files')
-  const minLeftWidth = 100
+  const minLeftWidth = 400
   const minRightWidth = 500
   const dividerWidth = 3
   const [dragover, setDragover] = useState(false)

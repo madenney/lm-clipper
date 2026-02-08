@@ -2,7 +2,7 @@
   "name": "lm-clipper",
   "version": "0.2.0",
   "description": "An application for creating melee clips",
-  "license": "MIT",
+  "license": "GPL-3.0-only",
   "author": {
     "name": "Matt Denney",
     "email": "matt.a.denney@gmail.com"
@@ -15,6 +15,6 @@
   },
   "dependencies": {
     "better-sqlite3": "^12.6.2",
-    "electron": "^23.0.0"
+    "electron": "^31.0.0"
   }
 }
