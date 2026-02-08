@@ -178,14 +178,12 @@
     "asar": true,
     "asarUnpack": [
       "**/*.{node,dll}",
-      "ffmpeg/*",
       "sqlite3/*"
     ],
     "files": [
       "dist",
       "node_modules",
       "package.json",
-      "ffmpeg",
       "sqlite3"
     ],
     "afterSign": ".erb/scripts/notarize.js",
@@ -220,13 +218,25 @@
     "win": {
       "target": [
         "nsis"
+      ],
+      "extraResources": [
+        {
+          "from": "release/app/ffmpeg/ffmpeg-win32-x64",
+          "to": "ffmpeg/ffmpeg-win32-x64"
+        }
       ]
     },
     "linux": {
       "target": [
         "AppImage"
       ],
-      "category": "Development"
+      "category": "Development",
+      "extraResources": [
+        {
+          "from": "release/app/ffmpeg/ffmpeg-linux-x64",
+          "to": "ffmpeg/ffmpeg-linux-x64"
+        }
+      ]
     },
     "directories": {
       "app": "release/app",
