@@ -97,7 +97,7 @@
   },
   "devDependencies": {
     "@electron/notarize": "^1.2.3",
-    "@electron/rebuild": "^3.2.10",
+    "@electron/rebuild": "^4.0.3",
     "@pmmmwh/react-refresh-webpack-plugin": "^0.5.10",
     "@slippi/slippi-js": "^6.6.1",
     "@svgr/webpack": "^6.5.1",
