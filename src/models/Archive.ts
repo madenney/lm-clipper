@@ -65,6 +65,7 @@ export default class Archive {
     let terminated = false
     let totalDiscovered = 0
     let processed = 0
+    let failed = 0
     let pendingNewItemCount = 0
     let lastProgressAt = 0
     let pendingBatch: FileInterface[] = []
@@ -152,6 +153,7 @@ export default class Archive {
       } catch (error) {
         if (!terminated) {
           console.log('Error processing file:', error)
+          failed += 1
           processed += 1
           emitProgress()
         }
@@ -209,7 +211,7 @@ export default class Archive {
       workerPool.terminate()
     }
 
-    return terminated
+    return { terminated, failed }
   }
 
   async addFilter(newFilterJSON: FilterInterface) {

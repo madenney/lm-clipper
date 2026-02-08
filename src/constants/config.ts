@@ -190,132 +190,6 @@ export const filtersConfig = [
       },
     ],
   },
-  // {
-  //   id: 'edgeguards',
-  //   label: 'Edgeguards',
-  //   options: [
-  //     {
-  //       name: 'Max Files',
-  //       id: 'maxFiles',
-  //       type: 'int',
-  //       default: '',
-  //     },
-  //     {
-  //       name: 'Comboer Char',
-  //       id: 'comboerChar',
-  //       type: 'dropdown',
-  //       options: sortedCharacters,
-  //       default: '',
-  //     },
-  //     {
-  //       name: 'Comboee Char',
-  //       id: 'comboeeChar',
-  //       type: 'dropdown',
-  //       options: sortedCharacters,
-  //       default: '',
-  //     },
-  //     {
-  //       name: 'Comboer Tag',
-  //       id: 'comboerTag',
-  //       type: 'textInput',
-  //       default: '',
-  //     },
-  //     {
-  //       name: 'Comboee Tag',
-  //       id: 'comboeeTag',
-  //       type: 'textInput',
-  //       default: '',
-  //     },
-  //   ],
-  // },
-  // {
-  //     id: "actionStates",
-  //     label: "Action State",
-  //     options: [
-  //         {
-  //             name: "Max Files",
-  //             id: "maxFiles",
-  //             type: "int",
-  //             default: ""
-  //         },
-  //         {
-  //             name: "Comboer State",
-  //             id: "comboerActionState",
-  //             type: "dropdown",
-  //             options: actionStates,
-  //             default: ""
-  //         },
-  //         {
-  //             name: "Comboee State",
-  //             id: "comboeeActionState",
-  //             type: "dropdown",
-  //             options: actionStates,
-  //             default: ""
-  //         },
-  //         {
-  //             name: "Comboer X Pos",
-  //             id: "comboerXPos",
-  //             type: "int",
-  //             default: ""
-  //         },
-  //         {
-  //             name: "Comboer Y Pos",
-  //             id: "comboerYPos",
-  //             type: "int",
-  //             default: ""
-  //         },
-  //         {
-  //             name: "Comboer Max D",
-  //             id: "comboerMaxD",
-  //             type: "int",
-  //             default: ""
-  //         },
-  //         {
-  //             name: "Comboee X Pos",
-  //             id: "comboeeXpos",
-  //             type: "int",
-  //             default: ""
-  //         },
-  //         {
-  //             name: "Comboee Y Pos",
-  //             id: "comboeeYpos",
-  //             type: "int",
-  //             default: ""
-  //         },
-  //         {
-  //             name: "Comboee Max D",
-  //             id: "comboeeMaxD",
-  //             type: "int",
-  //             default: ""
-  //         },
-  //         {
-  //             name: "Comboer Char",
-  //             id: "comboerChar",
-  //             type: "dropdown",
-  //             options: sortedCharacters,
-  //             default: ""
-  //         },
-  //         {
-  //             name: "Comboee Char",
-  //             id: "comboeeChar",
-  //             type: "dropdown",
-  //             options: sortedCharacters,
-  //             default: ""
-  //         },
-  //         {
-  //             name: "Comboer Tag",
-  //             id: "comboerTag",
-  //             type: "textInput",
-  //             default: ""
-  //         },
-  //         {
-  //             name: "Comboee Tag",
-  //             id: "comboeeTag",
-  //             type: "textInput",
-  //             default: ""
-  //         }
-  //     ]
-  // }
   {
     id: 'sort',
     label: 'Sort',
@@ -383,58 +257,8 @@ export const filtersConfig = [
         type: 'checkbox',
         default: false,
       },
-      // {
-      //   name: 'Comboer Y Pos',
-      //   id: 'comboerYPos',
-      //   type: 'int',
-      //   default: '',
-      // },
-      // {
-      //   name: 'Comboer X Pos',
-      //   id: 'comboerXPos',
-      //   type: 'int',
-      //   default: '',
-      // },
-      // {
-      //   name: 'Comboee Y Pos',
-      //   id: 'comboeeYPos',
-      //   type: 'int',
-      //   default: '',
-      // },
     ],
   },
-  // {
-  //   id: 'endOfStock',
-  //   label: 'End Of Stock',
-  //   options: [
-  //     {
-  //       name: 'Max Files',
-  //       id: 'maxFiles',
-  //       type: 'int',
-  //       default: '',
-  //     },
-  //     {
-  //       name: 'Comboer Char',
-  //       id: 'comboerChar',
-  //       type: 'dropdown',
-  //       options: sortedCharacters,
-  //       default: '',
-  //     },
-  //     {
-  //       name: 'Comboee Char',
-  //       id: 'comboeeChar',
-  //       type: 'dropdown',
-  //       options: sortedCharacters,
-  //       default: '',
-  //     },
-  //     {
-  //       name: 'Frame Window',
-  //       id: 'frameWindow',
-  //       type: 'int',
-  //       default: '60',
-  //     },
-  //   ],
-  // },
   {
     id: 'removeStarKOFrames',
     label: 'Cut Star KO',
@@ -502,18 +326,6 @@ export const filtersConfig = [
       },
     ],
   },
-  // {
-  //   id: 'comboStats',
-  //   label: 'Combo Stats',
-  //   options: [
-  //     {
-  //       name: 'Depth',
-  //       id: 'depth',
-  //       type: 'int',
-  //       default: 0,
-  //     },
-  //   ],
-  // },
   {
     id: 'koDirection',
     label: 'KO Direction',
@@ -533,81 +345,6 @@ export const filtersConfig = [
       },
     ],
   },
-  // {
-  //     id: "stomp",
-  //     label: "Stomp",
-  //     options: [
-  //         {
-  //             name: "Move",
-  //             id: "move",
-  //             type: "dropdown",
-  //             options: moves
-  //         },
-  //     ]
-  // }
-  // {
-  //     id: "scrubbleJump",
-  //     label: "Scrubble Jump",
-  //     options: []
-  // },{
-  //     id: "animeFalco",
-  //     label: "Anime Falco",
-  //     options: []
-  // },{
-  //     id: "multiverse",
-  //     label: "Multi Verse",
-  //     options: []
-  // },{
-  //     id: "alternatingDimensions",
-  //     label: "Alternate",
-  //     options: []
-  // },{
-  //     id: "beatsPerMango",
-  //     label: "BPM",
-  //     options: []
-  // },{
-  //     id: "zeldaParser",
-  //     label: "Zelda Parser",
-  //     options: [
-  //         {
-  //             name: "Min Hits",
-  //             id: "minHits",
-  //             type: "int",
-  //             default: ""
-  //         },
-  //         {
-  //             name: "Max Files",
-  //             id: "maxFiles",
-  //             type: "int",
-  //             default: ""
-  //         },
-  //         {
-  //             name: "Comboee Char",
-  //             id: "comboeeChar",
-  //             type: "dropdown",
-  //             options: sortedCharacters,
-  //             default: ""
-  //         },
-  //         {
-  //             name: "Comboer Tag",
-  //             id: "comboerTag",
-  //             type: "textInput",
-  //             default: ""
-  //         },
-  //         {
-  //             name: "Comboee Tag",
-  //             id: "comboeeTag",
-  //             type: "textInput",
-  //             default: ""
-  //         },
-  //         {
-  //             name: "Did Kill",
-  //             id: "didKill",
-  //             type: "checkbox",
-  //             default: false
-  //         }
-  //     ]
-  // }
 ]
 
 export const settingsCategories = [
@@ -712,6 +449,13 @@ export const videoConfig = [
     label: 'Concatenate Output',
     default: false,
     id: 'concatenate',
+    type: 'checkbox',
+    category: 'video',
+  },
+  {
+    label: 'Convert to MP4',
+    default: false,
+    id: 'convertToMp4',
     type: 'checkbox',
     category: 'video',
   },

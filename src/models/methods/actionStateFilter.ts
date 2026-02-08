@@ -22,9 +22,6 @@ export default (prevResults, params, eventEmitter) => {
         comboerActionState,
         comboeeActionState,
         startFromNthMove,
-        // comboerYPos,
-        // comboerXPos,
-        // comboeeYPos,
         exclude,
       } = params
       const game = new SlippiGame(path)
@@ -135,18 +132,6 @@ export default (prevResults, params, eventEmitter) => {
           }
         }
 
-        // if( comboerYPos){
-        //     const _comboer = currentFrame.players.find(p => p && p.post.playerIndex == comboer.playerIndex)
-        //     if( _comboer.post.positionY > comboerYPos ){ found = true; break; }
-        // }
-        // if( comboerXPos){
-        //     const _comboer = currentFrame.players.find(p => p && p.post.playerIndex == comboer.playerIndex)
-        //     if( _comboer.post.positionX > comboerXPos ){ found = true; break; }
-        // }
-        // if( comboeeYPos){
-        //     const _comboee = currentFrame.players.find(p => p && p.post.playerIndex == comboee.playerIndex)
-        //     if( _comboee.post.positionY < comboeeYPos ){ found = true; break; }
-        // }
       }
       if (exclude) {
         return !found

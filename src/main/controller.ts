@@ -197,17 +197,6 @@ export default class Controller {
       queueLength: 0,
     }
 
-    // if (this.config.lastArchivePath && fs.existsSync(this.config.lastArchivePath)) {
-    //   try {
-    //     this.archive = new Archive(this.config.lastArchivePath)
-    //     this.archive.init()
-    //   } catch(e){
-    //     console.log('error fetching from last archive path')
-    //     this.archive = null
-    //   }
-    // } else {
-    //   this.archive = null
-    // }
   }
 
   cleanup() {
@@ -401,15 +390,6 @@ export default class Controller {
     }
   }
 
-  // async saveArchive(event: IpcMainEvent) {
-  //   try {
-  //     if (this.archive && this.archive.save) this.archive.save()
-  //     event.reply('saveArchive')
-  //   } catch (error) {
-  //     event.reply('saveArchive', { error })
-  //   }
-  // }
-
   async getDirectory(event: IpcMainEvent, data?: RequestEnvelope<null>) {
     const { requestId } = unpackRequest<null>(data)
     const { canceled, filePaths } = await dialog.showOpenDialog({
@@ -577,7 +557,7 @@ export default class Controller {
       total: 0,
     })
 
-    const terminated = await this.archive.addFiles!(
+    const result = await this.archive.addFiles!(
       filePaths,
       ({ current, total }) => {
         this.mainWindow.webContents.send('importingFileUpdate', {
@@ -594,11 +574,16 @@ export default class Controller {
         maxWorkers,
       }
     )
+    const { terminated, failed } = result
 
     if (this.currentImportAbortController === importAbortController) {
       this.currentImportAbortController = null
     }
     this.stopCountWorker()
+
+    if (failed > 0) {
+      console.log(`Import finished with ${failed} failed file(s)`)
+    }
 
     // Refresh archive from DB to get the real file count
     try {
@@ -619,6 +604,7 @@ export default class Controller {
     this.mainWindow.webContents.send('importingFileUpdate', {
       finished: true,
       cancelled: terminated,
+      failed,
       archive: buildShallowArchive(this.archive),
     })
   }
@@ -848,12 +834,12 @@ export default class Controller {
       throw Error(`Invalid Filter Type ${payload}`)
     }
 
-    // TODO: DETEMINE NEW FILTER ID
-    // FOR NOW:
-    // Generate a random number between 1000 and 99999
-    const randomNum = Math.floor(1000 + Math.random() * 90000);
-
-    const newFilterId = `filter_${randomNum.toString()}`
+    const existingIds = new Set(this.archive.filters.map((f) => f.id))
+    let newFilterId: string
+    do {
+      const randomNum = Math.floor(1000 + Math.random() * 90000)
+      newFilterId = `filter_${randomNum}`
+    } while (existingIds.has(newFilterId))
 
 
     const newFilterJSON: FilterInterface = {
@@ -920,7 +906,7 @@ export default class Controller {
       isProcessed: false,
       results: 0,
     })
-    this.archive.filters.slice(filterIndex).forEach((filter) => {
+    this.archive.filters.slice(filterIndex + 1).forEach((filter) => {
       filter.isProcessed = false
       filter.results = 0
     })
@@ -957,11 +943,6 @@ export default class Controller {
     }
     const { filterId, numPerPage, currentPage, offset, limit, lite } = payload
     console.log('Selected filter: ', filterId)
-    // const slicedResults = this.archive?.filters[
-    //   selectedFilterIndex
-    // ].results
-    
-    // event.reply('getResults', slicedResults)
 
     try {
       const items = await this.archive.getItems({
@@ -1643,13 +1624,6 @@ export default class Controller {
     if (lastClipOffset && replays.length > 0) {
       replays[replays.length - 1].endFrame += lastClipOffset
     }
-
-    // if (overlaySource) {
-    //   await generateOverlays(
-    //     replays,
-    //     path.resolve(outputPath + '/' + outputDirectoryName)
-    //   )
-    // }
 
     console.log('Replays: ', replays)
     console.log('Config: ', config)
