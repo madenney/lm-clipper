@@ -9,7 +9,7 @@
  * `./src/main.js` using webpack. This gives us some performance wins.
  */
 import path from 'path'
-import { app, BrowserWindow, shell } from 'electron'
+import { app, BrowserWindow, shell, ipcMain } from 'electron'
 import type { Event } from 'electron'
 import MenuBuilder from './menu'
 import { resolveHtmlPath } from './util'
@@ -17,6 +17,7 @@ import Controller from './controller'
 import { runWorkflow } from './workflow'
 import { logMain } from './logger'
 import { closeDb } from './dbConnection'
+import { autoUpdater } from 'electron-updater'
 
 let mainWindow: BrowserWindow | null = null
 let controller: Controller | null = null
@@ -152,6 +153,33 @@ const createWindow = async () => {
       mainWindow.minimize()
     } else {
       mainWindow.show()
+    }
+
+    // Check for updates in production
+    if (app.isPackaged) {
+      autoUpdater.autoDownload = false
+      autoUpdater.logger = {
+        info: (...args: unknown[]) => logMain('updater-info', ...args),
+        warn: (...args: unknown[]) => logMain('updater-warn', ...args),
+        error: (...args: unknown[]) => logMain('updater-error', ...args),
+        debug: (..._args: unknown[]) => {},
+      }
+      autoUpdater.on('update-available', (info) => {
+        mainWindow?.webContents.send('update-available', info.version)
+      })
+      autoUpdater.on('download-progress', (progress) => {
+        mainWindow?.webContents.send('update-progress', Math.round(progress.percent))
+      })
+      autoUpdater.on('update-downloaded', () => {
+        mainWindow?.webContents.send('update-downloaded')
+      })
+      ipcMain.on('download-update', () => {
+        autoUpdater.downloadUpdate()
+      })
+      ipcMain.on('install-update', () => {
+        autoUpdater.quitAndInstall()
+      })
+      autoUpdater.checkForUpdates()
     }
   })
 

@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react'
 import './styles/App.css'
 import Main from './components/Main'
 import LoadingScreen from './components/LoadingScreen'
+import UpdateBanner from './components/UpdateBanner'
 import { ConfigInterface, ShallowArchiveInterface } from '../constants/types'
 import { initPerfObservers } from './perfLogger'
 
@@ -11,6 +12,12 @@ import ipcBridge from './ipcBridge'
 export default function App() {
   const [archive, setArchive] = useState<ShallowArchiveInterface | null>(null)
   const [config, setConfig] = useState<ConfigInterface | null>(null)
+  const [updateStatus, setUpdateStatus] = useState<
+    | { state: 'available'; version: string }
+    | { state: 'downloading'; percent: number }
+    | { state: 'ready' }
+    | null
+  >(null)
 
   useEffect(() => {
     initPerfObservers()
@@ -83,12 +90,36 @@ export default function App() {
       },
     )
 
+    const removeUpdateAvailable = window.electron.ipcRenderer.on(
+      'update-available',
+      (version: string) => {
+        setUpdateStatus({ state: 'available', version })
+      },
+    )
+
+    const removeUpdateProgress = window.electron.ipcRenderer.on(
+      'update-progress',
+      (percent: number) => {
+        setUpdateStatus({ state: 'downloading', percent })
+      },
+    )
+
+    const removeUpdateDownloaded = window.electron.ipcRenderer.on(
+      'update-downloaded',
+      () => {
+        setUpdateStatus({ state: 'ready' })
+      },
+    )
+
     return () => {
       removeCloseListener()
       removeOpenListener()
       removeImportListener()
       removeNewProjectListener()
       removeSaveAsListener()
+      removeUpdateAvailable()
+      removeUpdateProgress()
+      removeUpdateDownloaded()
     }
   }, [])
 
@@ -148,11 +179,19 @@ export default function App() {
   }
 
   return (
-    <Main
-      archive={archive}
-      setArchive={setArchive}
-      config={config}
-      setConfig={setConfig}
-    />
+    <>
+      {updateStatus && (
+        <UpdateBanner
+          status={updateStatus}
+          onDismiss={() => setUpdateStatus(null)}
+        />
+      )}
+      <Main
+        archive={archive}
+        setArchive={setArchive}
+        config={config}
+        setConfig={setConfig}
+      />
+    </>
   )
 }
