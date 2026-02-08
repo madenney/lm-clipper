@@ -1,45 +1,71 @@
-# Lunar Melee Clipper
+# LM Clipper
 
-A desktop app to automate clip generation from Slippi replays.
+A desktop app for automating high-quality clip generation from [Slippi](https://slippi.gg/) replays (Super Smash Bros. Melee).
 
-Compatible with Windows and Linux.
+## Features
 
-*In theory*, any video on the Lunar Melee channel can be made with this tool, with a small number of exceptions
+- **Import** Slippi replay files (`.slp`) in bulk
+- **Filter** replays by game metadata (characters, stages, dates, players)
+- **Search** for specific combos using a powerful combo parser
+  - Character-specific sequences (e.g. Falcon stomp -> knee, Fox upthrow -> upair)
+  - Frame-by-frame search using action states, positions, and more
+- **Generate high-quality video** using Slippi Dolphin's frame-by-frame dump + ffmpeg
+  - Output at whatever resolution your hardware can handle
+  - Run multiple concurrent Dolphin instances for batch processing
+- **SQLite database** backend for fast filtering across large replay collections
 
+## Download
 
-## Pre-Requirements
-- Slippi Dolphin
+Pre-built binaries are available on the [Releases](https://github.com/madenney/lm-clipper/releases) page.
+
+Supported platforms: **Windows** and **Linux**.
+
+## Prerequisites
+
+- [Slippi Dolphin](https://slippi.gg/netplay) installed and configured
+- A Melee ISO (NTSC 1.02)
+
+## Build from Source
+
+```bash
+git clone https://github.com/madenney/lm-clipper.git
+cd lm-clipper
+npm install
+npm run start
+```
+
+To create a production build:
+
+```bash
+npm run build
+```
+
+To package for distribution:
+
+```bash
+./build.sh
+```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for more details on development setup.
 
 ## Usage
-- Import Slippi replays
-- Filter replays by metadata
-- Parse replays via a complex set of search tools
-    - search for character-specific combos
-        - example: "falcon stomp -> knee, fox upthrow -> upair, ken combos,"
-    - search frame by frame using character action states, X/Y coordinates, etc...
-- Generate __high quality__ video
-    - Uses Dolphin's built-in frame by frame video/audio dump
-    - Generates video at whatever video quality your computer can handle
-        - You can run 24 concurrent instances of Slippi Dolphin and watch your computer melt :)
 
-## Architecture
-- Mainly written in Typescript
-- sqlite3 for local database
-- ffmpeg for video/audio editing
-- Started with Electron React Boilerplate 
-    - https://github.com/electron-react-boilerplate/electron-react-boilerplate
-- Packaged with Hydrualic Conveyor
-    - https://conveyor.hydraulic.dev
+1. Launch LM Clipper and configure the path to Slippi Dolphin
+2. Import `.slp` replay files via drag-and-drop or the Import button
+3. Apply filters to narrow down replays (characters, stages, date range, etc.)
+4. Use the combo parser to search for specific combo sequences
+5. Preview and select clips, then generate video
 
-## Development version
- - ```git clone https://github.com/madenney/lm-clipper.git```
- - ```cd lm-clipper```
- - ```npm install```
- - ```npm run start```
+## Contributing
 
-To build, run ```./build.sh```
+Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, coding standards, and pull request guidelines.
 
+## Acknowledgments
 
-## Important contribution
-See this repo for slp -> mp4 conversion:
-https://github.com/kevinsung/slp-to-video
+- [slp-to-video](https://github.com/kevinsung/slp-to-video) -- the foundation for Slippi replay to video conversion
+- [electron-react-boilerplate](https://github.com/electron-react-boilerplate/electron-react-boilerplate) -- project template
+- [Slippi](https://slippi.gg/) -- replay recording and Dolphin integration for Melee
+
+## License
+
+This project is licensed under the GNU General Public License v3.0. See [LICENSE](LICENSE) for details.

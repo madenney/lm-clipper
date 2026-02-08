@@ -1,0 +1,57 @@
+name: Bug Report
+description: Report a bug in LM Clipper
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug!
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: A clear description of what the bug is.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What did you expect to happen?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to Reproduce
+      description: How can we reproduce this issue?
+      placeholder: |
+        1. Open LM Clipper
+        2. Import files...
+        3. ...
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating System
+      options:
+        - Windows
+        - Linux (Ubuntu/Debian)
+        - Linux (Other)
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: LM Clipper Version
+      placeholder: e.g. 0.2.0
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / Screenshots
+      description: Paste any relevant error messages or screenshots.
+    validations:
+      required: false

@@ -1,7 +1,24 @@
 {
   "name": "lm-clipper",
   "description": "An application for creating melee clips",
-  "license": "MIT",
+  "version": "0.2.0",
+  "license": "GPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/madenney/lm-clipper.git"
+  },
+  "homepage": "https://github.com/madenney/lm-clipper",
+  "bugs": {
+    "url": "https://github.com/madenney/lm-clipper/issues"
+  },
+  "keywords": [
+    "melee",
+    "slippi",
+    "clips",
+    "dolphin",
+    "electron",
+    "video"
+  ],
   "author": {
     "name": "Matt Denney",
     "email": "matt.a.denney@gmail.com"
@@ -118,6 +135,7 @@
     "eslint-plugin-import": "^2.27.5",
     "eslint-plugin-jest": "^27.2.1",
     "eslint-plugin-jsx-a11y": "^6.7.1",
+    "eslint-plugin-prettier": "^5.5.5",
     "eslint-plugin-promise": "^6.1.1",
     "eslint-plugin-react": "^7.32.2",
     "eslint-plugin-react-hooks": "^4.6.0",
@@ -150,7 +168,7 @@
   },
   "build": {
     "productName": "LM Clipper",
-    "appId": "org.erb.LMClipper",
+    "appId": "com.github.madenney.lm-clipper",
     "asar": true,
     "asarUnpack": "**\\*.{node,dll}",
     "files": [
@@ -208,14 +226,14 @@
     ],
     "publish": {
       "provider": "github",
-      "owner": "lm-clipper",
+      "owner": "madenney",
       "repo": "lm-clipper"
     }
   },
   "devEngines": {
     "runtime": {
       "name": "node",
-      "version": ">=14.x"
+      "version": ">=18.x"
     }
   },
   "electronmon": {

@@ -9,7 +9,11 @@ npm run build
 printf "\n\n\n\n ============================================================ \n"
 printf " ===== cp -R src/main/pyscripts release/app/dist/main/. ====="
 printf "\n ============================================================ \n"
-cp -R src/main/pyscripts release/app/dist/main/.
+if [ -d src/main/pyscripts ]; then
+  cp -R src/main/pyscripts release/app/dist/main/.
+else
+  printf " (skipped — src/main/pyscripts not found)\n"
+fi
 
 printf "\n\n\n\n ============================================================ \n"
 printf " ============== TODO: COPY ICONS INTO DIST TOO =============="

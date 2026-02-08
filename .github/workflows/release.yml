@@ -1,0 +1,90 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux
+          - os: windows-latest
+            platform: win
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build
+        run: npm run build
+
+      - name: Package
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx electron-builder --publish never --${{ matrix.platform }}
+
+      - name: Generate checksums (Linux)
+        if: matrix.platform == 'linux'
+        run: |
+          cd release/build
+          sha256sum *.AppImage > SHA256SUMS-linux.txt || true
+          sha256sum *.deb >> SHA256SUMS-linux.txt || true
+
+      - name: Generate checksums (Windows)
+        if: matrix.platform == 'win'
+        shell: pwsh
+        run: |
+          cd release/build
+          Get-ChildItem -Filter *.exe | ForEach-Object {
+            $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash
+            "$hash  $($_.Name)" | Out-File -Append SHA256SUMS-win.txt -Encoding ascii
+          }
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.platform }}
+          path: |
+            release/build/*.AppImage
+            release/build/*.deb
+            release/build/*.exe
+            release/build/SHA256SUMS-*.txt
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          generate_release_notes: true
+          files: |
+            artifacts/**/*.AppImage
+            artifacts/**/*.deb
+            artifacts/**/*.exe
+            artifacts/**/SHA256SUMS-*.txt
