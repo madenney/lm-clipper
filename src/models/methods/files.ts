@@ -41,12 +41,22 @@ export default (
         if (!(c2.indexOf(p1) !== -1 || c2.indexOf(p2) !== -1)) return false
       }
     }
-    if (player1 || player2) {
-      const p1 = player1.toLowerCase().split(';')
-      const p2 = player2.toLowerCase().split(';')
+    const hasP1 = Array.isArray(player1) ? player1.length > 0 : !!player1
+    const hasP2 = Array.isArray(player2) ? player2.length > 0 : !!player2
+    if (hasP1 || hasP2) {
+      const p1 = Array.isArray(player1)
+        ? player1.map((t: string) => t.toLowerCase())
+        : player1
+          ? player1.toLowerCase().split(';')
+          : []
+      const p2 = Array.isArray(player2)
+        ? player2.map((t: string) => t.toLowerCase())
+        : player2
+          ? player2.toLowerCase().split(';')
+          : []
       const lp1 = file.players[0].displayName.toLowerCase()
       const lp2 = file.players[1].displayName.toLowerCase()
-      if (player1 && player2) {
+      if (hasP1 && hasP2) {
         if (
           !(
             (p1.indexOf(lp1) !== -1 && p2.indexOf(lp2) !== -1) ||
@@ -54,9 +64,9 @@ export default (
           )
         )
           return false
-      } else if (player1 && !player2) {
+      } else if (hasP1 && !hasP2) {
         if (!(p1.indexOf(lp1) !== -1 || p1.indexOf(lp2) !== -1)) return false
-      } else if (player2 && !player1) {
+      } else if (hasP2 && !hasP1) {
         if (!(p2.indexOf(lp1) !== -1 || p2.indexOf(lp2) !== -1)) return false
       }
     }

@@ -5,6 +5,7 @@ import {
   ReactElement,
   MouseEvent,
   useState,
+  useRef,
   Dispatch,
   SetStateAction,
   useEffect,
@@ -14,6 +15,7 @@ import '../styles/Filters.css'
 import { filtersConfig } from 'constants/config'
 import ipcBridge from '../ipcBridge'
 import {
+  ConfigInterface,
   FilterInterface,
   ShallowArchiveInterface,
   ShallowFilterInterface,
@@ -24,6 +26,7 @@ type FiltersProps = {
   setArchive: Dispatch<SetStateAction<ShallowArchiveInterface | null>>
   activeFilterId: string
   setActiveFilterId: Dispatch<SetStateAction<string>>
+  config: ConfigInterface
 }
 
 export default function Filters({
@@ -31,20 +34,55 @@ export default function Filters({
   setArchive,
   activeFilterId,
   setActiveFilterId,
+  config,
 }: FiltersProps) {
   const [runningFilters, setRunningFilters] = useState<Set<number>>(new Set())
   const [filterMsgs, setFilterMsgs] = useState<Record<string, string>>({})
   const [liveResults, setLiveResults] = useState<Record<string, number>>({})
-  // Filters start collapsed by default — toggling sets them to expanded (false)
   const [expandedFilters, setExpandedFilters] = useState<
     Record<string, boolean>
   >({})
+  const [dropdownOpen, setDropdownOpen] = useState(false)
+  const [multiOpen, setMultiOpen] = useState<string | null>(null)
+  const [multiPos, setMultiPos] = useState<{
+    top: number
+    left: number
+    width: number
+  } | null>(null)
+  const [namesList, setNamesList] = useState<{ name: string; total: number }[]>(
+    [],
+  )
+  const [expandedNthRows, setExpandedNthRows] = useState<Set<string>>(new Set())
+  const dropdownRef = useRef<HTMLDivElement>(null)
+  const multiLeaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     const removeRunningListener = window.electron.ipcRenderer.on(
       'currentlyRunningFilter',
       (event: { running: number[] }) => {
-        setRunningFilters(new Set(event.running))
+        const next = new Set(event.running)
+        setRunningFilters((prev) => {
+          // Find indices that stopped running and clear their messages
+          const stopped: number[] = []
+          prev.forEach((idx) => {
+            if (!next.has(idx)) stopped.push(idx)
+          })
+          if (stopped.length > 0) {
+            setFilterMsgs((msgs) => {
+              const updated = { ...msgs }
+              // Clear progress messages for stopped filters
+              for (const key of Object.keys(updated)) {
+                // Messages are keyed by filterId; we can't map idx→id here,
+                // so just clear all progress-shaped messages (e.g. "123/456")
+                if (/^\d+\/\d+$/.test(updated[key])) {
+                  delete updated[key]
+                }
+              }
+              return updated
+            })
+          }
+          return next
+        })
       },
     )
 
@@ -73,11 +111,29 @@ export default function Filters({
       },
     )
 
+    const handleClickOutside = (event: Event) => {
+      if (
+        dropdownRef.current &&
+        !dropdownRef.current.contains(event.target as Node)
+      ) {
+        setDropdownOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+
     return () => {
       removeRunningListener()
       removeUpdateListener()
+      document.removeEventListener('mousedown', handleClickOutside)
     }
   }, [])
+
+  useEffect(() => {
+    if (!archive) return
+    ipcBridge.getNames((names) => {
+      setNamesList(names || [])
+    })
+  }, [archive?.files])
 
   function stopFilter(filterId: string, filterIndex: number) {
     setRunningFilters((prev) => {
@@ -183,6 +239,23 @@ export default function Filters({
   }
 
   function deleteFilter(filter: FilterInterface) {
+    if (
+      config.warnOnParserDelete !== false &&
+      filter.type === 'slpParser' &&
+      archive
+    ) {
+      const idx = archive.filters.findIndex((f) => f.id === filter.id)
+      const inputCount =
+        idx > 0 ? archive.filters[idx - 1].results : archive.files
+      if (
+        inputCount >= 10000 &&
+        !window.confirm(
+          `This combo parser was run on ${inputCount.toLocaleString()} files. Are you sure you want to delete it?`,
+        )
+      ) {
+        return
+      }
+    }
     ipcBridge.removeFilter(filter.id, (response) => {
       if (!response || response?.error) {
         console.log('removeFilter response error:', response.error)
@@ -192,14 +265,580 @@ export default function Filters({
     })
   }
 
-  function renderFilterControls(filter: ShallowFilterInterface) {
-    const config = filtersConfig.find((entry) => entry.id === filter.type)
-    if (!config || !config.options || config.options.length === 0) return null
+  const positionPresets = [
+    { label: 'First move', value: '0' },
+    { label: 'Second move', value: '1' },
+    { label: 'Third move', value: '2' },
+    { label: 'Last move', value: '-1' },
+    { label: 'Second to last', value: '-2' },
+    { label: 'Third to last', value: '-3' },
+    { label: 'Every move', value: 'e' },
+  ]
+  const presetValues = new Set(positionPresets.map((p) => p.value))
+  presetValues.add('')
 
-    const gridOptions = (config.options as any[]).filter(
+  function isCustomN(n: string) {
+    return n !== '' && !presetValues.has(n)
+  }
+
+  function renderNthMoves(filter: ShallowFilterInterface, nthMovesOption: any) {
+    const advanced = !!config.advancedMode
+    const moves = filter.params?.[nthMovesOption.id] || []
+
+    return (
+      <div className="filter-nth-moves">
+        <div className="filter-nth-moves-header">
+          <span className="filter-control-label">{nthMovesOption.name}</span>
+          <button
+            type="button"
+            className="filter-nth-add"
+            onClick={() => {
+              const filterClone = cloneDeep(filter)
+              filterClone.params[nthMovesOption.id].push({
+                moveId: '',
+                n: '',
+                d: '',
+                t: '',
+                dMode: 'min',
+                tMin: '',
+              })
+              updateFilter(filterClone, filter)
+            }}
+          >
+            + Add
+          </button>
+        </div>
+        {moves.map((move: any, index: number) =>
+          advanced
+            ? renderNthRowAdvanced(filter, nthMovesOption, move, index)
+            : renderNthRowFriendly(filter, nthMovesOption, move, index),
+        )}
+      </div>
+    )
+  }
+
+  function renderNthRowAdvanced(
+    filter: ShallowFilterInterface,
+    nthMovesOption: any,
+    move: any,
+    index: number,
+  ) {
+    return (
+      <div key={index} className="filter-nth-row">
+        <label className="filter-nth-field">
+          <span className="filter-nth-field-label">N</span>
+          <input
+            className="filter-control-input filter-nth-input"
+            value={move.n}
+            onChange={(e) => {
+              const filterClone = cloneDeep(filter)
+              filterClone.params[nthMovesOption.id][index].n = e.target.value
+              updateFilter(filterClone, filter)
+            }}
+          />
+        </label>
+        <label className="filter-nth-field">
+          <span className="filter-nth-field-label">T Max</span>
+          <input
+            className="filter-control-input filter-nth-input"
+            value={move.t}
+            onChange={(e) => {
+              const filterClone = cloneDeep(filter)
+              filterClone.params[nthMovesOption.id][index].t = e.target.value
+              updateFilter(filterClone, filter)
+            }}
+          />
+        </label>
+        <label className="filter-nth-field">
+          <span className="filter-nth-field-label">T Min</span>
+          <input
+            className="filter-control-input filter-nth-input"
+            value={move.tMin || ''}
+            onChange={(e) => {
+              const filterClone = cloneDeep(filter)
+              filterClone.params[nthMovesOption.id][index].tMin = e.target.value
+              updateFilter(filterClone, filter)
+            }}
+          />
+        </label>
+        <label className="filter-nth-field">
+          <span className="filter-nth-field-label">D</span>
+          <div className="filter-nth-damage-row">
+            <select
+              className="filter-nth-select-small"
+              value={move.dMode || 'min'}
+              onChange={(e) => {
+                const filterClone = cloneDeep(filter)
+                filterClone.params[nthMovesOption.id][index].dMode =
+                  e.target.value
+                updateFilter(filterClone, filter)
+              }}
+            >
+              <option value="min">Min</option>
+              <option value="max">Max</option>
+            </select>
+            <input
+              className="filter-control-input filter-nth-input"
+              value={move.d}
+              onChange={(e) => {
+                const filterClone = cloneDeep(filter)
+                filterClone.params[nthMovesOption.id][index].d = e.target.value
+                updateFilter(filterClone, filter)
+              }}
+            />
+          </div>
+        </label>
+        <div className="filter-nth-field filter-nth-field-move">
+          <span className="filter-nth-field-label">Move</span>
+          {renderMultiDropdown(
+            `${filter.id}:nth:${index}`,
+            'moveId',
+            nthMovesOption.options || [],
+            Array.isArray(move.moveId)
+              ? move.moveId
+              : move.moveId
+                ? [move.moveId]
+                : [],
+            (next) => {
+              const filterClone = cloneDeep(filter)
+              filterClone.params[nthMovesOption.id][index].moveId = next
+              updateFilter(filterClone, filter)
+            },
+          )}
+        </div>
+        <button
+          type="button"
+          className="filter-nth-delete"
+          onClick={() => {
+            const filterClone = cloneDeep(filter)
+            filterClone.params[nthMovesOption.id].splice(index, 1)
+            updateFilter(filterClone, filter)
+          }}
+        >
+          ✕
+        </button>
+      </div>
+    )
+  }
+
+  function renderNthRowFriendly(
+    filter: ShallowFilterInterface,
+    nthMovesOption: any,
+    move: any,
+    index: number,
+  ) {
+    const showCustomInput = isCustomN(move.n)
+    const nthRowKey = `${filter.id}:${index}`
+    const isNthExpanded = expandedNthRows.has(nthRowKey)
+    const hasExtra = !!(move.tMin || move.t || move.d)
+
+    return (
+      <div key={index} className="filter-nth-row-wrap">
+        <div className="filter-nth-row">
+          <label
+            className="filter-nth-field"
+            title="Which move in the combo to match against. Use Custom for arbitrary indices."
+          >
+            <span className="filter-nth-field-label">Position</span>
+            <select
+              className="filter-nth-select-small"
+              value={showCustomInput ? '__custom__' : move.n}
+              onChange={(e) => {
+                const filterClone = cloneDeep(filter)
+                if (e.target.value === '__custom__') {
+                  filterClone.params[nthMovesOption.id][index].n = '3'
+                } else {
+                  filterClone.params[nthMovesOption.id][index].n =
+                    e.target.value
+                }
+                updateFilter(filterClone, filter)
+              }}
+            >
+              <option value="">Any</option>
+              {positionPresets.map((p) => (
+                <option key={p.value} value={p.value}>
+                  {p.label}
+                </option>
+              ))}
+              <option value="__custom__">Custom...</option>
+            </select>
+          </label>
+          {showCustomInput && (
+            <label
+              className="filter-nth-field"
+              title="Move index (0-based). Positive = from start, negative = from end. Comma-separate for multiple (e.g. 0,2,-1)."
+            >
+              <span className="filter-nth-field-label">N</span>
+              <input
+                className="filter-control-input filter-nth-input"
+                value={move.n}
+                onChange={(e) => {
+                  const filterClone = cloneDeep(filter)
+                  filterClone.params[nthMovesOption.id][index].n =
+                    e.target.value
+                  updateFilter(filterClone, filter)
+                }}
+              />
+            </label>
+          )}
+          <div className="filter-nth-field filter-nth-field-move">
+            <span className="filter-nth-field-label">Move</span>
+            {renderMultiDropdown(
+              `${filter.id}:nth:${index}`,
+              'moveId',
+              nthMovesOption.options || [],
+              Array.isArray(move.moveId)
+                ? move.moveId
+                : move.moveId
+                  ? [move.moveId]
+                  : [],
+              (next) => {
+                const filterClone = cloneDeep(filter)
+                filterClone.params[nthMovesOption.id][index].moveId = next
+                updateFilter(filterClone, filter)
+              },
+            )}
+          </div>
+          <button
+            type="button"
+            className={`filter-nth-extra-toggle${hasExtra ? ' filter-nth-extra-toggle-active' : ''}`}
+            onClick={() => {
+              setExpandedNthRows((prev) => {
+                const next = new Set(prev)
+                if (next.has(nthRowKey)) next.delete(nthRowKey)
+                else next.add(nthRowKey)
+                return next
+              })
+            }}
+            title="Gap & damage options"
+          >
+            &#x2699;
+          </button>
+          <button
+            type="button"
+            className="filter-nth-delete"
+            onClick={() => {
+              const filterClone = cloneDeep(filter)
+              filterClone.params[nthMovesOption.id].splice(index, 1)
+              updateFilter(filterClone, filter)
+            }}
+          >
+            ✕
+          </button>
+        </div>
+        {isNthExpanded && (
+          <div className="filter-nth-extra">
+            <label
+              className="filter-nth-field"
+              title="Minimum frame gap between this move and the previous move"
+            >
+              <span className="filter-nth-field-label">Min Gap</span>
+              <input
+                className="filter-control-input filter-nth-input"
+                value={move.tMin || ''}
+                placeholder="f"
+                onChange={(e) => {
+                  const filterClone = cloneDeep(filter)
+                  filterClone.params[nthMovesOption.id][index].tMin =
+                    e.target.value
+                  updateFilter(filterClone, filter)
+                }}
+              />
+            </label>
+            <label
+              className="filter-nth-field"
+              title="Maximum frame gap between this move and the previous move"
+            >
+              <span className="filter-nth-field-label">Max Gap</span>
+              <input
+                className="filter-control-input filter-nth-input"
+                value={move.t}
+                placeholder="f"
+                onChange={(e) => {
+                  const filterClone = cloneDeep(filter)
+                  filterClone.params[nthMovesOption.id][index].t =
+                    e.target.value
+                  updateFilter(filterClone, filter)
+                }}
+              />
+            </label>
+            <label
+              className="filter-nth-field"
+              title="Damage threshold for this move. Min = at least this much, Max = at most this much."
+            >
+              <span className="filter-nth-field-label">Damage</span>
+              <div className="filter-nth-damage-row">
+                <select
+                  className="filter-nth-select-small"
+                  value={move.dMode || 'min'}
+                  onChange={(e) => {
+                    const filterClone = cloneDeep(filter)
+                    filterClone.params[nthMovesOption.id][index].dMode =
+                      e.target.value
+                    updateFilter(filterClone, filter)
+                  }}
+                >
+                  <option value="min">Min</option>
+                  <option value="max">Max</option>
+                </select>
+                <input
+                  className="filter-control-input filter-nth-input"
+                  value={move.d}
+                  onChange={(e) => {
+                    const filterClone = cloneDeep(filter)
+                    filterClone.params[nthMovesOption.id][index].d =
+                      e.target.value
+                    updateFilter(filterClone, filter)
+                  }}
+                />
+              </div>
+            </label>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  function renderMultiDropdown(
+    filterId: string,
+    optionId: string,
+    options: any[],
+    selected: any[],
+    onChange: (_next: any[]) => void,
+  ) {
+    const key = `${filterId}:${optionId}`
+    const isOpen = multiOpen === key
+    const selectedSet = new Set(
+      (Array.isArray(selected) ? selected : selected ? [selected] : []).map(
+        String,
+      ),
+    )
+    const label =
+      selectedSet.size === 0
+        ? 'Any'
+        : options
+            .filter((o) => selectedSet.has(String(o.id)))
+            .map((o) => o.shortName || o.name)
+            .join(', ')
+
+    return (
+      <div className="filter-multi-wrap">
+        <button
+          type="button"
+          className="filter-multi-select"
+          onClick={(e) => {
+            e.stopPropagation()
+            if (isOpen) {
+              setMultiOpen(null)
+              setMultiPos(null)
+            } else {
+              const rect = e.currentTarget.getBoundingClientRect()
+              setMultiPos({
+                top: rect.bottom + 4,
+                left: rect.left,
+                width: Math.max(rect.width, 160),
+              })
+              setMultiOpen(key)
+            }
+          }}
+          title={label}
+        >
+          {label}
+        </button>
+        {isOpen && multiPos && (
+          <>
+            <div
+              className="filter-multi-backdrop"
+              onClick={(e) => {
+                e.stopPropagation()
+                setMultiOpen(null)
+                setMultiPos(null)
+              }}
+            />
+            <div
+              className="filter-multi-menu"
+              style={{
+                position: 'fixed',
+                top: multiPos.top,
+                left: multiPos.left,
+                width: multiPos.width,
+              }}
+              onMouseEnter={() => {
+                if (multiLeaveTimer.current) {
+                  clearTimeout(multiLeaveTimer.current)
+                  multiLeaveTimer.current = null
+                }
+              }}
+              onMouseLeave={() => {
+                multiLeaveTimer.current = setTimeout(() => {
+                  setMultiOpen(null)
+                  setMultiPos(null)
+                }, 300)
+              }}
+            >
+              <div
+                className={`filter-multi-item filter-multi-item-all${selectedSet.size === options.length ? ' filter-multi-item-checked' : ''}`}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  if (selectedSet.size === options.length) {
+                    onChange([])
+                  } else {
+                    onChange(options.map((o: any) => o.id))
+                  }
+                }}
+              >
+                <span className="filter-multi-check">
+                  {selectedSet.size === options.length ? '\u2714' : ''}
+                </span>
+                <span>Select All</span>
+              </div>
+              {options.map((o: any) => {
+                const checked = selectedSet.has(String(o.id))
+                return (
+                  <div
+                    key={o.id}
+                    className={`filter-multi-item${checked ? ' filter-multi-item-checked' : ''}`}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      const next = checked
+                        ? [...selectedSet]
+                            .filter((v) => v !== String(o.id))
+                            .map(Number)
+                        : [...selectedSet, String(o.id)].map(Number)
+                      onChange(next)
+                    }}
+                  >
+                    <span className="filter-multi-check">
+                      {checked ? '\u2714' : ''}
+                    </span>
+                    <span>{o.shortName || o.name}</span>
+                  </div>
+                )
+              })}
+            </div>
+          </>
+        )}
+      </div>
+    )
+  }
+
+  function renderNameSelect(
+    filterId: string,
+    optionId: string,
+    selected: string[],
+    onChange: (_next: string[]) => void,
+  ) {
+    const key = `${filterId}:${optionId}:names`
+    const isOpen = multiOpen === key
+    const selectedArr = Array.isArray(selected) ? selected : []
+    const selectedSet = new Set(selectedArr)
+    const label =
+      selectedSet.size === 0
+        ? 'Any'
+        : namesList
+            .filter((n) => selectedSet.has(n.name))
+            .map((n) => n.name)
+            .join(', ') || selectedArr.join(', ')
+
+    return (
+      <div className="filter-multi-wrap">
+        <button
+          type="button"
+          className="filter-multi-select"
+          onClick={(e) => {
+            e.stopPropagation()
+            if (isOpen) {
+              setMultiOpen(null)
+              setMultiPos(null)
+            } else {
+              const rect = e.currentTarget.getBoundingClientRect()
+              setMultiPos({
+                top: rect.bottom + 4,
+                left: rect.left,
+                width: Math.max(rect.width, 160),
+              })
+              setMultiOpen(key)
+            }
+          }}
+          title={label}
+        >
+          {label}
+        </button>
+        {isOpen && multiPos && (
+          <>
+            <div
+              className="filter-multi-backdrop"
+              onClick={(e) => {
+                e.stopPropagation()
+                setMultiOpen(null)
+                setMultiPos(null)
+              }}
+            />
+            <div
+              className="filter-multi-menu"
+              style={{
+                position: 'fixed',
+                top: multiPos.top,
+                left: multiPos.left,
+                width: multiPos.width,
+              }}
+              onMouseEnter={() => {
+                if (multiLeaveTimer.current) {
+                  clearTimeout(multiLeaveTimer.current)
+                  multiLeaveTimer.current = null
+                }
+              }}
+              onMouseLeave={() => {
+                multiLeaveTimer.current = setTimeout(() => {
+                  setMultiOpen(null)
+                  setMultiPos(null)
+                }, 300)
+              }}
+            >
+              {namesList.map((n) => {
+                const checked = selectedSet.has(n.name)
+                return (
+                  <div
+                    key={n.name}
+                    className={`filter-multi-item${checked ? ' filter-multi-item-checked' : ''}`}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      const next = checked
+                        ? selectedArr.filter((v) => v !== n.name)
+                        : [...selectedArr, n.name]
+                      onChange(next)
+                    }}
+                  >
+                    <span className="filter-multi-check">
+                      {checked ? '\u2714' : ''}
+                    </span>
+                    <span>{n.name}</span>
+                    <span className="filter-autocomplete-count">{n.total}</span>
+                  </div>
+                )
+              })}
+            </div>
+          </>
+        )}
+      </div>
+    )
+  }
+
+  function renderFilterControls(filter: ShallowFilterInterface) {
+    const filterConfig = filtersConfig.find((entry) => entry.id === filter.type)
+    if (
+      !filterConfig ||
+      !filterConfig.options ||
+      filterConfig.options.length === 0
+    )
+      return null
+
+    const hasParser = archive?.filters.some((f) => f.type === 'slpParser')
+
+    const gridOptions = (filterConfig.options as any[]).filter(
       (o) => o.type !== 'nthMoves',
     )
-    const nthMovesOption = (config.options as any[]).find(
+    const nthMovesOption = (filterConfig.options as any[]).find(
       (o) => o.type === 'nthMoves',
     )
 
@@ -210,24 +849,50 @@ export default function Filters({
             {gridOptions.map((option) => {
               let input: ReactElement | null = null
               const value = filter.params?.[option.id] ?? ''
+              const disabled = option.requiresParser && !hasParser
               switch (option.type) {
                 case 'textInput':
+                  if (option.autocomplete === 'names') {
+                    input = renderNameSelect(
+                      filter.id,
+                      option.id,
+                      filter.params?.[option.id] || [],
+                      (next) => {
+                        const filterClone = cloneDeep(filter)
+                        filterClone.params[option.id] = next
+                        updateFilter(filterClone, filter)
+                      },
+                    )
+                    break
+                  }
+                // falls through
                 case 'int':
                   input = (
                     <input
                       className="filter-control-input"
-                      value={value}
-                      placeholder="Any"
+                      inputMode="numeric"
+                      value={disabled ? '' : value}
+                      placeholder={disabled ? 'Requires combo parser' : 'Any'}
+                      disabled={disabled}
                       onChange={(event) => {
+                        const raw = event.target.value
+                        if (raw !== '' && !/^-?\d*$/.test(raw)) return
                         const filterClone = cloneDeep(filter)
-                        filterClone.params[option.id] = event.target.value
+                        filterClone.params[option.id] = raw
                         updateFilter(filterClone, filter)
                       }}
                     />
                   )
                   break
                 case 'dropdown':
-                  input = (
+                  input = disabled ? (
+                    <input
+                      className="filter-control-input"
+                      value=""
+                      placeholder="Requires combo parser"
+                      disabled
+                    />
+                  ) : (
                     <select
                       value={value}
                       className="filter-control-select"
@@ -248,20 +913,47 @@ export default function Filters({
                     </select>
                   )
                   break
+                case 'multiDropdown':
+                  input = disabled ? (
+                    <input
+                      className="filter-control-input"
+                      value=""
+                      placeholder="Requires combo parser"
+                      disabled
+                    />
+                  ) : (
+                    renderMultiDropdown(
+                      filter.id,
+                      option.id,
+                      option.options || [],
+                      filter.params?.[option.id] || [],
+                      (next) => {
+                        const filterClone = cloneDeep(filter)
+                        filterClone.params[option.id] = next
+                        updateFilter(filterClone, filter)
+                      },
+                    )
+                  )
+                  break
                 case 'checkbox':
                   input = (
                     <label className="filter-control-checkbox-wrap">
                       <input
                         type="checkbox"
                         className="filter-control-checkbox"
-                        checked={!!filter.params?.[option.id]}
+                        checked={
+                          disabled ? false : !!filter.params?.[option.id]
+                        }
+                        disabled={disabled}
                         onChange={(event) => {
                           const filterClone = cloneDeep(filter)
                           filterClone.params[option.id] = event.target.checked
                           updateFilter(filterClone, filter)
                         }}
                       />
-                      <span className="filter-control-checkbox-mark" />
+                      <span
+                        className={`filter-control-checkbox-mark${disabled ? ' filter-control-checkbox-disabled' : ''}`}
+                      />
                     </label>
                   )
                   break
@@ -281,119 +973,24 @@ export default function Filters({
                 default:
                   return null
               }
+              const isDropdownLike =
+                option.type === 'multiDropdown' ||
+                (option.type === 'textInput' && option.autocomplete === 'names')
+              const Wrapper = isDropdownLike ? 'div' : 'label'
               return (
-                <label className="filter-control" key={option.id}>
+                <Wrapper
+                  className={`filter-control${disabled ? ' filter-control-disabled' : ''}`}
+                  key={option.id}
+                  title={disabled ? 'Requires combo parser' : undefined}
+                >
                   <span className="filter-control-label">{option.name}</span>
                   {input}
-                </label>
+                </Wrapper>
               )
             })}
           </div>
         )}
-        {nthMovesOption && (
-          <div className="filter-nth-moves">
-            <div className="filter-nth-moves-header">
-              <span className="filter-control-label">
-                {nthMovesOption.name}
-              </span>
-              <button
-                type="button"
-                className="filter-nth-add"
-                onClick={() => {
-                  const filterClone = cloneDeep(filter)
-                  filterClone.params[nthMovesOption.id].push({
-                    moveId: '',
-                    n: '',
-                    d: '',
-                    t: '',
-                  })
-                  updateFilter(filterClone, filter)
-                }}
-              >
-                + Add
-              </button>
-            </div>
-            {(filter.params?.[nthMovesOption.id] || []).map(
-              (
-                move: { moveId: string; n: string; d: string; t: string },
-                index: number,
-              ) => (
-                <div key={index} className="filter-nth-row">
-                  <label className="filter-nth-field">
-                    <span className="filter-nth-field-label">N</span>
-                    <input
-                      className="filter-control-input filter-nth-input"
-                      value={move.n}
-                      onChange={(e) => {
-                        const filterClone = cloneDeep(filter)
-                        filterClone.params[nthMovesOption.id][index].n =
-                          e.target.value
-                        updateFilter(filterClone, filter)
-                      }}
-                    />
-                  </label>
-                  <label className="filter-nth-field">
-                    <span className="filter-nth-field-label">T</span>
-                    <input
-                      className="filter-control-input filter-nth-input"
-                      value={move.t}
-                      onChange={(e) => {
-                        const filterClone = cloneDeep(filter)
-                        filterClone.params[nthMovesOption.id][index].t =
-                          e.target.value
-                        updateFilter(filterClone, filter)
-                      }}
-                    />
-                  </label>
-                  <label className="filter-nth-field">
-                    <span className="filter-nth-field-label">D</span>
-                    <input
-                      className="filter-control-input filter-nth-input"
-                      value={move.d}
-                      onChange={(e) => {
-                        const filterClone = cloneDeep(filter)
-                        filterClone.params[nthMovesOption.id][index].d =
-                          e.target.value
-                        updateFilter(filterClone, filter)
-                      }}
-                    />
-                  </label>
-                  <label className="filter-nth-field filter-nth-field-move">
-                    <span className="filter-nth-field-label">Move</span>
-                    <select
-                      className="filter-control-select"
-                      value={move.moveId}
-                      onChange={(e) => {
-                        const filterClone = cloneDeep(filter)
-                        filterClone.params[nthMovesOption.id][index].moveId =
-                          e.target.value
-                        updateFilter(filterClone, filter)
-                      }}
-                    >
-                      <option value="">Any</option>
-                      {nthMovesOption.options?.map((o: any) => (
-                        <option key={o.id} value={o.id}>
-                          {o.shortName}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <button
-                    type="button"
-                    className="filter-nth-delete"
-                    onClick={() => {
-                      const filterClone = cloneDeep(filter)
-                      filterClone.params[nthMovesOption.id].splice(index, 1)
-                      updateFilter(filterClone, filter)
-                    }}
-                  >
-                    ✕
-                  </button>
-                </div>
-              ),
-            )}
-          </div>
-        )}
+        {nthMovesOption && renderNthMoves(filter, nthMovesOption)}
       </div>
     )
   }
@@ -427,7 +1024,15 @@ export default function Filters({
               className={`filter ${isActive ? 'filter-active' : ''} ${
                 isGameFilter ? 'filter-pinned' : ''
               } ${isCollapsed ? 'filter-collapsed' : ''}`}
-              onClick={() => setActiveFilterId(filter.id)}
+              onClick={() => {
+                setActiveFilterId(filter.id)
+                if (isCollapsed) {
+                  setExpandedFilters((prev) => ({
+                    ...prev,
+                    [filter.id]: true,
+                  }))
+                }
+              }}
             >
               <div className="filter-main">
                 <div className="filter-title">{filter.label}</div>
@@ -439,7 +1044,24 @@ export default function Filters({
                       : resultsCount}
                   </div>
                   {filterMsg ? (
-                    <div className="filterMsg">{filterMsg}</div>
+                    <div className="filterMsg">
+                      {filterMsg}
+                      {!/^\d+\/\d+$/.test(filterMsg) && (
+                        <span
+                          className="filterMsg-dismiss"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setFilterMsgs((prev) => {
+                              const updated = { ...prev }
+                              delete updated[filter.id]
+                              return updated
+                            })
+                          }}
+                        >
+                          ✕
+                        </span>
+                      )}
+                    </div>
                   ) : (
                     ''
                   )}
@@ -456,21 +1078,13 @@ export default function Filters({
                 >
                   {isRunning ? 'Stop' : 'Run'}
                 </button>
-                <div
-                  className={`filterIsProcessed ${
-                    !isRunning && filter.isProcessed ? 'greenCheck' : ''
-                  }`}
-                >
-                  &#10004;
-                </div>
-                {isGameFilter ? (
-                  <div className="filter-chip">Core</div>
-                ) : (
+                {!isGameFilter && (
                   <button
                     type="button"
                     className="filter-delete"
                     onClick={() => deleteFilter(filter)}
                     aria-label={`Delete ${filter.label}`}
+                    title="Delete filter"
                   >
                     ✕
                   </button>
@@ -482,7 +1096,7 @@ export default function Filters({
                   aria-label={isCollapsed ? 'Expand filter' : 'Collapse filter'}
                   title={isCollapsed ? 'Expand filter' : 'Collapse filter'}
                 >
-                  <span className="filter-toggle-icon" />
+                  {isCollapsed ? '▼' : '▲'}
                 </button>
               </div>
             </div>
@@ -504,22 +1118,59 @@ export default function Filters({
         <div className="no-archive">Import replays to start.</div>
       )}
       <div className="filters-footer">
-        <select
-          value="default"
-          className="add-filter-dropdown"
-          onChange={addFilter}
-        >
-          <option key="default" value="default" disabled>
+        <div className="add-filter-dropdown-wrap" ref={dropdownRef}>
+          <button
+            type="button"
+            className="add-filter-dropdown"
+            onClick={() => setDropdownOpen((prev) => !prev)}
+          >
             + Add Filter
-          </option>
-          {filtersConfig
-            .filter((p) => p.id !== 'files')
-            .map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.label}
-              </option>
-            ))}
-        </select>
+          </button>
+          {dropdownOpen && (
+            <div className="add-filter-menu">
+              {(() => {
+                const hasParser = archive?.filters.some(
+                  (f) => f.type === 'slpParser',
+                )
+                const requiresParserId = new Set([
+                  'comboFilter',
+                  'reverse',
+                  'sort',
+                ])
+                return filtersConfig
+                  .filter((p) => p.id !== 'files')
+                  .flatMap((p) => {
+                    const needsParser = requiresParserId.has(p.id) && !hasParser
+                    const items = [
+                      <div
+                        key={p.id}
+                        className={`add-filter-item${needsParser ? ' add-filter-item-disabled' : ''}`}
+                        onClick={() => {
+                          if (needsParser) return
+                          addFilter({ target: { value: p.id } })
+                          setDropdownOpen(false)
+                        }}
+                      >
+                        {p.label}
+                        {needsParser && (
+                          <span className="add-filter-hint">
+                            {' '}
+                            - requires combo parser first
+                          </span>
+                        )}
+                      </div>,
+                    ]
+                    if (p.id === 'sort') {
+                      items.push(
+                        <div key="divider" className="add-filter-divider" />,
+                      )
+                    }
+                    return items
+                  })
+              })()}
+            </div>
+          )}
+        </div>
         {runningFilters.size > 0 ? (
           <>
             <button
