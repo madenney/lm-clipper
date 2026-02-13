@@ -1,6 +1,12 @@
 import { SlippiGame } from '@slippi/slippi-js'
 import { FileInterface, ClipInterface } from '../../constants/types'
 
+const matchesAny = (value: any, param: any) => {
+  if (!param || (Array.isArray(param) && param.length === 0)) return true
+  const arr = Array.isArray(param) ? param : [param]
+  return arr.some((v: any) => String(v) === String(value))
+}
+
 export default (file: FileInterface, params: { [key: string]: any }) => {
   const results: ClipInterface[] = []
   const {
@@ -39,19 +45,21 @@ export default (file: FileInterface, params: { [key: string]: any }) => {
     if (!comboer) return false
     const comboee = players.find((p) => p.playerIndex === combo.playerIndex)
     if (!comboee) return false
-    if (comboerChar && comboerChar !== comboer.characterId.toString())
-      return false
-    if (comboerTag) {
-      const splitComboerTag = comboerTag.toLowerCase().split(';')
-      if (splitComboerTag.indexOf(comboer.displayName.toLowerCase()) === -1) {
+    if (!matchesAny(comboer.characterId, comboerChar)) return false
+    if (comboerTag && (!Array.isArray(comboerTag) || comboerTag.length > 0)) {
+      const tags = Array.isArray(comboerTag)
+        ? comboerTag.map((t: string) => t.toLowerCase())
+        : comboerTag.toLowerCase().split(';')
+      if (tags.indexOf(comboer.displayName.toLowerCase()) === -1) {
         return false
       }
     }
-    if (comboeeChar && comboeeChar !== comboee.characterId.toString())
-      return false
-    if (comboeeTag) {
-      const splitComboeeTag = comboeeTag.toLowerCase().split(';')
-      if (splitComboeeTag.indexOf(comboee.displayName.toLowerCase()) === -1) {
+    if (!matchesAny(comboee.characterId, comboeeChar)) return false
+    if (comboeeTag && (!Array.isArray(comboeeTag) || comboeeTag.length > 0)) {
+      const tags = Array.isArray(comboeeTag)
+        ? comboeeTag.map((t: string) => t.toLowerCase())
+        : comboeeTag.toLowerCase().split(';')
+      if (tags.indexOf(comboee.displayName.toLowerCase()) === -1) {
         return false
       }
     }
