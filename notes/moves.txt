@@ -1,0 +1,28 @@
+Jab
+Rapid Jabs
+Dash Attack
+Forward Tilt
+Up Tilt
+Down Tilt
+Forward Smash
+Up Smash
+Down Smash
+Neutral Air
+Forward Air
+Back Air
+Up Air
+Down Air
+Neutral B
+Side B
+Up B
+Down B
+Getup Attack
+Getup Attack (Slow)
+Grab Pummel
+Forward Throw
+Back Throw
+Up Throw
+Down Throw
+Edge Attack (Slow)
+Edge Attack
+Miscellaneous

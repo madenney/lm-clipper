@@ -141,7 +141,7 @@ export default function Main({
   const [activeFilterId, setActiveFilterId] = useState('files')
   const minLeftWidth = 400
   const minRightWidth = 500
-  const dividerWidth = 3
+  const dividerWidth = 5
   const [dragover, setDragover] = useState(false)
   const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 })
   const dragDepthRef = useRef(0)
@@ -158,6 +158,7 @@ export default function Main({
 
   // Video generation state
   const [isGenerating, setIsGenerating] = useState(false)
+  const [videoMsg, setVideoMsg] = useState('')
 
   // Import state - track whether files are being imported
   const [isImporting, setIsImporting] = useState(false)
@@ -189,14 +190,22 @@ export default function Main({
 
   // Listen for video job completion
   useEffect(() => {
-    const removeListener = window.electron.ipcRenderer.on(
+    const removeFinished = window.electron.ipcRenderer.on(
       'videoJobFinished',
       () => {
         setIsGenerating(false)
+        setVideoMsg('')
+      },
+    )
+    const removeMsg = window.electron.ipcRenderer.on(
+      'videoMsg',
+      (msg: string) => {
+        setVideoMsg(msg)
       },
     )
     return () => {
-      removeListener()
+      removeFinished()
+      removeMsg()
     }
   }, [])
 
@@ -452,6 +461,7 @@ export default function Main({
             setArchive={setArchive}
             activeFilterId={activeFilterId}
             setActiveFilterId={setActiveFilterId}
+            config={config}
           />
         </div>
         <div className="divider" onMouseDown={startResizing} />
@@ -465,6 +475,8 @@ export default function Main({
           setLastSelectedIndex={setLastSelectedIndex}
           setSelectionDuration={setSelectionDuration}
           setIsCalculatingDuration={setIsCalculatingDuration}
+          addStartFrames={config.addStartFrames || 0}
+          addEndFrames={config.addEndFrames || 0}
         />
       </div>
       <div className="footer">
@@ -487,6 +499,9 @@ export default function Main({
             </div>
           ) : (
             <span className="footer-no-selection">No clips selected</span>
+          )}
+          {videoMsg && (
+            <span className="footer-video-msg">{videoMsg}</span>
           )}
           {isGenerating ? (
             <>

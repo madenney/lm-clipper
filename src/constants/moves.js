@@ -1,11 +1,5 @@
 const moves = [
   {
-    id: 1,
-    name: 'Miscellaneous',
-    shortName: 'misc',
-    actionStateID: 'idk',
-  },
-  {
     id: 2,
     name: 'Jab',
     shortName: 'jab',
@@ -169,14 +163,20 @@ const moves = [
   },
   {
     id: 61,
-    name: 'Edge Attack (Slow)',
+    name: 'Ledge Attack (Slow)',
     shortName: 'edge-slow',
     actionStateID: 'idk',
   },
   {
     id: 62,
-    name: 'Edge Attack',
+    name: 'Ledge Attack',
     shortName: 'edge',
+    actionStateID: 'idk',
+  },
+  {
+    id: 1,
+    name: 'Miscellaneous',
+    shortName: 'misc',
     actionStateID: 'idk',
   },
 ]

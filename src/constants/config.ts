@@ -175,12 +175,6 @@ export const filtersConfig = [
         default: false,
       },
       {
-        name: 'Exclude ICs',
-        id: 'excludeICs',
-        type: 'checkbox',
-        default: false,
-      },
-      {
         name: 'Nth Moves',
         id: 'nthMoves',
         type: 'nthMoves',
@@ -293,9 +287,9 @@ export const filtersConfig = [
       {
         name: 'Move type',
         id: 'moveId',
-        type: 'dropdown',
+        type: 'multiDropdown',
         options: moves,
-        default: '',
+        default: [],
       },
     ],
   },
