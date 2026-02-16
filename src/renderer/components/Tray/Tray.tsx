@@ -35,6 +35,8 @@ type TrayProps = {
   setLastSelectedIndex: React.Dispatch<React.SetStateAction<number | null>>
   setSelectionDuration: React.Dispatch<React.SetStateAction<number | null>>
   setIsCalculatingDuration: React.Dispatch<React.SetStateAction<boolean>>
+  addStartFrames: number
+  addEndFrames: number
 }
 
 // Zoom nudge step - increases at larger sizes
@@ -59,6 +61,8 @@ export function Tray({
   setLastSelectedIndex,
   setSelectionDuration,
   setIsCalculatingDuration: _setIsCalculatingDuration,
+  addStartFrames,
+  addEndFrames,
 }: TrayProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const contentRef = useRef<HTMLDivElement>(null)
@@ -97,6 +101,10 @@ export function Tray({
   const [isLoading, setIsLoading] = useState(false)
   // Real total count from DB (returned alongside items)
   const [fetchedTotal, setFetchedTotal] = useState(0)
+
+  // Num per page (max items to fetch/display)
+  const [numPerPage, setNumPerPage] = useState(10000)
+  const [dataPage, setDataPage] = useState(0)
 
   // Pagination for full mode
   const [currentPage, setCurrentPage] = useState(0)
@@ -189,6 +197,11 @@ export function Tray({
   useEffect(() => {
     setCurrentPage(0)
   }, [mode, activeFilterId])
+
+  // Reset data page when filter or numPerPage changes
+  useEffect(() => {
+    setDataPage(0)
+  }, [activeFilterId, numPerPage])
 
   // Clamp current page to valid range
   useEffect(() => {
@@ -284,11 +297,10 @@ export function Tray({
 
       // Fetch visible + buffer for both modes
       // When viewing a running filter or importing into game filter, don't cap by totalClips — just fetch what we can
-      const uncapped = zoomCapacity + 500
       const isLiveUpdating = isActiveFilterRunning
       const targetCount = isLiveUpdating
-        ? uncapped
-        : Math.min(uncapped, currentTotal)
+        ? numPerPage
+        : Math.min(numPerPage, currentTotal)
       const limit = isDom
         ? Math.min(targetCount, clipDisplayConfig.limits.maxDomElements)
         : targetCount
@@ -316,7 +328,7 @@ export function Tray({
       ipcBridge.getResults(
         {
           filterId: tableId,
-          offset: 0,
+          offset: dataPage * numPerPage,
           limit,
           lite: isGpu,
         },
@@ -366,6 +378,8 @@ export function Tray({
     activeFilter,
     isActiveFilterRunning,
     previewTick,
+    numPerPage,
+    dataPage,
   ])
 
   // Get zoom step based on current size
@@ -479,11 +493,11 @@ export function Tray({
         (clip.endFrame ?? 0) > 0
           ? (clip.endFrame ?? 0)
           : (('lastFrame' in clip ? clip.lastFrame : 0) ?? 0)
-      totalFrames += Math.max(0, end - start)
+      totalFrames += Math.max(0, end - start) + addStartFrames + addEndFrames
     }
 
     setSelectionDuration(totalFrames)
-  }, [selectedIds, clips, setSelectionDuration])
+  }, [selectedIds, clips, setSelectionDuration, addStartFrames, addEndFrames])
 
   // Drag selection state
   const [dragStartIndex, setDragStartIndex] = useState<number | null>(null)
@@ -578,6 +592,8 @@ export function Tray({
   const showCount = Math.min(visibleCount, loadedCount)
   const isLiveUpdating = isActiveFilterRunning
   const displayTotal = isLiveUpdating ? fetchedTotal : totalClips
+  const totalDataPages =
+    numPerPage > 0 ? Math.max(1, Math.ceil(displayTotal / numPerPage)) : 1
   const hasContent = displayTotal > 0 || (isLiveUpdating && loadedCount > 0)
 
   return (
@@ -593,6 +609,45 @@ export function Tray({
           </span>
         </div>
         <div className="tray-zoom">
+          {totalDataPages > 1 && (
+            <>
+              <button
+                type="button"
+                className="tray-page-nav"
+                onClick={() => setDataPage((p) => Math.max(0, p - 1))}
+                disabled={dataPage === 0}
+                aria-label="Previous page"
+              >
+                &#8249;
+              </button>
+              <span className="tray-page-indicator">
+                {dataPage + 1}<span className="tray-page-sep">/</span>{totalDataPages}
+              </span>
+              <button
+                type="button"
+                className="tray-page-nav"
+                onClick={() =>
+                  setDataPage((p) => Math.min(totalDataPages - 1, p + 1))
+                }
+                disabled={dataPage >= totalDataPages - 1}
+                aria-label="Next page"
+              >
+                &#8250;
+              </button>
+            </>
+          )}
+          <select
+            className="tray-per-page"
+            value={numPerPage}
+            onChange={(e) => setNumPerPage(Number(e.target.value))}
+            title="Items per page"
+          >
+            {[10, 100, 1000, 10000, 100000, 1000000, 10000000].map((n) => (
+              <option key={n} value={n}>
+                {n.toLocaleString()}
+              </option>
+            ))}
+          </select>
           <button
             type="button"
             className="tray-zoom-btn"
@@ -647,6 +702,10 @@ export function Tray({
             selectedIds={selectedIds}
             onClipMouseDown={handleClipMouseDown}
             onClipMouseEnter={handleClipMouseEnter}
+            onBackgroundClick={() => {
+              setSelectedIds(new Set())
+              setLastSelectedIndex(null)
+            }}
             startIndex={mode === 'full' ? currentPage * itemsPerPage : 0}
           />
         )}

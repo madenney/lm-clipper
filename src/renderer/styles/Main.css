@@ -100,7 +100,7 @@
 
 .mid {
   display: flex;
-  height: 100%;
+  height: calc(100% - 100px - 56px);
   width: 100%;
   overflow: hidden;
   position: relative;
@@ -112,8 +112,11 @@
 
 .divider {
   width: 3px;
+  padding: 0 1px;
+  box-sizing: content-box;
   height: 100%;
   background-color: white;
+  background-clip: content-box;
   cursor: ew-resize;
   flex-shrink: 0; /* Prevent the divider from shrinking */
   z-index: 1;
@@ -271,6 +274,15 @@
   font-style: italic;
 }
 
+.footer-video-msg {
+  color: #aaa;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 300px;
+}
+
 /* Empty State */
 
 .empty-state {
@@ -288,6 +300,7 @@
   gap: 28px;
   max-width: 400px;
   width: 100%;
+  margin-bottom: 20vh;
 }
 
 .empty-state-title {

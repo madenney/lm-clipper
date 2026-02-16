@@ -37,6 +37,7 @@ type DomLayerProps = {
     _event: React.MouseEvent,
   ) => void
   onClipMouseEnter: (_index: number) => void
+  onBackgroundClick: () => void
   startIndex?: number // For pagination - offset to add to local indices
 }
 
@@ -104,6 +105,7 @@ export function DomLayer({
   selectedIds,
   onClipMouseDown,
   onClipMouseEnter,
+  onBackgroundClick,
   startIndex = 0,
 }: DomLayerProps) {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -179,18 +181,31 @@ export function DomLayer({
       }
     }
 
-    // Mode 2: render all clips (already capped by parent)
-    return { start: 0, end: clips.length }
+    // Grid modes: virtualize by row
+    const { cellSize, padding } = layout
+    if (cellSize <= 0 || columns <= 0) return { start: 0, end: clips.length }
+
+    const firstRow = Math.max(
+      0,
+      Math.floor((scrollTop - padding) / cellSize) - SCROLL_BUFFER,
+    )
+    const lastRow =
+      Math.ceil((scrollTop + trayHeight) / cellSize) + SCROLL_BUFFER
+
+    return {
+      start: firstRow * columns,
+      end: Math.min((lastRow + 1) * columns, clips.length),
+    }
   }, [mode, scrollTop, trayHeight, layout, clips.length])
 
   // Container styles - update instantly on prop changes
   const containerStyle: CSSProperties = useMemo(
     () => ({
       display: visible ? 'block' : 'none',
-      overflowY: mode === 'full' ? 'auto' : 'hidden',
+      overflowY: 'auto',
       overflowX: 'hidden',
     }),
-    [visible, mode],
+    [visible],
   )
 
   // Inner container (sets scroll height for virtualization)
@@ -198,10 +213,10 @@ export function DomLayer({
     () => ({
       position: 'relative',
       width: '100%',
-      height: mode === 'full' ? layout.totalHeight : 'auto',
-      minHeight: mode === 'full' ? layout.totalHeight : undefined,
+      height: layout.totalHeight,
+      minHeight: layout.totalHeight,
     }),
-    [mode, layout.totalHeight],
+    [layout.totalHeight],
   )
 
   // Store handlers in refs so callbacks don't go stale
@@ -308,6 +323,11 @@ export function DomLayer({
       className="dom-layer"
       style={containerStyle}
       onScroll={handleScroll}
+      onClick={(e) => {
+        if (e.target === e.currentTarget || e.target === containerRef.current?.firstElementChild) {
+          onBackgroundClick()
+        }
+      }}
     >
       <div style={innerStyle}>{renderedClips}</div>
     </div>

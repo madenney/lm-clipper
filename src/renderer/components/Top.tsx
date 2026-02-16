@@ -17,7 +17,6 @@ type TopProps = {
 
 export default function Top({ archive, config, setConfig }: TopProps) {
   const [configModalOpen, setConfigModalOpen] = useState(false)
-  const [videoMsg, setVideoMsg] = useState('')
   const [isImporting, setIsImporting] = useState(false)
   const [importCurrent, setImportCurrent] = useState(0)
   const [importTotal, setImportTotal] = useState<number | null>(null)
@@ -32,18 +31,6 @@ export default function Top({ archive, config, setConfig }: TopProps) {
     ? testModeInfo.debugLines
     : []
 
-  useEffect(() => {
-    const removeListener = window.electron.ipcRenderer.on(
-      'videoMsg',
-      async (msg: string) => {
-        setVideoMsg(msg)
-      },
-    )
-
-    return () => {
-      removeListener()
-    }
-  }, [])
 
   useEffect(() => {
     const applyStatus = (status: any) => {
@@ -329,7 +316,6 @@ export default function Top({ archive, config, setConfig }: TopProps) {
             </button>
           </>
         ) : null}
-        <div className="video-msg">{videoMsg}</div>
         <div className="gear-icon" onClick={() => setConfigModalOpen(true)}>
           <IoSettingsSharp />
         </div>

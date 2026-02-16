@@ -1,7 +1,7 @@
 export const sortOptions = [
   {
     id: 'dps',
-    shortName: 'DPS',
+    shortName: 'damage per second',
     method: (reverse: boolean) => {
       return (resultA: any, resultB: any) => {
         const totalDamageA = resultA.combo.moves.reduce(
@@ -29,13 +29,27 @@ export const sortOptions = [
   },
   {
     id: 'moves',
-    shortName: '# Moves',
+    shortName: 'number of moves',
     method: (reverse: boolean) => {
       return (resultA: any, resultB: any) => {
         if (reverse) {
           return resultB.combo.moves.length - resultA.combo.moves.length
         }
         return resultA.combo.moves.length - resultB.combo.moves.length
+      }
+    },
+  },
+  {
+    id: 'chronological',
+    shortName: 'chronological',
+    method: (reverse: boolean) => {
+      return (resultA: any, resultB: any) => {
+        const a = resultA.startedAt || 0
+        const b = resultB.startedAt || 0
+        if (reverse) {
+          return b - a
+        }
+        return a - b
       }
     },
   },
