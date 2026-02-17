@@ -142,6 +142,12 @@ export default {
   removeFilter(id: string, handler?: ResponseHandler<any>) {
     return request('removeFilter', id, 'removeFilter', handler)
   },
+  reorderFilter(
+    params: { fromIndex: number; toIndex: number },
+    handler?: ResponseHandler<any>,
+  ) {
+    return request('reorderFilter', params, 'reorderFilter', handler)
+  },
   getResults(
     params: {
       filterId: string

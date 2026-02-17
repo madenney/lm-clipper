@@ -120,10 +120,17 @@ export function Tray({
     [archive, activeFilterId],
   )
   const isGameFilter = activeFilter?.type === 'files'
-
-  // Check if the active filter is one of the currently running filters
   const activeFilterIndex =
     archive?.filters.findIndex((f) => f.id === activeFilterId) ?? -1
+  const comboFilterTypes = new Set(['slpParser', 'comboFilter', 'actionStateFilter', 'reverse'])
+  const isClips = useMemo(() => {
+    if (!archive || activeFilterIndex < 0) return false
+    return archive.filters
+      .slice(0, activeFilterIndex + 1)
+      .some((f) => comboFilterTypes.has(f.type))
+  }, [archive, activeFilterIndex])
+
+  // Check if the active filter is one of the currently running filters
   const isActiveFilterRunning =
     activeFilterIndex >= 0 && runningFilterIndices.has(activeFilterIndex)
 
@@ -602,11 +609,11 @@ export function Tray({
       <div className="tray-controls">
         <div className="tray-info">
           <span className="tray-count">
-            {showCount.toLocaleString()} / {displayTotal.toLocaleString()} clips
+            Showing {showCount.toLocaleString()} / {displayTotal.toLocaleString()} {isClips ? 'clips' : 'games'}
           </span>
-          <span className="tray-mode">
+          {/* <span className="tray-mode">
             Mode: {modeLabel} ({clipSize}px)
-          </span>
+          </span> */}
         </div>
         <div className="tray-zoom">
           {totalDataPages > 1 && (

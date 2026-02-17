@@ -4,6 +4,7 @@
 import {
   ReactElement,
   MouseEvent,
+  DragEvent,
   useState,
   useRef,
   Dispatch,
@@ -56,6 +57,15 @@ export default function Filters({
   )
   const [expandedNthRows, setExpandedNthRows] = useState<Set<string>>(new Set())
   const [parserWarning, setParserWarning] = useState<string[] | null>(null)
+  const [dragIndex, setDragIndex] = useState<number | null>(null)
+  const [dropIndex, setDropIndex] = useState<number | null>(null)
+  const [dragWarning, setDragWarning] = useState<string | null>(null)
+  const dragIndexRef = useRef<number | null>(null)
+  const dropIndexRef = useRef<number | null>(null)
+  const dragHeightRef = useRef(0)
+  const dragWarningTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const filtersListRef = useRef<HTMLDivElement>(null)
+  const cardMidYs = useRef<{ index: number; midY: number }[]>([])
   const dropdownRef = useRef<HTMLDivElement>(null)
   const multiLeaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -243,7 +253,7 @@ export default function Filters({
 
   function deleteFilter(filter: FilterInterface) {
     if (filter.type === 'slpParser' && archive) {
-      const dependentTypes = new Set(['comboFilter', 'reverse', 'sort'])
+      const dependentTypes = new Set(['comboFilter', 'reverse'])
       const dependents = archive.filters.filter((f) =>
         dependentTypes.has(f.type),
       )
@@ -270,6 +280,59 @@ export default function Filters({
         return
       }
       setArchive(response)
+    })
+  }
+
+  const parserDependents = new Set(['comboFilter', 'reverse'])
+
+  function canDropAt(
+    filters: ShallowFilterInterface[],
+    from: number,
+    to: number,
+  ): string | true | false {
+    // Can't drop at pinned game filter position
+    if (to === 0) return false
+    // No-op: dropping in same position
+    if (from === to || to === from + 1) return false
+
+    // Simulate the final order
+    const types = filters.map((f) => f.type)
+    const movedType = types[from]
+    const [moved] = types.splice(from, 1)
+    const insertAt = to > from ? to - 1 : to
+    types.splice(insertAt, 0, moved)
+
+    // Validate: every dependent must appear after the parser
+    const parserPos = types.indexOf('slpParser')
+    if (parserPos >= 0) {
+      for (let i = 0; i < parserPos; i += 1) {
+        if (parserDependents.has(types[i])) {
+          if (movedType === 'slpParser') {
+            return 'Combo parser must stay above dependent filters'
+          }
+          return 'This filter requires the combo parser above it'
+        }
+      }
+    }
+
+    return true
+  }
+
+  function handleDrop(from: number, to: number) {
+    if (!archive || from === to) {
+      setDragIndex(null)
+      setDropIndex(null)
+      return
+    }
+    ipcBridge.reorderFilter({ fromIndex: from, toIndex: to }, (response) => {
+      if (!response || response?.error) {
+        console.log('reorderFilter error:', response?.error)
+      } else {
+        setArchive(response)
+      }
+      // Clear drag state in same batch as archive update — no flash
+      setDragIndex(null)
+      setDropIndex(null)
     })
   }
 
@@ -814,7 +877,7 @@ export default function Filters({
               </div>
               {(() => {
                 // Group options by name so duplicates (e.g. Jab 1/2/3) show as one row
-                const groups: { name: string; ids: number[] }[] = []
+                const groups: { name: string; ids: (string | number)[] }[] = []
                 const seen = new Map<string, number>()
                 for (const o of options) {
                   const name = o.name || o.shortName
@@ -825,6 +888,10 @@ export default function Filters({
                     groups.push({ name, ids: [o.id] })
                   }
                 }
+                const parseId = (v: string) => {
+                  const n = Number(v)
+                  return Number.isNaN(n) ? v : n
+                }
                 return groups.map((group) => {
                   const allChecked = group.ids.every((id) => selectedSet.has(String(id)))
                   return (
@@ -833,12 +900,13 @@ export default function Filters({
                       className={`filter-multi-item${allChecked ? ' filter-multi-item-checked' : ''}`}
                       onClick={(e) => {
                         e.stopPropagation()
+                        const groupStrs = new Set(group.ids.map(String))
                         const next = allChecked
                           ? [...selectedSet]
-                              .filter((v) => !group.ids.includes(Number(v)))
-                              .map(Number)
+                              .filter((v) => !groupStrs.has(v))
+                              .map(parseId)
                           : [...new Set([...selectedSet, ...group.ids.map(String)])]
-                              .map(Number)
+                              .map(parseId)
                         onChange(next)
                       }}
                     >
@@ -967,7 +1035,7 @@ export default function Filters({
     )
   }
 
-  function renderFilterControls(filter: ShallowFilterInterface) {
+  function renderFilterControls(filter: ShallowFilterInterface, filterIndex: number) {
     const filterConfig = filtersConfig.find((entry) => entry.id === filter.type)
     if (
       !filterConfig ||
@@ -976,7 +1044,7 @@ export default function Filters({
     )
       return null
 
-    const hasParser = archive?.filters.some((f) => f.type === 'slpParser')
+    const hasParser = archive?.filters.slice(0, filterIndex).some((f) => f.type === 'slpParser')
 
     const gridOptions = (filterConfig.options as any[]).filter(
       (o) => o.type !== 'nthMoves',
@@ -990,6 +1058,12 @@ export default function Filters({
         {gridOptions.length > 0 && (
           <div className="filter-controls-grid">
             {gridOptions.map((option) => {
+              if (option.showWhenCustom) {
+                const comboer = filter.params?.comboerActionState || []
+                const comboee = filter.params?.comboeeActionState || []
+                const all = [...(Array.isArray(comboer) ? comboer : [comboer]), ...(Array.isArray(comboee) ? comboee : [comboee])]
+                if (!all.some((id) => id === 'custom' || id == 'custom')) return null
+              }
               let input: ReactElement | null = null
               const value = filter.params?.[option.id] ?? ''
               const disabled = option.requiresParser && !hasParser
@@ -1008,7 +1082,20 @@ export default function Filters({
                     )
                     break
                   }
-                // falls through
+                  input = (
+                    <input
+                      className="filter-control-input"
+                      value={disabled ? '' : value}
+                      placeholder={disabled ? 'Requires combo parser' : option.placeholder || ''}
+                      disabled={disabled}
+                      onChange={(event) => {
+                        const filterClone = cloneDeep(filter)
+                        filterClone.params[option.id] = event.target.value
+                        updateFilter(filterClone, filter)
+                      }}
+                    />
+                  )
+                  break
                 case 'int':
                   input = (
                     <input
@@ -1048,11 +1135,20 @@ export default function Filters({
                       {filter.type === 'sort' ? null : (
                         <option value="">Any</option>
                       )}
-                      {option.options?.map((entry: any) => (
-                        <option key={entry.id} value={entry.id}>
-                          {entry.shortName || entry.name}
-                        </option>
-                      ))}
+                      {option.options?.map((entry: any) => {
+                        const needsParser =
+                          entry.requiresParser && !hasParser
+                        return (
+                          <option
+                            key={entry.id}
+                            value={entry.id}
+                            disabled={needsParser}
+                          >
+                            {entry.shortName || entry.name}
+                            {needsParser ? ' (requires combo parser)' : ''}
+                          </option>
+                        )
+                      })}
                     </select>
                   )
                   break
@@ -1124,7 +1220,7 @@ export default function Filters({
                 <Wrapper
                   className={`filter-control${disabled ? ' filter-control-disabled' : ''}`}
                   key={option.id}
-                  title={disabled ? 'Requires combo parser' : undefined}
+                  title={disabled ? 'Requires combo parser' : option.tooltip || undefined}
                 >
                   <span className="filter-control-label">{option.name}</span>
                   {input}
@@ -1138,6 +1234,62 @@ export default function Filters({
     )
   }
 
+  function measureCardPositions() {
+    if (!filtersListRef.current) return
+    const positions: { index: number; midY: number }[] = []
+    const children = filtersListRef.current.children
+    for (let i = 0; i < children.length; i += 1) {
+      const child = children[i] as HTMLElement
+      const idx = parseInt(child.dataset.filterIndex || '', 10)
+      if (Number.isNaN(idx)) continue
+      const r = child.getBoundingClientRect()
+      positions.push({ index: idx, midY: r.top + r.height / 2 })
+    }
+    cardMidYs.current = positions
+  }
+
+  function handleContainerDragOver(e: DragEvent<HTMLDivElement>) {
+    if (dragIndexRef.current === null || !archive) return
+    const mouseY = e.clientY
+    const positions = cardMidYs.current
+
+    // Find insertion index based on stored original midpoints
+    let targetIndex =
+      positions.length > 0
+        ? positions[positions.length - 1].index + 1
+        : 0
+    for (const pos of positions) {
+      if (mouseY < pos.midY) {
+        targetIndex = pos.index
+        break
+      }
+    }
+
+    const result = canDropAt(
+      archive.filters,
+      dragIndexRef.current,
+      targetIndex,
+    )
+    if (result === true) {
+      e.preventDefault()
+      e.dataTransfer.dropEffect = 'move'
+      dropIndexRef.current = targetIndex
+      setDropIndex(targetIndex)
+    } else {
+      dropIndexRef.current = null
+      setDropIndex(null)
+      // Show warning toast for constraint violations (string reasons)
+      if (typeof result === 'string') {
+        setDragWarning(result)
+        if (dragWarningTimer.current) clearTimeout(dragWarningTimer.current)
+        dragWarningTimer.current = setTimeout(() => {
+          setDragWarning(null)
+          dragWarningTimer.current = null
+        }, 1500)
+      }
+    }
+  }
+
   function renderFilters() {
     if (!archive) return ''
     const entries = archive.filters.map((filter, index) => ({
@@ -1149,7 +1301,11 @@ export default function Filters({
       ? [gameEntry, ...entries.filter((entry) => entry !== gameEntry)]
       : entries
     return (
-      <div className="filters-list">
+      <div
+        className="filters-list"
+        ref={filtersListRef}
+        onDragOver={handleContainerDragOver}
+      >
         {orderedEntries.map((entry) => {
           const { filter, index } = entry
           const isGameFilter = entry === gameEntry
@@ -1161,12 +1317,80 @@ export default function Filters({
             filter.type === 'files' && !filter.isProcessed && archive
               ? archive.files
               : filter.results
+          const isDragging = dragIndex === index
+
+          // Compute translateY shift for live reorder preview
+          let dragTransform = ''
+          if (
+            dragIndex !== null &&
+            dropIndex !== null &&
+            !isDragging
+          ) {
+            const shift = dragHeightRef.current + 10 // 10 = gap
+            if (
+              dropIndex > dragIndex + 1 &&
+              index > dragIndex &&
+              index < dropIndex
+            ) {
+              dragTransform = `translateY(${-shift}px)`
+            } else if (
+              dropIndex < dragIndex &&
+              index >= dropIndex &&
+              index < dragIndex
+            ) {
+              dragTransform = `translateY(${shift}px)`
+            }
+          }
+
           return (
             <div
               key={filter.id}
+              data-filter-index={index}
               className={`filter ${isActive ? 'filter-active' : ''} ${
                 isGameFilter ? 'filter-pinned' : ''
-              } ${isCollapsed ? 'filter-collapsed' : ''}`}
+              } ${isCollapsed ? 'filter-collapsed' : ''} ${isDragging ? 'filter-dragging' : ''}`}
+              style={
+                dragTransform
+                  ? { transform: dragTransform }
+                  : undefined
+              }
+              draggable={!isGameFilter}
+              onDragStart={(e: DragEvent<HTMLDivElement>) => {
+                if (isGameFilter) {
+                  e.preventDefault()
+                  return
+                }
+                dragIndexRef.current = index
+                dragHeightRef.current =
+                  e.currentTarget.getBoundingClientRect().height
+                measureCardPositions()
+                setDragIndex(index)
+                e.dataTransfer.effectAllowed = 'move'
+              }}
+              onDragEnd={() => {
+                const dIdx = dragIndexRef.current
+                const drIdx = dropIndexRef.current
+                dragIndexRef.current = null
+                dropIndexRef.current = null
+                if (dragWarningTimer.current) {
+                  clearTimeout(dragWarningTimer.current)
+                  dragWarningTimer.current = null
+                }
+                setDragWarning(null)
+                if (
+                  dIdx !== null &&
+                  drIdx !== null &&
+                  dIdx !== drIdx
+                ) {
+                  const to = drIdx > dIdx ? drIdx - 1 : drIdx
+                  // handleDrop clears drag state after IPC response
+                  handleDrop(dIdx, to)
+                } else {
+                  // No valid drop — clear state immediately
+                  setDragIndex(null)
+                  setDropIndex(null)
+                }
+              }}
               onClick={(e) => {
                 setActiveFilterId(filter.id)
                 const rect = e.currentTarget.getBoundingClientRect()
@@ -1216,7 +1440,7 @@ export default function Filters({
                     ''
                   )}
                 </div>
-                {renderFilterControls(filter)}
+                {renderFilterControls(filter, index)}
               </div>
               <div className="filter-actions">
                 <button
@@ -1264,7 +1488,6 @@ export default function Filters({
     <div className="filters">
       <div className="filters-header">
         <div className="filters-title">Filters</div>
-        <div className="filters-subtitle">Stack your clips</div>
       </div>
       {archive ? (
         renderFilters()
@@ -1289,7 +1512,6 @@ export default function Filters({
                 const requiresParserId = new Set([
                   'comboFilter',
                   'reverse',
-                  'sort',
                 ])
                 return filtersConfig
                   .filter((p) => p.id !== 'files')
@@ -1346,6 +1568,9 @@ export default function Filters({
           ''
         )}
       </div>
+      {dragWarning && (
+        <div className="drag-warning-toast">{dragWarning}</div>
+      )}
       {parserWarning && (
         <div className="filter-warn-overlay" onClick={() => setParserWarning(null)}>
           <div className="filter-warn-modal" onClick={(e) => e.stopPropagation()}>
