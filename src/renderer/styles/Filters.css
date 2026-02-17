@@ -5,6 +5,7 @@
   padding: 14px 16px 24px;
   box-sizing: border-box;
   overflow-y: auto;
+  direction: rtl;
   color: #f5f6f8;
   font-family: 'Space Grotesk', 'Sora', sans-serif;
   --filter-bg: #17181b;
@@ -16,6 +17,10 @@
   --filter-accent-strong: #cfd3d9;
   --filter-warn: #9aa0aa;
   background: #141518;
+}
+
+.filters > * {
+  direction: ltr;
 }
 
 .filters::-webkit-scrollbar {
@@ -77,7 +82,8 @@
   cursor: pointer;
   transition:
     padding 200ms ease,
-    min-height 200ms ease;
+    min-height 200ms ease,
+    transform 150ms ease;
 }
 
 
@@ -855,4 +861,44 @@
 .filter-warn-btn:hover {
   background: rgba(255, 255, 255, 0.14);
   border-color: var(--filter-accent);
+}
+
+/* Drag-and-drop reorder */
+
+.filter-dragging {
+  opacity: 0.35;
+}
+
+.filter:not(.filter-pinned):active {
+  cursor: grabbing;
+}
+
+.drag-warning-toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 8px 18px;
+  background: rgba(30, 33, 38, 0.95);
+  border: 1px solid #a04040;
+  border-radius: 8px;
+  color: #ff9090;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  z-index: 2000;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+  animation: drag-toast-in 150ms ease;
+  pointer-events: none;
+}
+
+@keyframes drag-toast-in {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
 }

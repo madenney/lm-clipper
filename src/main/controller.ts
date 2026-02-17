@@ -1,4 +1,4 @@
-import { app, ipcMain, dialog, IpcMainEvent, BrowserWindow } from 'electron'
+import { app, ipcMain, dialog, shell, IpcMainEvent, BrowserWindow } from 'electron'
 import { spawn, ChildProcess } from 'child_process'
 import { Worker } from 'worker_threads'
 import crypto from 'crypto'
@@ -101,6 +101,15 @@ const buildShallowArchive = (
       results: filter.results,
     })),
   }
+}
+
+function getDefaultProjectDir(): string {
+  if (process.platform === 'linux') {
+    const xdgData =
+      process.env.XDG_DATA_HOME || path.resolve(os.homedir(), '.local', 'share')
+    return path.resolve(xdgData, 'lm-clipper')
+  }
+  return path.resolve(app.getPath('documents'), 'LM Clipper')
 }
 
 const getWorkerExecArgv = () => {
@@ -279,7 +288,7 @@ export default class Controller {
   }
 
   private async autoCreateUntitledProject() {
-    const docsDir = path.resolve(app.getPath('documents'), 'LM Clipper')
+    const docsDir = getDefaultProjectDir()
     if (!fs.existsSync(docsDir)) fs.mkdirSync(docsDir, { recursive: true })
     const name = this.getUntitledName(docsDir)
     const metadata = await this.createNewArchiveInternal({
@@ -295,7 +304,7 @@ export default class Controller {
   }) {
     closeDb()
     const newArchivePath = path.resolve(
-      payload.location || app.getPath('documents'),
+      payload.location || getDefaultProjectDir(),
       `${payload.name ? payload.name : 'lm-clipper-default-db'}`,
     )
 
@@ -421,6 +430,9 @@ export default class Controller {
       const { canceled, filePaths } = await dialog.showOpenDialog({
         properties: ['openFile'],
         filters: [{ name: 'SQLite3 Database', extensions: [] }],
+        defaultPath: this.config.lastArchivePath
+          ? path.dirname(this.config.lastArchivePath)
+          : undefined,
       })
       if (canceled) return reply(event, 'openExistingArchive', requestId)
 
@@ -437,6 +449,15 @@ export default class Controller {
 
       if (!this.archive || !this.archive.shallowCopy)
         throw new Error('Something went wrong :(')
+
+      // Fix legacy projects whose name is still "Untitled"
+      if (/^Untitled(\s\d+)?$/.test(this.archive.name)) {
+        const derivedName = path.basename(filePaths[0])
+        const db = getDb(filePaths[0])
+        db.prepare('UPDATE metadata SET name = ?').run(derivedName)
+        this.archive.name = derivedName
+      }
+
       this.config.lastArchivePath = this.archive.path
       this.config.projectName = this.archive.name
       fs.writeFileSync(this.configPath, JSON.stringify(this.config, null, 2))
@@ -567,6 +588,7 @@ export default class Controller {
       return
     }
 
+    const fileCountBefore = this.archive.files || 0
     const detectDuplicates = this.config.detectDuplicatesOnImport !== false
     const maxWorkers = Math.max(1, this.config.numFilterThreads || 1)
     const importAbortController = new AbortController()
@@ -611,6 +633,27 @@ export default class Controller {
       this.archive = new Archive(metadata)
     } catch (error) {
       console.log('Error refreshing archive after import:', error)
+    }
+
+    // First import (0 → N files): auto-run the game filter
+    if (
+      fileCountBefore === 0 &&
+      !terminated &&
+      this.archive &&
+      this.archive.files > 0
+    ) {
+      const gameFilter = this.archive.filters.find((f) => f.type === 'files')
+      if (gameFilter) {
+        const filter = new Filter(gameFilter)
+        const numThreads = this.config.numFilterThreads || 1
+        await filter.run3(this.archive.path, 'files', numThreads, () => {})
+        try {
+          const metadata = await getMetaData(this.archive.path)
+          this.archive = new Archive(metadata)
+        } catch (error) {
+          console.log('Error refreshing archive after auto-run game filter:', error)
+        }
+      }
     }
 
     if (this.importQueue.length === 0) {
@@ -743,7 +786,24 @@ export default class Controller {
   async newProject(event: IpcMainEvent, data?: RequestEnvelope<null>) {
     const { requestId } = unpackRequest<null>(data)
     try {
-      const metadata = await this.autoCreateUntitledProject()
+      const defaultDir = this.config.lastArchivePath
+        ? path.dirname(this.config.lastArchivePath)
+        : getDefaultProjectDir()
+      if (!fs.existsSync(defaultDir))
+        fs.mkdirSync(defaultDir, { recursive: true })
+
+      const { canceled, filePath: newPath } = await dialog.showSaveDialog({
+        title: 'New Project',
+        defaultPath: path.resolve(defaultDir, 'New Project'),
+        filters: [{ name: 'LM Clipper Project', extensions: [] }],
+      })
+      if (canceled || !newPath) {
+        return reply(event, 'newProject', requestId)
+      }
+
+      const name = path.basename(newPath)
+      const location = path.dirname(newPath)
+      const metadata = await this.createNewArchiveInternal({ name, location })
       return reply(event, 'newProject', requestId, metadata)
     } catch (error) {
       console.log('Error creating new project:', error)
@@ -776,17 +836,18 @@ export default class Controller {
       closeDb()
       await fsPromises.copyFile(oldPath, newPath)
 
+      // Update the stored path and name inside the DB
+      const newName = path.basename(newPath)
+      const db = getDb(newPath)
+      db.prepare('UPDATE metadata SET path = ?, name = ?').run(newPath, newName)
+
       const metadata = await getMetaData(newPath)
       this.archive = new Archive(metadata)
 
-      // Update the stored path inside the DB
-      const db = getDb(newPath)
-      db.prepare('UPDATE metadata SET path = ?').run(newPath)
-
       this.config.lastArchivePath = newPath
-      this.config.projectName = metadata.name
+      this.config.projectName = newName
       fs.writeFileSync(this.configPath, JSON.stringify(this.config, null, 2))
-      this.addToRecentProjects(metadata.name, newPath)
+      this.addToRecentProjects(newName, newPath)
 
       const shallow = await this.archive.shallowCopy!()
       return reply(event, 'saveAsArchive', requestId, shallow)
@@ -828,6 +889,14 @@ export default class Controller {
       if (!this.archive || !this.archive.shallowCopy) {
         throw new Error('Failed to load project')
       }
+      // Fix legacy projects whose name is still "Untitled"
+      if (/^Untitled(\s\d+)?$/.test(this.archive.name)) {
+        const derivedName = path.basename(projectPath)
+        const db = getDb(projectPath)
+        db.prepare('UPDATE metadata SET name = ?').run(derivedName)
+        this.archive.name = derivedName
+      }
+
       this.config.lastArchivePath = projectPath
       this.config.projectName = this.archive.name
       fs.writeFileSync(this.configPath, JSON.stringify(this.config, null, 2))
@@ -917,6 +986,84 @@ export default class Controller {
     return reply(
       event,
       'removeFilter',
+      requestId,
+      await this.archive.shallowCopy(),
+    )
+  }
+
+  async reorderFilter(
+    event: IpcMainEvent,
+    data: RequestEnvelope<{ fromIndex: number; toIndex: number }>,
+  ) {
+    const { requestId, payload } = unpackRequest<{
+      fromIndex: number
+      toIndex: number
+    }>(data)
+    if (!payload) {
+      return reply(event, 'reorderFilter', requestId, {
+        error: 'missing payload',
+      })
+    }
+    if (!this.archive || !this.archive.shallowCopy) {
+      return reply(event, 'reorderFilter', requestId, {
+        error: 'archive undefined',
+      })
+    }
+
+    const { fromIndex, toIndex } = payload
+    const filters = this.archive.filters
+
+    // Validate indices
+    if (
+      fromIndex < 1 ||
+      toIndex < 1 ||
+      fromIndex >= filters.length ||
+      toIndex >= filters.length ||
+      fromIndex === toIndex
+    ) {
+      return reply(event, 'reorderFilter', requestId, {
+        error: 'invalid indices',
+      })
+    }
+
+    // Splice: remove from old position, insert at new position
+    const [moved] = filters.splice(fromIndex, 1)
+    filters.splice(toIndex, 0, moved)
+
+    // Mark all filters from the earliest affected index onward as unprocessed
+    const start = Math.min(fromIndex, toIndex)
+    for (let i = start; i < filters.length; i += 1) {
+      filters[i].isProcessed = false
+      filters[i].results = 0
+    }
+
+    // Reset parser-dependent params for filters that no longer have a parser above them
+    const hasParserAbove = (idx: number) =>
+      filters.slice(0, idx).some((f) => f.type === 'slpParser')
+
+    for (let i = 0; i < filters.length; i += 1) {
+      if (hasParserAbove(i)) continue
+      const fc = filtersConfig.find((c) => c.id === filters[i].type)
+      if (!fc?.options) continue
+      for (const opt of fc.options as any[]) {
+        if (opt.requiresParser && filters[i].params?.[opt.id] !== undefined) {
+          filters[i].params[opt.id] = opt.default ?? ''
+        }
+        if (opt.type === 'dropdown' && opt.options && filters[i].params?.[opt.id]) {
+          const selected = opt.options.find(
+            (e: any) => e.id === filters[i].params[opt.id],
+          )
+          if (selected?.requiresParser) {
+            filters[i].params[opt.id] = opt.default ?? ''
+          }
+        }
+      }
+    }
+
+    if (this.archive.saveMetaData) await this.archive.saveMetaData()
+    return reply(
+      event,
+      'reorderFilter',
       requestId,
       await this.archive.shallowCopy(),
     )
@@ -1103,7 +1250,6 @@ export default class Controller {
     // Clean up this filter's controller
     this.runningFilterControllers.delete(filterId)
     this.runningFilterIndices.delete(filterIndex)
-    this.broadcastRunningFilters()
 
     if (terminated && this.filterCancelIds.has(filterId)) {
       // Cancel: drop partial results, reset filter
@@ -1113,49 +1259,67 @@ export default class Controller {
       }
       const metadata = await getMetaData(this.archive.path)
       this.archive = new Archive(metadata)
+      this.broadcastRunningFilters()
       return reply(event, 'runFilter', requestId, metadata)
     }
 
     // Stop or normal completion: keep results, mark processed
     this.filterCancelIds.delete(filterId)
 
-    // Re-read archive from DB since another filter may have finished concurrently
-    const freshMetadata = await getMetaData(this.archive.path)
-    this.archive = new Archive(freshMetadata)
+    try {
+      // Re-read archive from DB since another filter may have finished concurrently
+      const freshMetadata = await getMetaData(this.archive.path)
+      this.archive = new Archive(freshMetadata)
 
-    // Find the filter again in the refreshed archive and mark it processed
-    const refreshedFilter = this.archive.filters.find((f) => f.id === filterId)
-    if (refreshedFilter) {
-      refreshedFilter.isProcessed = true
-      refreshedFilter.results = 0
-    }
+      // Find the filter again in the refreshed archive and mark it processed
+      const refreshedFilter = this.archive.filters.find(
+        (f) => f.id === filterId,
+      )
+      if (refreshedFilter) {
+        refreshedFilter.isProcessed = true
+      }
 
-    // Reset downstream filters that are NOT currently running
-    const refreshedIndex = this.archive.filters.findIndex(
-      (f) => f.id === filterId,
-    )
-    if (
-      refreshedIndex >= 0 &&
-      refreshedIndex + 1 < this.archive.filters.length
-    ) {
-      const downstream = this.archive.filters.slice(refreshedIndex + 1)
-      for (const df of downstream) {
-        if (!this.runningFilterControllers.has(df.id)) {
-          df.isProcessed = false
-          df.results = 0
+      // Reset downstream filters that are NOT currently running
+      const refreshedIndex = this.archive.filters.findIndex(
+        (f) => f.id === filterId,
+      )
+      if (
+        refreshedIndex >= 0 &&
+        refreshedIndex + 1 < this.archive.filters.length
+      ) {
+        const downstream = this.archive.filters.slice(refreshedIndex + 1)
+        for (const df of downstream) {
+          if (!this.runningFilterControllers.has(df.id)) {
+            df.isProcessed = false
+            df.results = 0
+          }
         }
       }
+
+      if (this.archive.saveMetaData) await this.archive.saveMetaData()
+
+      const metadata = await getMetaData(this.archive.path)
+      this.archive = new Archive(metadata)
+
+      const replyData = filterMessage
+        ? { ...metadata, filterMessage: { [filterId]: filterMessage } }
+        : metadata
+      // Reply first so UI has correct results before isRunning flips to false
+      reply(event, 'runFilter', requestId, replyData)
+      this.broadcastRunningFilters()
+      return
+    } catch (error) {
+      console.log('Error finalizing filter run:', error)
+      try {
+        const metadata = await getMetaData(this.archive.path)
+        this.archive = new Archive(metadata)
+        reply(event, 'runFilter', requestId, metadata)
+      } catch (innerError) {
+        console.log('Error reading metadata in recovery:', innerError)
+        reply(event, 'runFilter', requestId, { error: 'Filter completed but failed to read results' })
+      }
+      this.broadcastRunningFilters()
     }
-
-    if (this.archive.saveMetaData) await this.archive.saveMetaData()
-
-    const metadata = await getMetaData(this.archive.path)
-    this.archive = new Archive(metadata)
-
-    const replyData = filterMessage
-      ? { ...metadata, filterMessage: { [filterId]: filterMessage } }
-      : metadata
-    return reply(event, 'runFilter', requestId, replyData)
   }
 
   async runFilters(event: IpcMainEvent, data?: RequestEnvelope<null>) {
@@ -1713,6 +1877,7 @@ export default class Controller {
 
     console.log('Replays: ', replays)
     console.log('Config: ', config)
+    this.mainWindow.webContents.send('videoOutputPath', config.outputPath.replace(/\/+$/, ''))
     this.activeVideoJob = slpToVideo(replays, config, (msg: string) => {
       this.mainWindow.webContents.send('videoMsg', msg)
     })
@@ -1760,6 +1925,7 @@ export default class Controller {
     ipcMain.on('closeArchive', this.closeArchive.bind(this))
     ipcMain.on('addFilter', this.addFilter.bind(this))
     ipcMain.on('updateFilter', this.updateFilter.bind(this))
+    ipcMain.on('reorderFilter', this.reorderFilter.bind(this))
     ipcMain.on('removeFilter', this.removeFilter.bind(this))
     ipcMain.on('getResults', this.getResults.bind(this))
     ipcMain.on('getNames', this.getNames.bind(this))
@@ -1777,6 +1943,9 @@ export default class Controller {
     ipcMain.on('recordClip', this.recordClip.bind(this))
     ipcMain.on('logPerfEvents', this.logPerfEvents.bind(this))
     ipcMain.on('debugLog', this.debugLog.bind(this))
+    ipcMain.on('openFolder', (_event: IpcMainEvent, folderPath: string) => {
+      if (folderPath) shell.openPath(folderPath)
+    })
     ipcMain.on('rendererError', this.logRendererError.bind(this))
     ipcMain.on('testDolphin', this.testDolphin.bind(this))
   }

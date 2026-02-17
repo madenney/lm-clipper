@@ -8,6 +8,7 @@ import {
 import Filters from './Filters'
 import Top from './Top'
 import { Tray } from './Tray/Tray'
+import { FaFolder } from 'react-icons/fa'
 import '../styles/Main.css'
 
 export type SelectionInfo = {
@@ -159,6 +160,7 @@ export default function Main({
   // Video generation state
   const [isGenerating, setIsGenerating] = useState(false)
   const [videoMsg, setVideoMsg] = useState('')
+  const [videoOutputPath, setVideoOutputPath] = useState('')
 
   // Import state - track whether files are being imported
   const [isImporting, setIsImporting] = useState(false)
@@ -203,9 +205,16 @@ export default function Main({
         setVideoMsg(msg)
       },
     )
+    const removeOutputPath = window.electron.ipcRenderer.on(
+      'videoOutputPath',
+      (p: string) => {
+        setVideoOutputPath(p)
+      },
+    )
     return () => {
       removeFinished()
       removeMsg()
+      removeOutputPath()
     }
   }, [])
 
@@ -481,7 +490,7 @@ export default function Main({
       </div>
       <div className="footer">
         <div className="footer-right">
-          {selectedIds.size > 0 ? (
+          {!isGenerating && selectedIds.size > 0 ? (
             <div className="footer-selection">
               <span className="footer-selection-count">
                 {selectedIds.size} {isShowingGames ? 'game' : 'clip'}
@@ -497,11 +506,48 @@ export default function Main({
                 </span>
               )}
             </div>
-          ) : (
+          ) : !isGenerating ? (
             <span className="footer-no-selection">No clips selected</span>
+          ) : null}
+          {videoOutputPath && (
+            <>
+              <div
+                className="footer-output"
+                onClick={() => window.electron.ipcRenderer.sendMessage('openFolder', videoOutputPath)}
+                title={videoOutputPath}
+              >
+                <span className="footer-output-text">
+                  {videoOutputPath}
+                </span>
+                <FaFolder className="footer-output-folder" />
+              </div>
+              {!isGenerating && (
+                <button
+                  type="button"
+                  className="footer-output-dismiss"
+                  onClick={(e) => { e.stopPropagation(); setVideoOutputPath('') }}
+                >
+                  ✕
+                </button>
+              )}
+              {isGenerating && <span className="footer-gen-sep" />}
+            </>
           )}
-          {videoMsg && (
-            <span className="footer-video-msg">{videoMsg}</span>
+          {isGenerating && (
+            <div className="footer-generating">
+              <span className="footer-gen-spinner" />
+              {videoMsg ? (
+                <span className="footer-gen-msg">
+                  {videoMsg === 'Concatenating clips...' ? (
+                    <span className="footer-dots-anim">Merging videos</span>
+                  ) : videoMsg}
+                </span>
+              ) : (
+                <span className="footer-gen-msg">
+                  <span className="footer-dots-anim">Starting</span>
+                </span>
+              )}
+            </div>
           )}
           {isGenerating ? (
             <>
