@@ -122,7 +122,7 @@ export function Tray({
   const isGameFilter = activeFilter?.type === 'files'
   const activeFilterIndex =
     archive?.filters.findIndex((f) => f.id === activeFilterId) ?? -1
-  const comboFilterTypes = new Set(['slpParser', 'comboFilter', 'actionStateFilter', 'reverse'])
+  const comboFilterTypes = new Set(['slpParser', 'comboFilter', 'actionStateFilter', 'reverse', 'edgeguard'])
   const isClips = useMemo(() => {
     if (!archive || activeFilterIndex < 0) return false
     return archive.filters

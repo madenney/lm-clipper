@@ -279,7 +279,7 @@ export default function Filters({
 
   function deleteFilter(filter: FilterInterface) {
     if (filter.type === 'slpParser' && archive) {
-      const dependentTypes = new Set(['comboFilter', 'reverse'])
+      const dependentTypes = new Set(['comboFilter', 'reverse', 'edgeguard'])
       const dependents = archive.filters.filter((f) =>
         dependentTypes.has(f.type),
       )
@@ -309,7 +309,7 @@ export default function Filters({
     })
   }
 
-  const parserDependents = new Set(['comboFilter', 'reverse'])
+  const parserDependents = new Set(['comboFilter', 'reverse', 'edgeguard'])
 
   function canDropAt(
     filters: ShallowFilterInterface[],
@@ -1776,6 +1776,7 @@ export default function Filters({
                 const requiresParserId = new Set([
                   'comboFilter',
                   'reverse',
+                  'edgeguard',
                 ])
                 return filtersConfig
                   .filter((p) => p.id !== 'files')

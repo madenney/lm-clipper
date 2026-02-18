@@ -189,13 +189,6 @@ export const filtersConfig = [
     label: 'Action State',
     options: [
       {
-        name: 'Max Files',
-        id: 'maxFiles',
-        type: 'int',
-        default: '',
-        tooltip: 'Maximum number of clips to process.',
-      },
-      {
         name: 'Start Frame',
         id: 'startFrom',
         type: 'int',
@@ -336,12 +329,6 @@ export const filtersConfig = [
     label: 'Reverse Hit',
     options: [
       {
-        name: 'Max Files',
-        id: 'maxFiles',
-        type: 'int',
-        default: '',
-      },
-      {
         name: 'Nth Move',
         id: 'n',
         type: 'positionDropdown',
@@ -425,6 +412,18 @@ export const filtersConfig = [
         id: 'direction',
         type: 'dropdown',
         options: deathDirections,
+        default: '',
+      },
+    ],
+  },
+  {
+    id: 'edgeguard',
+    label: 'Edgeguards',
+    options: [
+      {
+        name: 'Max Files',
+        id: 'maxFiles',
+        type: 'int',
         default: '',
       },
     ],
