@@ -4,7 +4,7 @@
   height: 100%;
   padding: 14px 16px 24px;
   box-sizing: border-box;
-  overflow-y: auto;
+  overflow-y: scroll;
   direction: rtl;
   color: #f5f6f8;
   font-family: 'Space Grotesk', 'Sora', sans-serif;
@@ -162,6 +162,49 @@
   flex-direction: column;
   gap: 4px;
   min-width: 0;
+}
+
+.filter-group-inline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  cursor: pointer;
+}
+
+.filter-group-inline:hover .filter-control-label,
+.filter-group-inline:hover .filter-group-arrow-btn {
+  color: var(--filter-accent);
+}
+
+.filter-group-inline-active .filter-control-label,
+.filter-group-inline-active .filter-group-arrow-btn {
+  color: var(--filter-accent);
+}
+
+.filter-group-arrow-btn {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border-radius: 4px;
+  border: none;
+  background: transparent;
+  color: var(--filter-muted);
+  font-size: 10px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.filter-group-arrow-btn:hover {
+  color: var(--filter-accent);
+}
+
+.filter-group-arrow-btn-active {
+  color: var(--filter-accent);
 }
 
 .filter-control-label {
@@ -348,6 +391,28 @@
   flex: 1;
   min-width: 90px;
   max-width: 200px;
+}
+
+.filter-nth-pos-row {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.filter-nth-pos-row .filter-multi-wrap {
+  flex: 1 1 40%;
+  min-width: 0;
+}
+
+.filter-nth-pos-row .filter-multi-select {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.filter-nth-pos-custom-input {
+  flex: 1 1 60%;
+  min-width: 50px;
+  width: auto;
 }
 
 .filter-nth-delete {
@@ -861,6 +926,32 @@
 .filter-warn-btn:hover {
   background: rgba(255, 255, 255, 0.14);
   border-color: var(--filter-accent);
+}
+
+/* Filter error modal */
+
+.filter-error-modal {
+  max-width: 480px;
+}
+
+.filter-error-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.filter-error-item {
+  font-size: 12px;
+  font-family: monospace;
+  color: #ff8a8a;
+  background: rgba(255, 80, 80, 0.08);
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 80, 80, 0.15);
+  word-break: break-word;
+  line-height: 1.4;
 }
 
 /* Drag-and-drop reorder */
