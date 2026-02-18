@@ -56,7 +56,12 @@ export default function Filters({
     [],
   )
   const [expandedNthRows, setExpandedNthRows] = useState<Set<string>>(new Set())
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
   const [parserWarning, setParserWarning] = useState<string[] | null>(null)
+  const [filterError, setFilterError] = useState<{
+    filterLabel: string
+    errors: string[]
+  } | null>(null)
   const [dragIndex, setDragIndex] = useState<number | null>(null)
   const [dropIndex, setDropIndex] = useState<number | null>(null)
   const [dragWarning, setDragWarning] = useState<string | null>(null)
@@ -67,6 +72,7 @@ export default function Filters({
   const filtersListRef = useRef<HTMLDivElement>(null)
   const cardMidYs = useRef<{ index: number; midY: number }[]>([])
   const dropdownRef = useRef<HTMLDivElement>(null)
+  const dragAllowedRef = useRef(true)
   const multiLeaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
@@ -124,6 +130,16 @@ export default function Filters({
       },
     )
 
+    const removeErrorListener = window.electron.ipcRenderer.on(
+      'filterError',
+      (event: { filterId: string; filterLabel: string; errors: string[] }) => {
+        setFilterError({
+          filterLabel: event.filterLabel,
+          errors: event.errors,
+        })
+      },
+    )
+
     const handleClickOutside = (event: Event) => {
       if (
         dropdownRef.current &&
@@ -137,6 +153,7 @@ export default function Filters({
     return () => {
       removeRunningListener()
       removeUpdateListener()
+      removeErrorListener()
       document.removeEventListener('mousedown', handleClickOutside)
     }
   }, [])
@@ -187,6 +204,15 @@ export default function Filters({
       }
 
       setArchive(response)
+      // Clear running state immediately so results display switches to final count
+      const filterIndex = archive?.filters.findIndex((f) => f.id === filter.id)
+      if (filterIndex != null && filterIndex >= 0) {
+        setRunningFilters((prev) => {
+          const next = new Set(prev)
+          next.delete(filterIndex)
+          return next
+        })
+      }
       // Clear live results for this filter
       setLiveResults((prev) => {
         const updated = { ...prev }
@@ -349,12 +375,9 @@ export default function Filters({
   presetValues.add('')
 
   function isCustomN(n: string) {
-    if (n === '' || presetValues.has(n)) return false
-    // Comma-separated preset values are not custom
-    if (n.includes(',')) {
-      return !n.split(',').every((v) => presetValues.has(v.trim()))
-    }
-    return true
+    if (n === '') return false
+    const parts = n.split(',').map((v) => v.trim())
+    return parts.includes('__custom__')
   }
 
   function renderPositionDropdown(
@@ -369,13 +392,21 @@ export default function Filters({
       ? String(move.n).split(',').map((v: string) => v.trim()).filter(Boolean)
       : []
     const selectedSet = new Set(currentValues)
+    const displayVals = currentValues.filter((v: string) => v !== '__custom__')
+    const hasCustom = selectedSet.has('__custom__')
+    const presetLabel = positionPresets
+      .filter((p) => selectedSet.has(p.value))
+      .map((p) => p.label)
+      .join(', ')
     const label =
-      selectedSet.size === 0
+      displayVals.length === 0 && !hasCustom
         ? 'Any'
-        : positionPresets
-            .filter((p) => selectedSet.has(p.value))
-            .map((p) => p.label)
-            .join(', ') || currentValues.join(', ')
+        : [presetLabel, hasCustom ? 'Custom' : ''].filter(Boolean).join(', ') || displayVals.join(', ')
+
+    const allPosOptions = [
+      ...positionPresets,
+      { label: 'Custom', value: '__custom__' },
+    ]
 
     return (
       <div className="filter-multi-wrap">
@@ -402,7 +433,6 @@ export default function Filters({
               setMultiOpen(key)
             }
           }}
-          title={label}
         >
           {label}
         </button>
@@ -440,7 +470,7 @@ export default function Filters({
                 }, 300)
               }}
             >
-              {positionPresets.map((p) => {
+              {allPosOptions.map((p) => {
                 const checked = selectedSet.has(p.value)
                 return (
                   <div
@@ -448,9 +478,17 @@ export default function Filters({
                     className={`filter-multi-item${checked ? ' filter-multi-item-checked' : ''}`}
                     onClick={(e) => {
                       e.stopPropagation()
-                      const next = checked
-                        ? currentValues.filter((v: string) => v !== p.value)
-                        : [...currentValues, p.value]
+                      let next: string[]
+                      if (p.value === '__custom__') {
+                        // Custom: toggle it, clear all presets
+                        next = checked ? [] : ['__custom__']
+                      } else {
+                        // Preset: toggle it, clear custom
+                        const withoutCustom = currentValues.filter((v: string) => v !== '__custom__')
+                        next = checked
+                          ? withoutCustom.filter((v: string) => v !== p.value)
+                          : [...withoutCustom, p.value]
+                      }
                       const filterClone = cloneDeep(filter)
                       filterClone.params[nthMovesOption.id][index].n =
                         next.join(',')
@@ -625,36 +663,35 @@ export default function Filters({
     const showCustomInput = isCustomN(move.n)
     const nthRowKey = `${filter.id}:${index}`
     const isNthExpanded = expandedNthRows.has(nthRowKey)
-    const hasExtra = !!(move.tMin || move.t || move.d)
+    const hasExtra = !!(move.tMin || move.t || move.d || move.dMax)
 
     return (
       <div key={index} className="filter-nth-row-wrap">
         <div className="filter-nth-row">
-          <div
-            className="filter-nth-field filter-nth-field-move"
-            title="Which move in the combo to match against."
-          >
+          <div className="filter-nth-field filter-nth-field-move">
             <span className="filter-nth-field-label">Position</span>
-            {renderPositionDropdown(filter, nthMovesOption, move, index)}
+            <div className={showCustomInput ? 'filter-nth-pos-row' : undefined}>
+              {renderPositionDropdown(filter, nthMovesOption, move, index)}
+              {showCustomInput && (
+                <input
+                  className="filter-control-input filter-nth-pos-custom-input"
+                  value={String(move.n || '').split(',').map((v: string) => v.trim()).filter((v: string) => v !== '__custom__' && !presetValues.has(v)).join(',')}
+                  placeholder="e.g. 3,4,-4"
+                  title="Move index (0-based). Positive = from start, negative = from end. Comma-separate for multiple (e.g. 0,2,-1)."
+                  onChange={(e) => {
+                    const kept = String(move.n || '').split(',').map((v: string) => v.trim()).filter((v: string) => v === '__custom__' || presetValues.has(v))
+                    const customVals = e.target.value
+                      ? e.target.value.split(',').map((s: string) => s.trim()).filter(Boolean)
+                      : []
+                    const filterClone = cloneDeep(filter)
+                    filterClone.params[nthMovesOption.id][index].n =
+                      [...kept, ...customVals].join(',')
+                    updateFilter(filterClone, filter)
+                  }}
+                />
+              )}
+            </div>
           </div>
-          {showCustomInput && (
-            <label
-              className="filter-nth-field"
-              title="Move index (0-based). Positive = from start, negative = from end. Comma-separate for multiple (e.g. 0,2,-1)."
-            >
-              <span className="filter-nth-field-label">N</span>
-              <input
-                className="filter-control-input filter-nth-input"
-                value={move.n}
-                onChange={(e) => {
-                  const filterClone = cloneDeep(filter)
-                  filterClone.params[nthMovesOption.id][index].n =
-                    e.target.value
-                  updateFilter(filterClone, filter)
-                }}
-              />
-            </label>
-          )}
           <div className="filter-nth-field filter-nth-field-move">
             <span className="filter-nth-field-label">Move</span>
             {renderMultiDropdown(
@@ -738,34 +775,37 @@ export default function Filters({
             </label>
             <label
               className="filter-nth-field"
-              title="Damage threshold for this move. Min = at least this much, Max = at most this much."
+              title="Minimum damage this move must deal"
             >
-              <span className="filter-nth-field-label">Damage</span>
-              <div className="filter-nth-damage-row">
-                <select
-                  className="filter-nth-select-small"
-                  value={move.dMode || 'min'}
-                  onChange={(e) => {
-                    const filterClone = cloneDeep(filter)
-                    filterClone.params[nthMovesOption.id][index].dMode =
-                      e.target.value
-                    updateFilter(filterClone, filter)
-                  }}
-                >
-                  <option value="min">Min</option>
-                  <option value="max">Max</option>
-                </select>
-                <input
-                  className="filter-control-input filter-nth-input"
-                  value={move.d}
-                  onChange={(e) => {
-                    const filterClone = cloneDeep(filter)
-                    filterClone.params[nthMovesOption.id][index].d =
-                      e.target.value
-                    updateFilter(filterClone, filter)
-                  }}
-                />
-              </div>
+              <span className="filter-nth-field-label">Min Dmg</span>
+              <input
+                className="filter-control-input filter-nth-input"
+                value={move.d || ''}
+                placeholder="%"
+                onChange={(e) => {
+                  const filterClone = cloneDeep(filter)
+                  filterClone.params[nthMovesOption.id][index].d =
+                    e.target.value
+                  updateFilter(filterClone, filter)
+                }}
+              />
+            </label>
+            <label
+              className="filter-nth-field"
+              title="Maximum damage this move can deal"
+            >
+              <span className="filter-nth-field-label">Max Dmg</span>
+              <input
+                className="filter-control-input filter-nth-input"
+                value={move.dMax || ''}
+                placeholder="%"
+                onChange={(e) => {
+                  const filterClone = cloneDeep(filter)
+                  filterClone.params[nthMovesOption.id][index].dMax =
+                    e.target.value
+                  updateFilter(filterClone, filter)
+                }}
+              />
             </label>
           </div>
         )}
@@ -821,7 +861,6 @@ export default function Filters({
               setMultiOpen(key)
             }
           }}
-          title={label}
         >
           {label}
         </button>
@@ -968,7 +1007,6 @@ export default function Filters({
               setMultiOpen(key)
             }
           }}
-          title={label}
         >
           {label}
         </button>
@@ -1046,10 +1084,12 @@ export default function Filters({
 
     const hasParser = archive?.filters.slice(0, filterIndex).some((f) => f.type === 'slpParser')
 
-    const gridOptions = (filterConfig.options as any[]).filter(
-      (o) => o.type !== 'nthMoves',
+    const allOptions = filterConfig.options as any[]
+    const gridOptions = allOptions.filter(
+      (o) => o.type !== 'nthMoves' && !o.group,
     )
-    const nthMovesOption = (filterConfig.options as any[]).find(
+    const positionOptions = allOptions.filter((o) => o.group === 'position')
+    const nthMovesOption = allOptions.find(
       (o) => o.type === 'nthMoves',
     )
 
@@ -1063,6 +1103,11 @@ export default function Filters({
                 const comboee = filter.params?.comboeeActionState || []
                 const all = [...(Array.isArray(comboer) ? comboer : [comboer]), ...(Array.isArray(comboee) ? comboee : [comboee])]
                 if (!all.some((id) => id === 'custom' || id == 'custom')) return null
+              }
+              if (option.showWhenCustomField) {
+                const fieldVal = filter.params?.[option.showWhenCustomField] || []
+                const arr = Array.isArray(fieldVal) ? fieldVal : [fieldVal]
+                if (!arr.some((id) => id === 'custom' || id == 'custom')) return null
               }
               let input: ReactElement | null = null
               const value = filter.params?.[option.id] ?? ''
@@ -1096,14 +1141,16 @@ export default function Filters({
                     />
                   )
                   break
-                case 'int':
+                case 'int': {
+                  const posDisabled = option.id === 'startFrom' && !!filter.params?.startFromNthMove
+                  const intDisabled = disabled || posDisabled
                   input = (
                     <input
                       className="filter-control-input"
                       inputMode="numeric"
-                      value={disabled ? '' : value}
-                      placeholder={disabled ? 'Requires combo parser' : 'Any'}
-                      disabled={disabled}
+                      value={intDisabled ? '' : value}
+                      placeholder={disabled ? 'Requires combo parser' : posDisabled ? 'Using nth move' : option.placeholder || 'Any'}
+                      disabled={intDisabled}
                       onChange={(event) => {
                         const raw = event.target.value
                         if (raw !== '' && !/^-?\d*$/.test(raw)) return
@@ -1114,6 +1161,7 @@ export default function Filters({
                     />
                   )
                   break
+                }
                 case 'dropdown':
                   input = disabled ? (
                     <input
@@ -1174,6 +1222,151 @@ export default function Filters({
                     )
                   )
                   break
+                case 'positionDropdown': {
+                  const posKey = `${filter.id}:${option.id}`
+                  const posIsOpen = multiOpen === posKey
+                  const posVal = String(value || '')
+                  const posCurrentValues = posVal
+                    ? posVal.split(',').map((v: string) => v.trim()).filter(Boolean)
+                    : []
+                  const posSelectedSet = new Set(posCurrentValues)
+                  const posHasCustom = posSelectedSet.has('__custom__')
+                  const posDisplayValues = posCurrentValues.filter((v: string) => v !== '__custom__')
+                  const posPresetLabel = positionPresets
+                    .filter((p) => posSelectedSet.has(p.value))
+                    .map((p) => p.label)
+                    .join(', ')
+                  const posLabel =
+                    posDisplayValues.length === 0 && !posHasCustom
+                      ? 'Any'
+                      : [posPresetLabel, posHasCustom ? 'Custom' : ''].filter(Boolean).join(', ') || posDisplayValues.join(', ')
+                  const posAllOptions = [
+                    ...positionPresets,
+                    { label: 'Custom', value: '__custom__' },
+                  ]
+                  input = disabled ? (
+                    <input
+                      className="filter-control-input"
+                      value=""
+                      placeholder="Requires combo parser"
+                      disabled
+                    />
+                  ) : (
+                    <div className={posHasCustom ? 'filter-nth-pos-row' : undefined}>
+                      <div className="filter-multi-wrap">
+                        <button
+                          type="button"
+                          className="filter-multi-select"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            if (posIsOpen) {
+                              setMultiOpen(null)
+                              setMultiPos(null)
+                            } else {
+                              const rect = e.currentTarget.getBoundingClientRect()
+                              const spaceBelow = window.innerHeight - rect.bottom - 28
+                              const spaceAbove = rect.top - 28
+                              const flip = spaceBelow < 120 && spaceAbove > spaceBelow
+                              setMultiPos({
+                                top: flip ? rect.top - 4 : rect.bottom + 4,
+                                left: rect.left,
+                                width: Math.max(rect.width, 160),
+                                maxHeight: Math.min(240, flip ? spaceAbove : spaceBelow),
+                                flip,
+                              })
+                              setMultiOpen(posKey)
+                            }
+                          }}
+                        >
+                          {posLabel}
+                        </button>
+                        {posIsOpen && multiPos && (
+                          <>
+                            <div
+                              className="filter-multi-backdrop"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setMultiOpen(null)
+                                setMultiPos(null)
+                              }}
+                            />
+                            <div
+                              className="filter-multi-menu"
+                              style={{
+                                position: 'fixed',
+                                ...(multiPos.flip
+                                  ? { bottom: window.innerHeight - multiPos.top }
+                                  : { top: multiPos.top }),
+                                left: multiPos.left,
+                                width: multiPos.width,
+                                maxHeight: multiPos.maxHeight,
+                              }}
+                              onMouseEnter={() => {
+                                if (multiLeaveTimer.current) {
+                                  clearTimeout(multiLeaveTimer.current)
+                                  multiLeaveTimer.current = null
+                                }
+                              }}
+                              onMouseLeave={() => {
+                                multiLeaveTimer.current = setTimeout(() => {
+                                  setMultiOpen(null)
+                                  setMultiPos(null)
+                                }, 300)
+                              }}
+                            >
+                              {posAllOptions.map((p) => {
+                                const checked = posSelectedSet.has(p.value)
+                                return (
+                                  <div
+                                    key={p.value}
+                                    className={`filter-multi-item${checked ? ' filter-multi-item-checked' : ''}`}
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      let next: string[]
+                                      if (p.value === '__custom__') {
+                                        next = checked ? [] : ['__custom__']
+                                      } else {
+                                        const withoutCustom = posCurrentValues.filter((v: string) => v !== '__custom__')
+                                        next = checked
+                                          ? withoutCustom.filter((v: string) => v !== p.value)
+                                          : [...withoutCustom, p.value]
+                                      }
+                                      const filterClone = cloneDeep(filter)
+                                      filterClone.params[option.id] = next.join(',')
+                                      updateFilter(filterClone, filter)
+                                    }}
+                                  >
+                                    <span className="filter-multi-check">
+                                      {checked ? '\u2714' : ''}
+                                    </span>
+                                    <span>{p.label}</span>
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          </>
+                        )}
+                      </div>
+                      {posHasCustom && (
+                        <input
+                          className="filter-control-input filter-nth-pos-custom-input"
+                          value={posDisplayValues.filter((v: string) => !presetValues.has(v)).join(',') || ''}
+                          placeholder="e.g. 3,4,-4"
+                          title="Move index (0-based). Positive = from start, negative = from end. Comma-separate for multiple (e.g. 0,2,-1)."
+                          onChange={(e) => {
+                            const customVals = e.target.value
+                              ? e.target.value.split(',').map((s: string) => s.trim()).filter(Boolean)
+                              : []
+                            const filterClone = cloneDeep(filter)
+                            filterClone.params[option.id] = ['__custom__', ...customVals].join(',')
+                            updateFilter(filterClone, filter)
+                          }}
+                        />
+                      )}
+                    </div>
+                  )
+                  break
+                }
                 case 'checkbox':
                   input = (
                     <label className="filter-control-checkbox-wrap">
@@ -1214,6 +1407,7 @@ export default function Filters({
               }
               const isDropdownLike =
                 option.type === 'multiDropdown' ||
+                option.type === 'positionDropdown' ||
                 (option.type === 'textInput' && option.autocomplete === 'names')
               const Wrapper = isDropdownLike ? 'div' : 'label'
               return (
@@ -1222,9 +1416,75 @@ export default function Filters({
                   key={option.id}
                   title={disabled ? 'Requires combo parser' : option.tooltip || undefined}
                 >
-                  <span className="filter-control-label">{option.name}</span>
+                  <span className="filter-control-label">
+                    {!hasParser && option.id === 'comboerActionState' ? 'Player 1 State'
+                      : !hasParser && option.id === 'comboeeActionState' ? 'Player 2 State'
+                      : !hasParser && option.id === 'comboerCustomIds' ? 'Player 1 Custom IDs'
+                      : !hasParser && option.id === 'comboeeCustomIds' ? 'Player 2 Custom IDs'
+                      : option.name}
+                  </span>
                   {input}
                 </Wrapper>
+              )
+            })}
+          </div>
+        )}
+        {positionOptions.length > 0 && (() => {
+          const groupKey = `${filter.id}:position`
+          const isExpanded = expandedGroups.has(groupKey)
+          const hasActive = positionOptions.some(
+            (o: any) => filter.params?.[o.id] !== '' && filter.params?.[o.id] != null && filter.params?.[o.id] !== undefined,
+          )
+          return (
+            <div
+              className={`filter-group-inline${hasActive ? ' filter-group-inline-active' : ''}`}
+              onClick={(e) => {
+                e.stopPropagation()
+                setExpandedGroups((prev) => {
+                  const next = new Set(prev)
+                  if (next.has(groupKey)) next.delete(groupKey)
+                  else next.add(groupKey)
+                  return next
+                })
+              }}
+              title="X/Y position filters"
+            >
+              <span className="filter-control-label">X/Y Position</span>
+              <span className="filter-group-arrow-btn">
+                {isExpanded ? '\u25B2' : '\u25BC'}
+              </span>
+            </div>
+          )
+        })()}
+        {positionOptions.length > 0 && expandedGroups.has(`${filter.id}:position`) && (
+          <div className="filter-controls-grid" style={{ marginTop: 8 }}>
+            {positionOptions.map((option: any) => {
+              const value = filter.params?.[option.id] ?? ''
+              return (
+                <label
+                  className="filter-control"
+                  key={option.id}
+                  title={option.tooltip || undefined}
+                >
+                  <span className="filter-control-label">
+                    {!hasParser && option.id.startsWith('comboer') ? option.name.replace('Comboer', 'Player 1')
+                      : !hasParser && option.id.startsWith('comboee') ? option.name.replace('Comboee', 'Player 2')
+                      : option.name}
+                  </span>
+                  <input
+                    className="filter-control-input"
+                    inputMode="numeric"
+                    value={value}
+                    placeholder="Any"
+                    onChange={(event) => {
+                      const raw = event.target.value
+                      if (raw !== '' && !/^-?\d*$/.test(raw)) return
+                      const filterClone = cloneDeep(filter)
+                      filterClone.params[option.id] = raw
+                      updateFilter(filterClone, filter)
+                    }}
+                  />
+                </label>
               )
             })}
           </div>
@@ -1355,8 +1615,12 @@ export default function Filters({
                   : undefined
               }
               draggable={!isGameFilter}
+              onMouseDown={(e) => {
+                const tag = (e.target as HTMLElement).tagName
+                dragAllowedRef.current = tag !== 'INPUT' && tag !== 'SELECT' && tag !== 'TEXTAREA' && tag !== 'BUTTON'
+              }}
               onDragStart={(e: DragEvent<HTMLDivElement>) => {
-                if (isGameFilter) {
+                if (isGameFilter || !dragAllowedRef.current) {
                   e.preventDefault()
                   return
                 }
@@ -1409,7 +1673,7 @@ export default function Filters({
               }}
             >
               <div className="filter-main">
-                <div className="filter-title">{filter.label}</div>
+                <div className="filter-title" title={filtersConfig.find((c) => c.id === filter.type)?.tooltip || ''}>{filter.label}</div>
                 <div className="filter-meta">
                   <div className="filter-results">
                     Results:{' '}
@@ -1521,6 +1785,7 @@ export default function Filters({
                       <div
                         key={p.id}
                         className={`add-filter-item${needsParser ? ' add-filter-item-disabled' : ''}`}
+                        title={p.tooltip || ''}
                         onClick={() => {
                           if (needsParser) return
                           addFilter({ target: { value: p.id } })
@@ -1589,6 +1854,32 @@ export default function Filters({
               onClick={() => setParserWarning(null)}
             >
               Got it
+            </button>
+          </div>
+        </div>
+      )}
+      {filterError && (
+        <div className="filter-warn-overlay" onClick={() => setFilterError(null)}>
+          <div className="filter-warn-modal filter-error-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="filter-warn-title">
+              Error in {filterError.filterLabel}
+            </div>
+            <div className="filter-warn-body">
+              {filterError.errors.length === 1
+                ? 'An error occurred while running this filter:'
+                : `${filterError.errors.length} errors occurred while running this filter:`}
+            </div>
+            <div className="filter-error-list">
+              {filterError.errors.map((err, i) => (
+                <div key={i} className="filter-error-item">{err}</div>
+              ))}
+            </div>
+            <button
+              type="button"
+              className="filter-warn-btn"
+              onClick={() => setFilterError(null)}
+            >
+              Dismiss
             </button>
           </div>
         </div>

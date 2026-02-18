@@ -16,3 +16,9 @@
 
 - [ ] Parallelize replay import using worker threads with safe batching to avoid SQLite contention.
 - [ ] Zoom tuning is temporarily hardcoded in `src/renderer/zoomConfig.ts`; replace with proper config/UI once the zoom behavior is finalized.
+
+## Features
+
+- [ ] Combo parser: change the 45-frame combo window logic.
+- [ ] Filter presets: save/load preset filter configurations (e.g. "reverse hit ken combos").
+- [ ] 3: Use ikneedata.com calculator (https://ikneedata.com/calculator) for position filter — reference stage/character XY data to provide useful defaults or presets.
