@@ -39,11 +39,25 @@ export const filtersConfig = [
         autocomplete: 'names',
       },
       {
+        name: 'Player 1 CC',
+        id: 'player1CC',
+        type: 'textInput',
+        default: [],
+        autocomplete: 'connectCodes',
+      },
+      {
         name: 'Player 2',
         id: 'player2',
         type: 'textInput',
         default: [],
         autocomplete: 'names',
+      },
+      {
+        name: 'Player 2 CC',
+        id: 'player2CC',
+        type: 'textInput',
+        default: [],
+        autocomplete: 'connectCodes',
       },
     ],
   },
@@ -91,11 +105,25 @@ export const filtersConfig = [
         autocomplete: 'names',
       },
       {
+        name: 'Comboer CC',
+        id: 'comboerCC',
+        type: 'textInput',
+        default: [],
+        autocomplete: 'connectCodes',
+      },
+      {
         name: 'Comboee Tag',
         id: 'comboeeTag',
         type: 'textInput',
         default: [],
         autocomplete: 'names',
+      },
+      {
+        name: 'Comboee CC',
+        id: 'comboeeCC',
+        type: 'textInput',
+        default: [],
+        autocomplete: 'connectCodes',
       },
       {
         name: 'Did Kill',
@@ -149,11 +177,25 @@ export const filtersConfig = [
         autocomplete: 'names',
       },
       {
+        name: 'Comboer CC',
+        id: 'comboerCC',
+        type: 'textInput',
+        default: [],
+        autocomplete: 'connectCodes',
+      },
+      {
         name: 'Comboee Tag',
         id: 'comboeeTag',
         type: 'textInput',
         default: [],
         autocomplete: 'names',
+      },
+      {
+        name: 'Comboee CC',
+        id: 'comboeeCC',
+        type: 'textInput',
+        default: [],
+        autocomplete: 'connectCodes',
       },
       {
         name: 'Stage',
@@ -194,7 +236,8 @@ export const filtersConfig = [
         type: 'int',
         default: '',
         placeholder: 'Clip start',
-        tooltip: 'Frame offset to begin searching from. Positive = from clip start, negative = from clip end. Empty = start from first frame.',
+        tooltip:
+          'Frame offset to begin searching from. Positive = from clip start, negative = from clip end. Empty = start from first frame.',
       },
       {
         name: 'Search Range',
@@ -202,7 +245,8 @@ export const filtersConfig = [
         type: 'int',
         default: '',
         placeholder: 'All frames',
-        tooltip: 'Number of frames to search. Positive = forward, negative = backward. 0 or empty = search all remaining frames.',
+        tooltip:
+          'Number of frames to search. Positive = forward, negative = backward. 0 or empty = search all remaining frames.',
       },
       {
         name: 'Nth Move',
@@ -210,14 +254,16 @@ export const filtersConfig = [
         type: 'positionDropdown',
         default: '',
         requiresParser: true,
-        tooltip: 'Start searching from this move\'s frame. Overrides Start Frame.',
+        tooltip:
+          "Start searching from this move's frame. Overrides Start Frame.",
       },
       {
         name: 'Offset',
         id: 'offset',
         type: 'int',
         default: '',
-        tooltip: 'Shift the start frame by +/- this many frames before searching.',
+        tooltip:
+          'Shift the start frame by +/- this many frames before searching.',
       },
       {
         name: 'Comboer State',
@@ -225,7 +271,8 @@ export const filtersConfig = [
         type: 'multiDropdown',
         options: actionStates,
         default: [],
-        tooltip: 'Filter clips by the attacker\'s action state during the search window. Without a parser, matches any player.',
+        tooltip:
+          "Filter clips by the attacker's action state during the search window. Without a parser, matches any player.",
       },
       {
         name: 'Comboee State',
@@ -233,14 +280,16 @@ export const filtersConfig = [
         type: 'multiDropdown',
         options: actionStates,
         default: [],
-        tooltip: 'Filter clips by the defender\'s action state during the search window. Without a parser, matches any player.',
+        tooltip:
+          "Filter clips by the defender's action state during the search window. Without a parser, matches any player.",
       },
       {
         name: 'Comboer Custom IDs',
         id: 'comboerCustomIds',
         type: 'textInput',
         default: '',
-        tooltip: 'Comma-separated action state IDs for the Custom option (e.g. 43,44,45).',
+        tooltip:
+          'Comma-separated action state IDs for the Custom option (e.g. 43,44,45).',
         showWhenCustomField: 'comboerActionState',
       },
       {
@@ -248,7 +297,8 @@ export const filtersConfig = [
         id: 'comboeeCustomIds',
         type: 'textInput',
         default: '',
-        tooltip: 'Comma-separated action state IDs for the Custom option (e.g. 43,44,45).',
+        tooltip:
+          'Comma-separated action state IDs for the Custom option (e.g. 43,44,45).',
         showWhenCustomField: 'comboeeActionState',
       },
       {
@@ -256,7 +306,8 @@ export const filtersConfig = [
         id: 'exclude',
         type: 'checkbox',
         default: false,
-        tooltip: 'Invert the filter — keep clips where the action state was NOT found.',
+        tooltip:
+          'Invert the filter — keep clips where the action state was NOT found.',
       },
       {
         name: 'Comboer Min X',
@@ -425,6 +476,55 @@ export const filtersConfig = [
         id: 'maxFiles',
         type: 'int',
         default: '',
+      },
+      {
+        name: 'Edgeguarder Char',
+        id: 'comboerChar',
+        type: 'multiDropdown',
+        options: sortedCharacters,
+        default: [],
+      },
+      {
+        name: 'Edgeguardee Char',
+        id: 'comboeeChar',
+        type: 'multiDropdown',
+        options: sortedCharacters,
+        default: [],
+      },
+      {
+        name: 'Edgeguarder Tag',
+        id: 'comboerTag',
+        type: 'textInput',
+        default: [],
+        autocomplete: 'names',
+      },
+      {
+        name: 'Edgeguarder CC',
+        id: 'comboerCC',
+        type: 'textInput',
+        default: [],
+        autocomplete: 'connectCodes',
+      },
+      {
+        name: 'Edgeguardee Tag',
+        id: 'comboeeTag',
+        type: 'textInput',
+        default: [],
+        autocomplete: 'names',
+      },
+      {
+        name: 'Edgeguardee CC',
+        id: 'comboeeCC',
+        type: 'textInput',
+        default: [],
+        autocomplete: 'connectCodes',
+      },
+      {
+        name: 'Stage',
+        id: 'stageFilter',
+        type: 'multiDropdown',
+        options: legalStages,
+        default: [],
       },
     ],
   },

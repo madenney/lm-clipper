@@ -37,6 +37,7 @@ type DomLayerProps = {
     _event: React.MouseEvent,
   ) => void
   onClipMouseEnter: (_index: number) => void
+  onClipRecord?: (_clipId: string) => void
   onBackgroundClick: () => void
   startIndex?: number // For pagination - offset to add to local indices
 }
@@ -60,6 +61,7 @@ const MemoClip = memo(
     isSelected,
     onMouseDown,
     onMouseEnter,
+    onRecord,
   }: {
     data: ClipData
     size: number
@@ -68,6 +70,7 @@ const MemoClip = memo(
     isSelected: boolean
     onMouseDown: (_e: React.MouseEvent) => void
     onMouseEnter: () => void
+    onRecord?: () => void
   }) {
     return (
       <Clip
@@ -78,6 +81,7 @@ const MemoClip = memo(
         isSelected={isSelected}
         onMouseDown={onMouseDown}
         onMouseEnter={onMouseEnter}
+        onRecord={onRecord}
       />
     )
   },
@@ -105,6 +109,7 @@ export function DomLayer({
   selectedIds,
   onClipMouseDown,
   onClipMouseEnter,
+  onClipRecord,
   onBackgroundClick,
   startIndex = 0,
 }: DomLayerProps) {
@@ -224,6 +229,8 @@ export function DomLayer({
   onClipMouseDownRef.current = onClipMouseDown
   const onClipMouseEnterRef = useRef(onClipMouseEnter)
   onClipMouseEnterRef.current = onClipMouseEnter
+  const onClipRecordRef = useRef(onClipRecord)
+  onClipRecordRef.current = onClipRecord
 
   // Memoize the rendered clips to prevent unnecessary re-renders
   const renderedClips = useMemo(() => {
@@ -256,6 +263,9 @@ export function DomLayer({
       const handleMouseEnter = () => {
         onClipMouseEnterRef.current(globalIndex)
       }
+      const handleRecord = onClipRecordRef.current
+        ? () => onClipRecordRef.current?.(clipId)
+        : undefined
 
       if (mode === 'full') {
         // Full mode: vertical list, full width
@@ -276,6 +286,7 @@ export function DomLayer({
             isSelected={isSelected}
             onMouseDown={handleMouseDown}
             onMouseEnter={handleMouseEnter}
+            onRecord={handleRecord}
           />,
         )
       } else {
@@ -299,6 +310,7 @@ export function DomLayer({
             isSelected={isSelected}
             onMouseDown={handleMouseDown}
             onMouseEnter={handleMouseEnter}
+            onRecord={handleRecord}
           />,
         )
       }
@@ -324,7 +336,10 @@ export function DomLayer({
       style={containerStyle}
       onScroll={handleScroll}
       onClick={(e) => {
-        if (e.target === e.currentTarget || e.target === containerRef.current?.firstElementChild) {
+        if (
+          e.target === e.currentTarget ||
+          e.target === containerRef.current?.firstElementChild
+        ) {
           onBackgroundClick()
         }
       }}

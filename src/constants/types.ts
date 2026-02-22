@@ -47,6 +47,7 @@ export interface PlayerInterface {
   characterColor: number
   nametag: string
   displayName: string
+  connectCode: string
 }
 
 export interface FileInterface {
@@ -70,6 +71,7 @@ export interface ClipInterface {
   endFrame: number
   path: string
   stage: number
+  startedAt?: number
   comboer?: PlayerInterface
   comboee?: PlayerInterface
   players?: PlayerInterface[]
@@ -108,12 +110,14 @@ export interface FilterInterface {
   isProcessed: boolean
   params: { [key: string]: any }
   results: number
+  resumable?: boolean
   run3?(
     dbPath: string,
     prevTable: string,
     numFilterThreads: number,
     arg2: EventEmitterInterface,
     abortSignal?: AbortSignal,
+    options?: { resume?: boolean },
   ): void
   // run?(
   //   arg1: ClipInterface[] | FileInterface[],
@@ -131,6 +135,7 @@ export interface ShallowFilterInterface {
   isProcessed: boolean
   params: { [key: string]: any }
   results: number
+  resumable?: boolean
 }
 
 export interface ShallowArchiveInterface {
@@ -159,6 +164,7 @@ export interface ArchiveInterface {
     filterMsgEventEmitter: EventEmitterInterface,
   ): void
   getNames?(): Promise<{ name: string; total: number }[]>
+  getConnectCodes?(): Promise<{ name: string; total: number }[]>
   shallowCopy?(): Promise<ShallowArchiveInterface>
   addFiles?(
     filePaths: string | string[],
@@ -191,7 +197,10 @@ export interface ReplayInterface {
   endFrame: number
 }
 
-export type WorkerMessage = WorkerMessageProgress | WorkerMessageDone
+export type WorkerMessage =
+  | WorkerMessageProgress
+  | WorkerMessageDone
+  | WorkerMessageError
 
 interface WorkerMessageProgress {
   type: 'progress'
@@ -203,4 +212,11 @@ interface WorkerMessageProgress {
 interface WorkerMessageDone {
   type: 'done'
   results: number
+}
+
+interface WorkerMessageError {
+  type: 'error'
+  message: string
+  filterType: string
+  itemIndex?: number
 }

@@ -64,6 +64,16 @@ export function createDB(path: string, name: string) {
 
   db.exec('CREATE INDEX IF NOT EXISTS idx_files_path ON files(path)')
 
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS filter_runs (
+      filter_id TEXT PRIMARY KEY,
+      params_json TEXT,
+      total_input INTEGER,
+      status TEXT,
+      created_at INTEGER
+    )
+  `)
+
   for (const filter of metadata.filters) {
     db.exec(`
       CREATE TABLE IF NOT EXISTS "${filter.id}" (
@@ -183,6 +193,31 @@ export function getMetaData(path: string) {
     }
   }
 
+  // Ensure filter_runs table exists (for DBs created before this feature)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS filter_runs (
+      filter_id TEXT PRIMARY KEY,
+      params_json TEXT,
+      total_input INTEGER,
+      status TEXT,
+      created_at INTEGER
+    )
+  `)
+
+  // Check for resumable filter runs
+  for (const filter of metadata.filters) {
+    const run = db
+      .prepare('SELECT * FROM filter_runs WHERE filter_id = ?')
+      .get(filter.id) as { params_json: string; status: string } | undefined
+    if (
+      run &&
+      run.status === 'running' &&
+      run.params_json === JSON.stringify(filter.params)
+    ) {
+      filter.resumable = true
+    }
+  }
+
   if (needsUpdate) {
     updateMetaData(path, metadata)
   }
@@ -269,6 +304,42 @@ export function insertFiles(path: string, files: FileInterface[]) {
 export function getFiles(path: string) {
   const db = getDb(path)
   return db.prepare('SELECT * FROM files').all()
+}
+
+export function getPlayerNameCounts(
+  path: string,
+): { name: string; total: number }[] {
+  const db = getDb(path)
+  const rows = db
+    .prepare(
+      `SELECT
+         JSON_EXTRACT(je.value, '$.displayName') AS name,
+         COUNT(*) AS total
+       FROM files, JSON_EACH(files.players) AS je
+       WHERE name IS NOT NULL AND name != ''
+       GROUP BY name
+       ORDER BY total DESC`,
+    )
+    .all() as { name: string; total: number }[]
+  return rows
+}
+
+export function getConnectCodeCounts(
+  path: string,
+): { name: string; total: number }[] {
+  const db = getDb(path)
+  const rows = db
+    .prepare(
+      `SELECT
+         JSON_EXTRACT(je.value, '$.connectCode') AS name,
+         COUNT(*) AS total
+       FROM files, JSON_EACH(files.players) AS je
+       WHERE name IS NOT NULL AND name != ''
+       GROUP BY name
+       ORDER BY total DESC`,
+    )
+    .all() as { name: string; total: number }[]
+  return rows
 }
 
 export function getAllFromTable(path: string, tableId: string) {
@@ -359,4 +430,53 @@ export function createFilter(path: string, id: string) {
 export function deleteFilter(path: string, id: string) {
   const db = getDb(path)
   db.exec(`DROP TABLE IF EXISTS "${id}"`)
+}
+
+export function upsertFilterRun(
+  path: string,
+  filterId: string,
+  paramsJson: string,
+  totalInput: number,
+) {
+  const db = getDb(path)
+  db.prepare(
+    `INSERT OR REPLACE INTO filter_runs (filter_id, params_json, total_input, status, created_at)
+     VALUES (?, ?, ?, 'running', ?)`,
+  ).run(filterId, paramsJson, totalInput, Date.now())
+}
+
+export function getFilterRun(path: string, filterId: string) {
+  const db = getDb(path)
+  return db
+    .prepare('SELECT * FROM filter_runs WHERE filter_id = ?')
+    .get(filterId) as
+    | {
+        filter_id: string
+        params_json: string
+        total_input: number
+        status: string
+        created_at: number
+      }
+    | undefined
+}
+
+export function deleteFilterRun(path: string, filterId: string) {
+  const db = getDb(path)
+  db.prepare('DELETE FROM filter_runs WHERE filter_id = ?').run(filterId)
+}
+
+export function getProcessedSourceIds(path: string, tableId: string): number[] {
+  const db = getDb(path)
+  try {
+    const rows = db
+      .prepare(
+        `SELECT DISTINCT CAST(JSON_EXTRACT(JSON, '$._sourceId') AS INTEGER) AS sid
+         FROM "${tableId}"
+         WHERE JSON_EXTRACT(JSON, '$._sourceId') IS NOT NULL`,
+      )
+      .all() as { sid: number }[]
+    return rows.map((r) => r.sid)
+  } catch (_) {
+    return []
+  }
 }

@@ -1,4 +1,11 @@
-import { app, ipcMain, dialog, shell, IpcMainEvent, BrowserWindow } from 'electron'
+import {
+  app,
+  ipcMain,
+  dialog,
+  shell,
+  IpcMainEvent,
+  BrowserWindow,
+} from 'electron'
 import { spawn, ChildProcess } from 'child_process'
 import { Worker } from 'worker_threads'
 import crypto from 'crypto'
@@ -21,7 +28,7 @@ import {
 import Archive from '../models/Archive'
 import Filter from '../models/Filter'
 import slpToVideo, { VideoJobController } from './slpToVideo'
-import { getMetaData, createDB, getTableCount } from './db'
+import { getMetaData, createDB, getTableCount, deleteFilterRun } from './db'
 import { closeDb, getDb } from './dbConnection'
 import { appendPerfEvents } from './perfLogger'
 import { logRenderer } from './logger'
@@ -99,6 +106,7 @@ const buildShallowArchive = (
       isProcessed: filter.isProcessed,
       params: filter.params,
       results: filter.results,
+      ...(filter.resumable ? { resumable: true } : {}),
     })),
   }
 }
@@ -132,6 +140,7 @@ export default class Controller {
   importQueue: string[][]
   importInProgress: boolean
   currentCountWorker: Worker | null
+  nameCountWorker: Worker | null
   countWorkerExecArgv?: string[]
   importStatus: ImportStatus
   activeVideoJob: VideoJobController | null
@@ -195,6 +204,7 @@ export default class Controller {
     this.importQueue = []
     this.importInProgress = false
     this.currentCountWorker = null
+    this.nameCountWorker = null
     this.activeVideoJob = null
     this.activePlaybackProcess = null
     this.activeTmpDirs = new Set()
@@ -241,6 +251,9 @@ export default class Controller {
 
     // Kill count worker
     this.stopCountWorker()
+
+    // Kill name count worker
+    this.stopNameCountWorker()
 
     // Clean up temp directories
     for (const dir of this.activeTmpDirs) {
@@ -436,6 +449,7 @@ export default class Controller {
       })
       if (canceled) return reply(event, 'openExistingArchive', requestId)
 
+      this.stopNameCountWorker()
       closeDb()
       try {
         const metadata = await getMetaData(filePaths[0])
@@ -485,6 +499,7 @@ export default class Controller {
   private startCountWorker(filePaths: string[]) {
     this.stopCountWorker()
     if (!filePaths || filePaths.length === 0) return
+    console.log('[CountWorker] starting, paths:', filePaths.length)
     const worker = new Worker(
       new URL('./ImportCountWorker.ts', import.meta.url),
       {
@@ -494,12 +509,19 @@ export default class Controller {
       },
     )
     this.currentCountWorker = worker
+    console.log('[CountWorker] worker created, threadId:', worker.threadId)
     this.mainWindow.webContents.send('importingFileTotal', { total: null })
     this.setImportStatus({ total: null })
 
     worker.on(
       'message',
       (message: { type?: string; total?: number; error?: string }) => {
+        console.log(
+          '[CountWorker] message:',
+          JSON.stringify(message),
+          'still current:',
+          worker === this.currentCountWorker,
+        )
         if (worker !== this.currentCountWorker) return
         if (message?.type === 'done') {
           if (typeof message.total === 'number') {
@@ -512,27 +534,31 @@ export default class Controller {
           return
         }
         if (message?.type === 'error') {
-          console.log('Count worker error:', message.error)
+          console.log('[CountWorker] error:', message.error)
           this.stopCountWorker()
         }
       },
     )
 
     worker.on('error', (error) => {
+      console.log('[CountWorker] worker error event:', error)
       if (worker !== this.currentCountWorker) return
-      console.log('Count worker error:', error)
       this.stopCountWorker()
     })
 
     worker.on('exit', (code) => {
+      console.log(
+        '[CountWorker] exit code:',
+        code,
+        'still current:',
+        worker === this.currentCountWorker,
+      )
       if (worker !== this.currentCountWorker) return
-      if (code !== 0) {
-        console.log(`Count worker exited with code ${code}`)
-      }
       this.currentCountWorker = null
     })
 
     worker.postMessage({ type: 'count', paths: filePaths })
+    console.log('[CountWorker] message posted')
   }
 
   private enqueueImport(filePaths: string[]) {
@@ -651,7 +677,10 @@ export default class Controller {
           const metadata = await getMetaData(this.archive.path)
           this.archive = new Archive(metadata)
         } catch (error) {
-          console.log('Error refreshing archive after auto-run game filter:', error)
+          console.log(
+            'Error refreshing archive after auto-run game filter:',
+            error,
+          )
         }
       }
     }
@@ -770,6 +799,7 @@ export default class Controller {
 
   async closeArchive(event: IpcMainEvent, data?: RequestEnvelope<null>) {
     const { requestId } = unpackRequest<null>(data)
+    this.stopNameCountWorker()
     closeDb()
     this.archive = null
     this.config.lastArchivePath = null
@@ -833,6 +863,7 @@ export default class Controller {
 
     try {
       const oldPath = this.archive.path
+      this.stopNameCountWorker()
       closeDb()
       await fsPromises.copyFile(oldPath, newPath)
 
@@ -883,6 +914,7 @@ export default class Controller {
     }
 
     try {
+      this.stopNameCountWorker()
       closeDb()
       const metadata = await getMetaData(projectPath)
       this.archive = new Archive(metadata)
@@ -955,6 +987,12 @@ export default class Controller {
     template.options.forEach((option) => {
       newFilterJSON.params[option.id] = option.default
     })
+    if (template.id === 'sort') {
+      const hasParser = this.archive.filters.some((f) => f.type === 'slpParser')
+      if (!hasParser) {
+        newFilterJSON.params.sortFunction = 'chronological'
+      }
+    }
     // this.archive.filters.push(new Filter(newFilterJSON))
     await this.archive.addFilter(newFilterJSON)
     const metadata = await this.archive.shallowCopy()
@@ -981,6 +1019,7 @@ export default class Controller {
     }
 
     if (payload) {
+      deleteFilterRun(this.archive.path, payload)
       await this.archive.deleteFilter(payload)
     }
     return reply(
@@ -1049,7 +1088,11 @@ export default class Controller {
         if (opt.requiresParser && filters[i].params?.[opt.id] !== undefined) {
           filters[i].params[opt.id] = opt.default ?? ''
         }
-        if (opt.type === 'dropdown' && opt.options && filters[i].params?.[opt.id]) {
+        if (
+          opt.type === 'dropdown' &&
+          opt.options &&
+          filters[i].params?.[opt.id]
+        ) {
           const selected = opt.options.find(
             (e: any) => e.id === filters[i].params[opt.id],
           )
@@ -1150,13 +1193,102 @@ export default class Controller {
     }
   }
 
+  private stopNameCountWorker() {
+    if (!this.nameCountWorker) return
+    const worker = this.nameCountWorker
+    this.nameCountWorker = null
+    worker.terminate().catch(() => {})
+  }
+
+  private ensureNameCountWorker(): Worker {
+    if (this.nameCountWorker) return this.nameCountWorker
+    if (!this.archive) throw new Error('No archive')
+    const worker = new Worker(
+      new URL('./NameCountWorker.ts', import.meta.url),
+      {
+        workerData: { dbPath: this.archive.path },
+        ...(this.countWorkerExecArgv
+          ? { execArgv: this.countWorkerExecArgv }
+          : {}),
+      },
+    )
+    worker.on('error', (error) => {
+      console.log('[NameCountWorker] error:', error)
+      if (this.nameCountWorker === worker) {
+        this.nameCountWorker = null
+      }
+    })
+    worker.on('exit', () => {
+      if (this.nameCountWorker === worker) {
+        this.nameCountWorker = null
+      }
+    })
+    this.nameCountWorker = worker
+    return worker
+  }
+
   async getNames(event: IpcMainEvent, data?: RequestEnvelope<null>) {
     const { requestId } = unpackRequest<null>(data)
-    if (!this.archive || !this.archive.getNames)
-      return reply(event, 'getNames', requestId, [])
-    const names = await this.archive.getNames()
+    if (!this.archive) return reply(event, 'getNames', requestId, [])
 
-    return reply(event, 'getNames', requestId, names)
+    try {
+      const worker = this.ensureNameCountWorker()
+      const t0 = Date.now()
+      const result = await new Promise<{ name: string; total: number }[]>(
+        (resolve, reject) => {
+          const handler = (msg: any) => {
+            if (msg.type === 'names') {
+              worker.off('message', handler)
+              resolve(msg.data)
+            } else if (msg.type === 'error') {
+              worker.off('message', handler)
+              reject(new Error(msg.error))
+            }
+          }
+          worker.on('message', handler)
+          worker.postMessage({ type: 'getNames' })
+        },
+      )
+      console.log(
+        `[perf] getNames: ${Date.now() - t0}ms (${result.length} names)`,
+      )
+      return reply(event, 'getNames', requestId, result)
+    } catch (error) {
+      console.log('[NameCountWorker] getNames error:', error)
+      return reply(event, 'getNames', requestId, [])
+    }
+  }
+
+  async getConnectCodes(event: IpcMainEvent, data?: RequestEnvelope<null>) {
+    const { requestId } = unpackRequest<null>(data)
+    if (!this.archive) return reply(event, 'getConnectCodes', requestId, [])
+
+    try {
+      const worker = this.ensureNameCountWorker()
+      const t0 = Date.now()
+      const result = await new Promise<{ name: string; total: number }[]>(
+        (resolve, reject) => {
+          const handler = (msg: any) => {
+            if (msg.type === 'connectCodes') {
+              worker.off('message', handler)
+              resolve(msg.data)
+            } else if (msg.type === 'error') {
+              worker.off('message', handler)
+              reject(new Error(msg.error))
+            }
+          }
+          worker.on('message', handler)
+          worker.postMessage({ type: 'getConnectCodes' })
+        },
+      )
+      console.log(
+        `[perf] getConnectCodes: ${Date.now() - t0}ms (${result.length} codes)`,
+      )
+      return reply(event, 'getConnectCodes', requestId, result)
+    } catch (error) {
+      console.log('[NameCountWorker] getConnectCodes error:', error)
+      return reply(event, 'getConnectCodes', requestId, [])
+    }
   }
 
   private broadcastRunningFilters() {
@@ -1166,20 +1298,24 @@ export default class Controller {
     })
   }
 
-  async runFilter(event: IpcMainEvent, data: RequestEnvelope<string>) {
-    const { requestId, payload } = unpackRequest<string>(data)
+  private async _executeFilter(
+    event: IpcMainEvent,
+    requestId: string | undefined,
+    replyChannel: string,
+    filterId: string,
+    resume: boolean,
+  ) {
     if (!this.archive) {
-      return reply(event, 'runFilter', requestId, {
+      return reply(event, replyChannel, requestId, {
         error: 'archive undefined',
       })
     }
 
-    const filterId = payload
     const filterJSON = this.archive.filters.find(
       (filter) => filter.id === filterId,
     )
     if (!filterJSON) {
-      return reply(event, 'runFilter', requestId, {
+      return reply(event, replyChannel, requestId, {
         error: `no filter with id: '${filterId}' found`,
       })
     }
@@ -1187,7 +1323,7 @@ export default class Controller {
     const filterIndex = this.archive.filters.indexOf(filterJSON)
     const filter = new Filter(filterJSON)
     if (!filter.run3) {
-      return reply(event, 'runFilter', requestId, {
+      return reply(event, replyChannel, requestId, {
         error: `filter creation error: '${filterId}'`,
       })
     }
@@ -1202,6 +1338,11 @@ export default class Controller {
       this.runningFilterControllers.delete(filterId)
     }
 
+    // Fresh run: delete any existing run record
+    if (!resume) {
+      deleteFilterRun(this.archive.path, filterId)
+    }
+
     const abortController = new AbortController()
     this.runningFilterControllers.set(filterId, abortController)
     this.runningFilterIndices.add(filterIndex)
@@ -1209,7 +1350,7 @@ export default class Controller {
 
     const numFilterThreads = this.config.numFilterThreads || 1
 
-    const terminated = await filter.run3(
+    const filterResult = await filter.run3(
       this.archive.path,
       prevResultsTableId,
       numFilterThreads,
@@ -1228,7 +1369,17 @@ export default class Controller {
         })
       },
       abortController.signal,
+      resume ? { resume: true } : undefined,
     )
+    const { terminated, errors: filterErrors } = filterResult
+
+    if (filterErrors.length > 0) {
+      this.mainWindow.webContents.send('filterError', {
+        filterId,
+        filterLabel: filterJSON.label,
+        errors: filterErrors,
+      })
+    }
 
     // Check if upstream filter is still running (before cleanup)
     let filterMessage = ''
@@ -1252,15 +1403,16 @@ export default class Controller {
     this.runningFilterIndices.delete(filterIndex)
 
     if (terminated && this.filterCancelIds.has(filterId)) {
-      // Cancel: drop partial results, reset filter
+      // Cancel: drop partial results, reset filter, delete run record
       this.filterCancelIds.delete(filterId)
+      deleteFilterRun(this.archive.path, filterId)
       if (this.archive.resetFiltersFrom) {
         await this.archive.resetFiltersFrom(filterIndex)
       }
       const metadata = await getMetaData(this.archive.path)
       this.archive = new Archive(metadata)
       this.broadcastRunningFilters()
-      return reply(event, 'runFilter', requestId, metadata)
+      return reply(event, replyChannel, requestId, metadata)
     }
 
     // Stop or normal completion: keep results, mark processed
@@ -1305,21 +1457,52 @@ export default class Controller {
         ? { ...metadata, filterMessage: { [filterId]: filterMessage } }
         : metadata
       // Reply first so UI has correct results before isRunning flips to false
-      reply(event, 'runFilter', requestId, replyData)
+      reply(event, replyChannel, requestId, replyData)
       this.broadcastRunningFilters()
-      return
     } catch (error) {
       console.log('Error finalizing filter run:', error)
       try {
         const metadata = await getMetaData(this.archive.path)
         this.archive = new Archive(metadata)
-        reply(event, 'runFilter', requestId, metadata)
+        reply(event, replyChannel, requestId, metadata)
       } catch (innerError) {
         console.log('Error reading metadata in recovery:', innerError)
-        reply(event, 'runFilter', requestId, { error: 'Filter completed but failed to read results' })
+        reply(event, replyChannel, requestId, {
+          error: 'Filter completed but failed to read results',
+        })
       }
       this.broadcastRunningFilters()
     }
+  }
+
+  async runFilter(event: IpcMainEvent, data: RequestEnvelope<string>) {
+    const { requestId, payload } = unpackRequest<string>(data)
+    return this._executeFilter(event, requestId, 'runFilter', payload!, false)
+  }
+
+  async resumeFilter(event: IpcMainEvent, data: RequestEnvelope<string>) {
+    const { requestId, payload } = unpackRequest<string>(data)
+    return this._executeFilter(event, requestId, 'resumeFilter', payload!, true)
+  }
+
+  async dismissFilterResume(
+    event: IpcMainEvent,
+    data: RequestEnvelope<string>,
+  ) {
+    const { requestId, payload: filterId } = unpackRequest<string>(data)
+    if (!this.archive || !filterId) {
+      return reply(event, 'dismissFilterResume', requestId, {
+        error: 'archive undefined',
+      })
+    }
+
+    // Delete the run record (keep partial results)
+    deleteFilterRun(this.archive.path, filterId)
+
+    // Refresh archive
+    const metadata = await getMetaData(this.archive.path)
+    this.archive = new Archive(metadata)
+    return reply(event, 'dismissFilterResume', requestId, metadata)
   }
 
   async runFilters(event: IpcMainEvent, data?: RequestEnvelope<null>) {
@@ -1342,7 +1525,7 @@ export default class Controller {
       this.runningFilterIndices.add(i)
       this.broadcastRunningFilters()
 
-      const terminated = await filter.run3(
+      const filterResult = await filter.run3(
         this.archive.path,
         prevResultsTableId,
         numFilterThreads,
@@ -1357,6 +1540,15 @@ export default class Controller {
         },
         batchAbort.signal,
       )
+      const { terminated, errors: filterErrors } = filterResult
+
+      if (filterErrors.length > 0) {
+        this.mainWindow.webContents.send('filterError', {
+          filterId: filterJSON.id,
+          filterLabel: filterJSON.label,
+          errors: filterErrors,
+        })
+      }
 
       this.runningFilterControllers.delete(filterJSON.id)
       this.runningFilterIndices.delete(i)
@@ -1487,6 +1679,153 @@ export default class Controller {
     const { requestId, payload } = unpackRequest<any>(data)
     logRenderer(payload)
     reply(event, 'rendererError', requestId)
+  }
+
+  async playClips(
+    event: IpcMainEvent,
+    data: RequestEnvelope<{ filterId: string; selectedIds: string[] }>,
+  ) {
+    const { payload } = unpackRequest<{
+      filterId: string
+      selectedIds: string[]
+    }>(data)
+    if (!this.archive || !payload?.selectedIds?.length) return
+
+    const numericIds = payload.selectedIds
+      .map((id) => parseInt(id, 10))
+      .filter((n) => !Number.isNaN(n))
+    if (numericIds.length === 0) return
+
+    const items = await this.archive.getItemsByIds(payload.filterId, numericIds)
+    if (!items || items.length === 0) return
+
+    for (const item of items) {
+      if (!('path' in item) || !item.path) continue
+      const clipPayload: ClipPayload = {
+        path: item.path as string,
+        startFrame:
+          'startFrame' in item ? (item.startFrame as number) : undefined,
+        endFrame: 'endFrame' in item ? (item.endFrame as number) : undefined,
+        lastFrame: 'lastFrame' in item ? (item.lastFrame as number) : undefined,
+      }
+      await this.playClipAsync(clipPayload)
+    }
+  }
+
+  private async playClipAsync(payload: ClipPayload): Promise<void> {
+    const { dolphinPath, ssbmIsoPath } = this.config
+    if (!dolphinPath || !ssbmIsoPath) return
+
+    try {
+      await fsPromises.access(dolphinPath)
+      await fsPromises.access(ssbmIsoPath)
+      await fsPromises.access(payload.path)
+    } catch {
+      return
+    }
+
+    const { startFrame, endFrame } = resolveClipFrames(payload)
+    const { addStartFrames, addEndFrames, playbackResolution } = this.config
+    const adjustedStart = startFrame - addStartFrames
+    const adjustedEnd = endFrame + addEndFrames
+    const dolphinConfig = {
+      mode: 'normal',
+      replay: payload.path,
+      startFrame: adjustedStart,
+      endFrame: adjustedEnd,
+      isRealTimeMode: false,
+      commandId: crypto.randomBytes(12).toString('hex'),
+    }
+
+    const efbScale = playbackResolution ?? 2
+    try {
+      let gfxPath: string
+      if (os.type() === 'Linux') {
+        const appData = app.getPath('appData')
+        gfxPath = path.join(appData, 'SlippiPlayback', 'Config', 'GFX.ini')
+      } else {
+        const dolphinDir = path.dirname(dolphinPath)
+        gfxPath = path.join(dolphinDir, 'User', 'Config', 'GFX.ini')
+      }
+      const gfxContent = await fsPromises.readFile(gfxPath, 'utf8')
+      const updatedContent = gfxContent.replace(
+        /^EFBScale\s*=.*$/m,
+        `EFBScale = ${efbScale}`,
+      )
+      await fsPromises.writeFile(gfxPath, updatedContent)
+    } catch {
+      // GFX.ini not found or unreadable — continue with Dolphin defaults
+    }
+
+    const tmpDir = await fsPromises.mkdtemp(
+      path.join(os.tmpdir(), 'lm-clipper-'),
+    )
+    this.activeTmpDirs.add(tmpDir)
+    const filePath = path.resolve(tmpDir, 'dolphinConfig.json')
+    await fsPromises.writeFile(filePath, JSON.stringify(dolphinConfig))
+
+    const args = [
+      '-i',
+      filePath,
+      '-b',
+      '-e',
+      path.resolve(ssbmIsoPath),
+      '--cout',
+    ]
+
+    try {
+      if (this.activePlaybackProcess) {
+        try {
+          this.activePlaybackProcess.kill()
+        } catch (_) {
+          // empty
+        }
+      }
+
+      const dolphinProcess = spawn(path.resolve(dolphinPath), args)
+      this.activePlaybackProcess = dolphinProcess
+
+      await new Promise<void>((resolve) => {
+        let targetEndFrame: string | number = Infinity
+        let staleTimer: ReturnType<typeof setTimeout> | null = null
+        const resetStaleTimer = () => {
+          if (staleTimer) clearTimeout(staleTimer)
+          staleTimer = setTimeout(() => {
+            dolphinProcess.kill()
+          }, 1000)
+        }
+
+        dolphinProcess.stdout.setEncoding('utf8')
+        dolphinProcess.stdout.on('data', (chunk: string) => {
+          const lines = chunk.split('\r\n')
+          lines.forEach((line: string) => {
+            if (line.includes('[PLAYBACK_END_FRAME]')) {
+              const match = /\[PLAYBACK_END_FRAME\] ([0-9]*)/.exec(line)
+              targetEndFrame = match && match[1] ? match[1] : Infinity
+            } else if (line.includes('[GAME_END_FRAME]')) {
+              dolphinProcess.kill()
+            } else if (line.includes(`[CURRENT_FRAME] ${targetEndFrame}`)) {
+              dolphinProcess.kill()
+            } else if (line.includes('[CURRENT_FRAME]')) {
+              resetStaleTimer()
+            }
+          })
+        })
+
+        dolphinProcess.on('exit', () => {
+          if (this.activePlaybackProcess === dolphinProcess) {
+            this.activePlaybackProcess = null
+          }
+          if (staleTimer) clearTimeout(staleTimer)
+          fsPromises.unlink(filePath).catch(() => {})
+          fsPromises.rmdir(tmpDir).catch(() => {})
+          this.activeTmpDirs.delete(tmpDir)
+          resolve()
+        })
+      })
+    } catch {
+      // spawn failed
+    }
   }
 
   async playClip(event: IpcMainEvent, data: RequestEnvelope<ClipPayload>) {
@@ -1877,7 +2216,10 @@ export default class Controller {
 
     console.log('Replays: ', replays)
     console.log('Config: ', config)
-    this.mainWindow.webContents.send('videoOutputPath', config.outputPath.replace(/\/+$/, ''))
+    this.mainWindow.webContents.send(
+      'videoOutputPath',
+      config.outputPath.replace(/\/+$/, ''),
+    )
     this.activeVideoJob = slpToVideo(replays, config, (msg: string) => {
       this.mainWindow.webContents.send('videoMsg', msg)
     })
@@ -1929,7 +2271,10 @@ export default class Controller {
     ipcMain.on('removeFilter', this.removeFilter.bind(this))
     ipcMain.on('getResults', this.getResults.bind(this))
     ipcMain.on('getNames', this.getNames.bind(this))
+    ipcMain.on('getConnectCodes', this.getConnectCodes.bind(this))
     ipcMain.on('runFilter', this.runFilter.bind(this))
+    ipcMain.on('resumeFilter', this.resumeFilter.bind(this))
+    ipcMain.on('dismissFilterResume', this.dismissFilterResume.bind(this))
     ipcMain.on('runFilters', this.runFilters.bind(this))
     ipcMain.on('cancelRunningFilters', this.cancelRunningFilters.bind(this))
     ipcMain.on('stopRunningFilters', this.stopRunningFilters.bind(this))
@@ -1939,12 +2284,20 @@ export default class Controller {
     ipcMain.on('generateVideo', this.generateVideo.bind(this))
     ipcMain.on('stopVideo', this.stopVideo.bind(this))
     ipcMain.on('cancelVideo', this.cancelVideo.bind(this))
+    ipcMain.on('playClips', this.playClips.bind(this))
     ipcMain.on('playClip', this.playClip.bind(this))
     ipcMain.on('recordClip', this.recordClip.bind(this))
     ipcMain.on('logPerfEvents', this.logPerfEvents.bind(this))
     ipcMain.on('debugLog', this.debugLog.bind(this))
     ipcMain.on('openFolder', (_event: IpcMainEvent, folderPath: string) => {
-      if (folderPath) shell.openPath(folderPath)
+      if (!folderPath) return
+      if (!fs.existsSync(folderPath)) {
+        console.error('openFolder: path does not exist:', folderPath)
+        return
+      }
+      shell.openPath(folderPath).then((err) => {
+        if (err) console.error('shell.openPath failed:', err)
+      })
     })
     ipcMain.on('rendererError', this.logRendererError.bind(this))
     ipcMain.on('testDolphin', this.testDolphin.bind(this))

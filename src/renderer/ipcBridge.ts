@@ -167,6 +167,9 @@ export default {
   getNames(handler?: ResponseHandler<any>) {
     return request('getNames', null, 'getNames', handler)
   },
+  getConnectCodes(handler?: ResponseHandler<any>) {
+    return request('getConnectCodes', null, 'getConnectCodes', handler)
+  },
   updateFilter(
     params: {
       filterIndex: number
@@ -178,6 +181,17 @@ export default {
   },
   runFilter(filterId: string, handler?: ResponseHandler<any>) {
     return request('runFilter', filterId, 'runFilter', handler)
+  },
+  resumeFilter(filterId: string, handler?: ResponseHandler<any>) {
+    return request('resumeFilter', filterId, 'resumeFilter', handler)
+  },
+  dismissFilterResume(filterId: string, handler?: ResponseHandler<any>) {
+    return request(
+      'dismissFilterResume',
+      filterId,
+      'dismissFilterResume',
+      handler,
+    )
   },
   runFilters(handler?: ResponseHandler<any>) {
     return request('runFilters', null, 'runFilters', handler)
@@ -225,6 +239,9 @@ export default {
   },
   cancelVideo(handler?: ResponseHandler<any>) {
     return request('cancelVideo', null, 'cancelVideo', handler)
+  },
+  playClips(payload: { filterId: string; selectedIds: string[] }) {
+    return send('playClips', payload)
   },
   playClip(payload: {
     path: string

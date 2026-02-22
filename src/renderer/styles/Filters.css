@@ -791,6 +791,69 @@
   background: rgba(255, 255, 255, 0.25);
 }
 
+.filter-multi-search {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 10px;
+  font-size: 12px;
+  color: #f5f6f8;
+  background: rgba(255, 255, 255, 0.06);
+  border: none;
+  border-bottom: 1px solid var(--filter-border);
+  outline: none;
+  letter-spacing: 0.04em;
+  font-family: inherit;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.filter-multi-search::placeholder {
+  color: var(--filter-muted);
+  opacity: 0.7;
+}
+
+.filter-multi-search:focus {
+  background: rgba(255, 255, 255, 0.09);
+}
+
+.filter-multi-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px;
+  font-size: 12px;
+  color: var(--filter-muted);
+  letter-spacing: 0.04em;
+}
+
+.filter-multi-more {
+  padding: 6px 10px;
+  font-size: 11px;
+  color: var(--filter-muted);
+  text-align: center;
+  border-top: 1px solid var(--filter-border);
+  letter-spacing: 0.04em;
+}
+
+.filter-multi-spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255, 255, 255, 0.15);
+  border-top-color: var(--filter-muted);
+  border-radius: 50%;
+  animation: filter-spin 0.8s linear infinite;
+}
+
+@keyframes filter-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .filter-multi-item {
   display: flex;
   align-items: center;
@@ -993,4 +1056,46 @@
     opacity: 1;
     transform: translateX(-50%) translateY(0);
   }
+}
+
+/* Resume button */
+
+.filter-resume-wrap {
+  display: inline-flex;
+}
+
+.filter-button-resume {
+  border-color: #3a6b3a;
+  color: #80d080;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+  min-width: 0;
+  padding: 0 10px;
+}
+
+.filter-button-resume:hover {
+  background: rgba(60, 120, 60, 0.2);
+  border-color: #4a8b4a;
+}
+
+.filter-resume-dismiss {
+  height: 28px;
+  width: 24px;
+  padding: 0;
+  border: 1px solid #6b3a3a;
+  border-left: none;
+  border-radius: 0 8px 8px 0;
+  background: rgba(0, 0, 0, 0.1);
+  color: #e06060;
+  font-size: 12px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.filter-resume-dismiss:hover {
+  background: rgba(160, 50, 50, 0.2);
+  border-color: #8b4a4a;
 }

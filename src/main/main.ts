@@ -11,13 +11,19 @@
 import path from 'path'
 import { app, BrowserWindow, shell, ipcMain } from 'electron'
 import type { Event } from 'electron'
+import { autoUpdater } from 'electron-updater'
 import MenuBuilder from './menu'
 import { resolveHtmlPath } from './util'
 import Controller from './controller'
 import { runWorkflow } from './workflow'
 import { logMain } from './logger'
 import { closeDb } from './dbConnection'
-import { autoUpdater } from 'electron-updater'
+
+// Set WM_CLASS so Linux desktop environments use our window icon
+app.setName('LM Clipper')
+if (process.platform === 'linux') {
+  app.commandLine.appendSwitch('class', 'lm-clipper')
+}
 
 let mainWindow: BrowserWindow | null = null
 let controller: Controller | null = null
@@ -168,7 +174,10 @@ const createWindow = async () => {
         mainWindow?.webContents.send('update-available', info.version)
       })
       autoUpdater.on('download-progress', (progress) => {
-        mainWindow?.webContents.send('update-progress', Math.round(progress.percent))
+        mainWindow?.webContents.send(
+          'update-progress',
+          Math.round(progress.percent),
+        )
       })
       autoUpdater.on('update-downloaded', () => {
         mainWindow?.webContents.send('update-downloaded')
@@ -187,7 +196,10 @@ const createWindow = async () => {
     mainWindow = null
   })
 
-  const menuBuilder = new MenuBuilder(mainWindow)
+  const menuBuilder = new MenuBuilder(
+    mainWindow,
+    controller?.config?.recentProjects || [],
+  )
   menuBuilder.buildMenu()
   // Open urls in the user's browser
   mainWindow.webContents.setWindowOpenHandler((edata) => {

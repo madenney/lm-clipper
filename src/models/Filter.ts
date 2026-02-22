@@ -4,7 +4,14 @@ import {
   EventEmitterInterface,
   WorkerMessage,
 } from '../constants/types'
-import { getTableLength, createFilter, deleteFilter } from '../main/db'
+import {
+  getTableLength,
+  createFilter,
+  deleteFilter,
+  upsertFilterRun,
+  deleteFilterRun,
+  getProcessedSourceIds,
+} from '../main/db'
 
 type Slice = {
   bottom: number
@@ -44,7 +51,9 @@ export default class Filter {
     numFilterThreads: number,
     eventEmitter: EventEmitterInterface,
     abortSignal?: AbortSignal,
-  ) {
+    options?: { resume?: boolean },
+  ): Promise<{ terminated: boolean; errors: string[] }> {
+    const resume = options?.resume === true
     const prevResultsLength = await getTableLength(dbPath, prevTableId)
     let maxFiles = prevResultsLength
 
@@ -55,13 +64,22 @@ export default class Filter {
       }
     }
 
-    // Always clear the output table so stale results don't persist
-    await deleteFilter(dbPath, this.id)
-    await createFilter(dbPath, this.id)
+    // Build skip set for resume mode
+    let skipSourceIds: number[] = []
+    if (resume) {
+      skipSourceIds = getProcessedSourceIds(dbPath, this.id)
+    } else {
+      // Fresh run: clear the output table
+      await deleteFilter(dbPath, this.id)
+      await createFilter(dbPath, this.id)
+    }
+
+    // Record that this filter run is in progress
+    upsertFilterRun(dbPath, this.id, JSON.stringify(this.params), maxFiles)
 
     if (maxFiles === 0) {
       this.isProcessed = true
-      return false
+      return { terminated: false, errors: [] }
     }
 
     const minThreads = Math.max(1, numFilterThreads)
@@ -70,6 +88,7 @@ export default class Filter {
     const slices = createSlices(maxFiles, threadCount)
     const workerResults = new Array(slices.length).fill(0)
     const workers: Worker[] = []
+    const errors: string[] = []
     let terminated = false
     let lastProgress = -1
 
@@ -93,6 +112,20 @@ export default class Filter {
           if (mode === 'esm') return ['--loader', 'ts-node/esm']
           return ['-r', 'ts-node/register/transpile-only']
         })()
+        // Slow I/O filters (edgeguard, actionStateFilter, etc.) load full .slp
+        // frame data via SlippiGame.getFrames(), which can be 20-40 MB per file.
+        // Worker threads default to a small heap (~48-64 MB) so we bump it.
+        const slowIOTypes = new Set([
+          'slpParser',
+          'actionStateFilter',
+          'edgeguard',
+          'reverse',
+          'removeStarKOFrames',
+        ])
+        const resourceLimits = slowIOTypes.has(this.type)
+          ? { maxOldGenerationSizeMb: 512 }
+          : undefined
+
         const worker = new Worker(new URL('./Worker.ts', import.meta.url), {
           workerData: {
             dbPath,
@@ -101,8 +134,10 @@ export default class Filter {
             type: this.type,
             slice,
             params: this.params,
+            skipSourceIds,
           },
           ...(workerExecArgv ? { execArgv: workerExecArgv } : {}),
+          ...(resourceLimits ? { resourceLimits } : {}),
         })
 
         workers.push(worker)
@@ -127,6 +162,11 @@ export default class Filter {
               }
             }
 
+            if (e.type === 'error') {
+              const errMsg = (e as any).message || 'Unknown error'
+              if (errors.length < 10) errors.push(errMsg)
+            }
+
             if (e.type === 'done') {
               resolve()
               worker.terminate().then(() => {
@@ -137,6 +177,13 @@ export default class Filter {
 
           worker.on('error', (error) => {
             console.log('Worker error:', error)
+            resolve()
+          })
+
+          worker.on('exit', (code) => {
+            if (code !== 0) {
+              console.log(`Worker exited with code ${code}`)
+            }
             resolve()
           })
         })
@@ -160,11 +207,14 @@ export default class Filter {
 
     if (terminated) {
       this.isProcessed = false
-      return true
+      // Leave run record as-is so resume is available
+      return { terminated: true, errors }
     }
 
+    // Successful completion: remove run record
+    deleteFilterRun(dbPath, this.id)
     this.isProcessed = true
-    return false
+    return { terminated: false, errors }
   }
 }
 
