@@ -14,23 +14,31 @@ export default (prevResults, params, eventEmitter) => {
       total: maxFiles === '' ? prevResults.length : parseInt(maxFiles, 10),
     })
 
+    if (!comboee) return clip
+
     const game = new SlippiGame(path)
     let frames
     try {
       frames = game.getFrames()
     } catch (e) {
-      console.log(e)
       console.log('Broken file:', path)
-      return null
+      return clip
     }
+
+    const _endFrame = parseInt(endFrame, 10)
+    const _startFrame = parseInt(startFrame, 10)
+    if (Number.isNaN(_endFrame) || Number.isNaN(_startFrame)) return clip
+
     // Lets just assume star KO frames happen at the end of the clip
     // find them and work backwards
     let newEndFrame
-    for (let i = parseInt(endFrame, 10); i > parseInt(startFrame, 10); i--) {
+    for (let i = _endFrame; i > _startFrame; i--) {
       const currentFrame = frames[i]
+      if (!currentFrame?.players) break
       const _comboee = currentFrame.players.find(
-        (p) => p && p.post.playerIndex == comboee.playerIndex,
+        (p) => p?.post?.playerIndex == comboee.playerIndex,
       )
+      if (!_comboee?.post) break
       if (starKOIDs.indexOf(_comboee.post.actionStateId) > -1) {
         newEndFrame = i - 1
       } else {

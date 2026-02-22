@@ -9,7 +9,19 @@ function postMessage(message: WorkerMessage) {
 }
 
 function run() {
-  const { dbPath, prevTableId, nextTableId, type, slice, params } = workerData
+  const {
+    dbPath,
+    prevTableId,
+    nextTableId,
+    type,
+    slice,
+    params,
+    skipSourceIds,
+  } = workerData
+  const skipSet: Set<number> | null =
+    skipSourceIds && skipSourceIds.length > 0
+      ? new Set<number>(skipSourceIds)
+      : null
 
   const db = new Database(dbPath, { readonly: false })
   db.pragma('journal_mode = WAL')
@@ -20,6 +32,11 @@ function run() {
   try {
     const method = methods[type]
     if (!method) {
+      postMessage({
+        type: 'error',
+        message: `Unknown filter method: ${type}`,
+        filterType: type,
+      })
       postMessage({ type: 'done', results: 0 })
       return
     }
@@ -30,6 +47,20 @@ function run() {
         stmt.run(JSON.stringify(item))
       }
     })
+
+    let errorCount = 0
+    const MAX_ERRORS = 5
+    const sendError = (msg: string, itemIndex?: number) => {
+      errorCount++
+      if (errorCount <= MAX_ERRORS) {
+        postMessage({
+          type: 'error',
+          message: msg,
+          filterType: type,
+          itemIndex,
+        })
+      }
+    }
 
     // Sort loads all rows upfront; parsers and other filters stream in chunks
     const prevResults =
@@ -74,11 +105,19 @@ function run() {
             })
             lastProgressTime = now
           }
-          const res = method(item, params)
-          if (Array.isArray(res)) {
-            for (let i = 0; i < res.length; i += 1) {
-              if (res[i]) buffer.push(res[i])
+          if (skipSet && item._sourceId && skipSet.has(item._sourceId)) {
+            processed++
+            continue
+          }
+          try {
+            const res = method(item, params)
+            if (Array.isArray(res)) {
+              for (let i = 0; i < res.length; i += 1) {
+                if (res[i]) buffer.push(res[i])
+              }
             }
+          } catch (err: any) {
+            sendError(err?.message || String(err), processed)
           }
           // First flush at 100 for quick partial results, then adaptive size
           const flushAt = totalInserted === 0 ? 100 : parserFlushSize
@@ -96,17 +135,27 @@ function run() {
         insertBatch(buffer)
         totalInserted += buffer.length
       }
+      postMessage({
+        type: 'progress',
+        current: processed,
+        total,
+        results: totalInserted,
+      })
       postMessage({ type: 'done', results: totalInserted })
     } else if (type === 'sort') {
       // Sort needs all data in memory — keep as single batch
       const progressEmitter = createProgressEmitter()
       let results: any[] = []
-      if (method.length >= 3) {
-        const res = method(prevResults, params, progressEmitter)
-        if (Array.isArray(res)) results = res
-      } else {
-        const res = method(prevResults, params)
-        if (Array.isArray(res)) results = res
+      try {
+        if (method.length >= 3) {
+          const res = method(prevResults, params, progressEmitter)
+          if (Array.isArray(res)) results = res
+        } else {
+          const res = method(prevResults, params)
+          if (Array.isArray(res)) results = res
+        }
+      } catch (err: any) {
+        sendError(err?.message || String(err))
       }
       results = results.filter(Boolean)
       insertBatch(results)
@@ -119,24 +168,58 @@ function run() {
       let processed = 0
       let currentBottom = slice.bottom
 
+      // Slow I/O filters (open .slp files per item) use chunk size 1 so
+      // results update after every file; fast filters use large chunks.
+      const slowTypes = new Set([
+        'actionStateFilter',
+        'reverse',
+        'removeStarKOFrames',
+        'edgeguard',
+      ])
+      const isSlow = slowTypes.has(type)
+      const effectiveChunkSize = isSlow ? 1 : CHUNK_SIZE
+
       while (currentBottom <= slice.top) {
-        const currentTop = Math.min(currentBottom + CHUNK_SIZE - 1, slice.top)
+        const currentTop = Math.min(
+          currentBottom + effectiveChunkSize - 1,
+          slice.top,
+        )
         const chunkRows = getRows(db, prevTableId, {
           bottom: currentBottom,
           top: currentTop,
         })
         const chunk = parseRows(prevTableId, chunkRows)
 
-        // Progress is reported per-chunk below; no need for per-item messages
+        if (
+          skipSet &&
+          chunk.length > 0 &&
+          chunk[0]._sourceId &&
+          skipSet.has(chunk[0]._sourceId)
+        ) {
+          processed += chunk.length
+          postMessage({
+            type: 'progress',
+            current: processed,
+            total,
+            results: totalInserted,
+          })
+          currentBottom = currentTop + 1
+          continue
+        }
+
         const chunkEmitter = () => {}
 
         let results: any[] = []
-        if (method.length >= 3) {
-          const res = method(chunk, params, chunkEmitter)
-          if (Array.isArray(res)) results = res
-        } else {
-          const res = method(chunk, params)
-          if (Array.isArray(res)) results = res
+        try {
+          if (method.length >= 3) {
+            const res = method(chunk, params, chunkEmitter)
+            if (Array.isArray(res)) results = res
+          } else {
+            const res = method(chunk, params)
+            if (Array.isArray(res)) results = res
+          }
+        } catch (err: any) {
+          sendError(err?.message || String(err), processed)
         }
 
         results = results.filter(Boolean)
@@ -146,7 +229,12 @@ function run() {
         }
 
         processed += chunk.length
-        postMessage({ type: 'progress', current: processed, total })
+        postMessage({
+          type: 'progress',
+          current: processed,
+          total,
+          results: totalInserted,
+        })
         currentBottom = currentTop + 1
       }
 
@@ -163,8 +251,14 @@ function run() {
 
 try {
   run()
-} catch (error) {
+} catch (error: any) {
   console.log('Worker failed:', error)
+  const type = workerData?.type || 'unknown'
+  postMessage({
+    type: 'error',
+    message: error?.message || String(error),
+    filterType: type,
+  })
   postMessage({ type: 'done', results: 0 })
 }
 
@@ -198,6 +292,7 @@ function parseRows(tableId: string, rows: any[]) {
       if (!row.id) return
       results.push({
         id: row.id,
+        _sourceId: row.id,
         path: row.path,
         players: row.players ? JSON.parse(row.players) : [],
         winner: row.winner,
@@ -216,6 +311,7 @@ function parseRows(tableId: string, rows: any[]) {
       if (!row.JSON) return
       try {
         const obj = JSON.parse(row.JSON)
+        obj._sourceId = row.id
         results.push(obj)
       } catch (error) {
         console.log('Error parsing row JSON:', error)

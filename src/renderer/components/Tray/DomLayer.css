@@ -8,11 +8,23 @@
   left: 0;
   right: 0;
   bottom: 0;
-  -ms-overflow-style: none;
-  scrollbar-width: none;
+  scrollbar-width: thin;
+  scrollbar-color: #3a3a3a transparent;
 }
 
-/* Hide scrollbar but keep functionality */
 .dom-layer::-webkit-scrollbar {
-  display: none;
+  width: 6px;
+}
+
+.dom-layer::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.dom-layer::-webkit-scrollbar-thumb {
+  background: #3a3a3a;
+  border-radius: 3px;
+}
+
+.dom-layer::-webkit-scrollbar-thumb:hover {
+  background: #505050;
 }

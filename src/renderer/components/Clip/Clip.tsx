@@ -39,6 +39,7 @@ type ClipProps = {
   isSelected?: boolean
   onMouseDown?: (_e: React.MouseEvent) => void
   onMouseEnter?: () => void
+  onRecord?: () => void
 }
 
 /**
@@ -125,6 +126,7 @@ function ClipComponent({
   isSelected,
   onMouseDown,
   onMouseEnter,
+  onRecord,
 }: ClipProps) {
   const [player1, player2] = getPlayers(data)
   const stageId = data.stage
@@ -158,9 +160,7 @@ function ClipComponent({
   const handlePlay = clipPayload
     ? () => ipcBridge.playClip(clipPayload)
     : undefined
-  const handleRecord = clipPayload
-    ? () => ipcBridge.recordClip(clipPayload)
-    : undefined
+  const handleRecord = onRecord || undefined
 
   const handlePlayClick = (e: MouseEvent) => {
     e.stopPropagation()

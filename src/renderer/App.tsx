@@ -64,7 +64,7 @@ export default function App() {
     )
 
     const removeNewProjectListener = window.electron.ipcRenderer.on(
-      'newProject',
+      'menu:newProject',
       () => {
         ipcBridge.newProject((newArchive) => {
           if (!newArchive || newArchive.error) {
@@ -72,6 +72,28 @@ export default function App() {
             return
           }
           setArchive(newArchive)
+        })
+      },
+    )
+
+    const removeRefreshListener = window.electron.ipcRenderer.on(
+      'refreshProject',
+      () => {
+        ipcBridge.getArchive((nextArchive) => {
+          setArchive(nextArchive || null)
+        })
+      },
+    )
+
+    const removeRecentFromMenuListener = window.electron.ipcRenderer.on(
+      'openRecentFromMenu',
+      (projectPath: string) => {
+        ipcBridge.openRecentProject(projectPath, (result) => {
+          if (!result || result.error) {
+            console.log('Error opening recent project:', result?.error)
+            return
+          }
+          setArchive(result)
         })
       },
     )
@@ -116,6 +138,8 @@ export default function App() {
       removeOpenListener()
       removeImportListener()
       removeNewProjectListener()
+      removeRefreshListener()
+      removeRecentFromMenuListener()
       removeSaveAsListener()
       removeUpdateAvailable()
       removeUpdateProgress()

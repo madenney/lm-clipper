@@ -11,11 +11,16 @@ interface DarwinMenuItemConstructorOptions extends MenuItemConstructorOptions {
   submenu?: DarwinMenuItemConstructorOptions[] | Menu
 }
 
+type RecentProject = { name: string; path: string }
+
 export default class MenuBuilder {
   mainWindow: BrowserWindow
 
-  constructor(mainWindow: BrowserWindow) {
+  recentProjects: RecentProject[]
+
+  constructor(mainWindow: BrowserWindow, recentProjects: RecentProject[] = []) {
     this.mainWindow = mainWindow
+    this.recentProjects = recentProjects
   }
 
   buildMenu(): Menu {
@@ -50,6 +55,19 @@ export default class MenuBuilder {
         },
       ]).popup({ window: this.mainWindow })
     })
+  }
+
+  private buildRecentSubmenu(): MenuItemConstructorOptions[] {
+    const recents = this.recentProjects.slice(0, 3)
+    if (recents.length === 0) {
+      return [{ label: 'No Recent Projects', enabled: false }]
+    }
+    return recents.map((p) => ({
+      label: p.name,
+      click: () => {
+        this.mainWindow.webContents.send('openRecentFromMenu', p.path)
+      },
+    }))
   }
 
   buildDarwinTemplate(): MenuItemConstructorOptions[] {
@@ -104,8 +122,8 @@ export default class MenuBuilder {
       label: 'View',
       submenu: [
         {
-          label: 'Reload',
-          accelerator: 'Command+R',
+          label: 'Restart',
+          accelerator: 'Command+Shift+R',
           click: () => {
             this.mainWindow.webContents.reload()
           },
@@ -145,7 +163,7 @@ export default class MenuBuilder {
           label: 'New Project',
           accelerator: 'Command+N',
           click: () => {
-            this.mainWindow.webContents.send('newProject')
+            this.mainWindow.webContents.send('menu:newProject')
           },
         },
         {
@@ -154,6 +172,10 @@ export default class MenuBuilder {
           click: () => {
             this.mainWindow.webContents.send('openProject')
           },
+        },
+        {
+          label: 'Open Recent',
+          submenu: this.buildRecentSubmenu(),
         },
         {
           label: 'Save As...',
@@ -168,6 +190,14 @@ export default class MenuBuilder {
           accelerator: 'Command+I',
           click: () => {
             this.mainWindow.webContents.send('importSlpClicked')
+          },
+        },
+        { type: 'separator' },
+        {
+          label: 'Refresh Project',
+          accelerator: 'Command+R',
+          click: () => {
+            this.mainWindow.webContents.send('refreshProject')
           },
         },
         { type: 'separator' },
@@ -249,7 +279,7 @@ export default class MenuBuilder {
             label: '&New Project',
             accelerator: 'Ctrl+N',
             click: () => {
-              this.mainWindow.webContents.send('newProject')
+              this.mainWindow.webContents.send('menu:newProject')
             },
           },
           {
@@ -258,6 +288,10 @@ export default class MenuBuilder {
             click: () => {
               this.mainWindow.webContents.send('openProject')
             },
+          },
+          {
+            label: 'Open &Recent',
+            submenu: this.buildRecentSubmenu(),
           },
           {
             label: '&Save As...',
@@ -272,6 +306,14 @@ export default class MenuBuilder {
             accelerator: 'Ctrl+I',
             click: () => {
               this.mainWindow.webContents.send('importSlpClicked')
+            },
+          },
+          { type: 'separator' },
+          {
+            label: '&Refresh Project',
+            accelerator: 'Ctrl+R',
+            click: () => {
+              this.mainWindow.webContents.send('refreshProject')
             },
           },
           { type: 'separator' },
@@ -299,7 +341,7 @@ export default class MenuBuilder {
             ? [
                 {
                   label: '&Restart',
-                  accelerator: 'Ctrl+R',
+                  accelerator: 'Ctrl+Shift+R',
                   click: () => {
                     app.relaunch()
                     app.exit(0)

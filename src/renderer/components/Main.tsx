@@ -1,4 +1,5 @@
 import { useState, Dispatch, SetStateAction, useEffect, useRef } from 'react'
+import { FaFolder, FaPlay, FaCircle } from 'react-icons/fa'
 import ipcBridge from 'renderer/ipcBridge'
 import {
   ConfigInterface,
@@ -8,7 +9,6 @@ import {
 import Filters from './Filters'
 import Top from './Top'
 import { Tray } from './Tray/Tray'
-import { FaFolder } from 'react-icons/fa'
 import '../styles/Main.css'
 
 export type SelectionInfo = {
@@ -408,11 +408,26 @@ export default function Main({
     return () => window.removeEventListener('resize', clampWidths)
   }, [])
 
+  function playClips() {
+    ipcBridge.playClips({
+      filterId: activeFilterId,
+      selectedIds: Array.from(selectedIds),
+    })
+  }
+
   function generateVideo() {
     setIsGenerating(true)
     ipcBridge.generateVideo({
       filterId: activeFilterId,
       selectedIds: Array.from(selectedIds),
+    })
+  }
+
+  function handleClipRecord(clipId: string) {
+    setIsGenerating(true)
+    ipcBridge.generateVideo({
+      filterId: activeFilterId,
+      selectedIds: [clipId],
     })
   }
 
@@ -486,6 +501,7 @@ export default function Main({
           setIsCalculatingDuration={setIsCalculatingDuration}
           addStartFrames={config.addStartFrames || 0}
           addEndFrames={config.addEndFrames || 0}
+          onClipRecord={handleClipRecord} // eslint-disable-line react/jsx-no-bind
         />
       </div>
       <div className="footer">
@@ -513,19 +529,25 @@ export default function Main({
             <>
               <div
                 className="footer-output"
-                onClick={() => window.electron.ipcRenderer.sendMessage('openFolder', videoOutputPath)}
+                onClick={() =>
+                  window.electron.ipcRenderer.sendMessage(
+                    'openFolder',
+                    videoOutputPath,
+                  )
+                }
                 title={videoOutputPath}
               >
-                <span className="footer-output-text">
-                  {videoOutputPath}
-                </span>
+                <span className="footer-output-text">{videoOutputPath}</span>
                 <FaFolder className="footer-output-folder" />
               </div>
               {!isGenerating && (
                 <button
                   type="button"
                   className="footer-output-dismiss"
-                  onClick={(e) => { e.stopPropagation(); setVideoOutputPath('') }}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setVideoOutputPath('')
+                  }}
                 >
                   ✕
                 </button>
@@ -540,7 +562,9 @@ export default function Main({
                 <span className="footer-gen-msg">
                   {videoMsg === 'Concatenating clips...' ? (
                     <span className="footer-dots-anim">Merging videos</span>
-                  ) : videoMsg}
+                  ) : (
+                    videoMsg
+                  )}
                 </span>
               ) : (
                 <span className="footer-gen-msg">
@@ -563,14 +587,24 @@ export default function Main({
               </button>
             </>
           ) : (
-            <button
-              type="button"
-              className="generate-button"
-              onClick={generateVideo}
-              disabled={selectedIds.size === 0}
-            >
-              Generate Video
-            </button>
+            <div className="footer-action-group">
+              <button
+                type="button"
+                className="footer-action-button"
+                onClick={playClips}
+                disabled={selectedIds.size === 0}
+              >
+                <FaPlay className="footer-icon footer-icon--play" /> Play
+              </button>
+              <button
+                type="button"
+                className="footer-action-button"
+                onClick={generateVideo}
+                disabled={selectedIds.size === 0}
+              >
+                <FaCircle className="footer-icon footer-icon--record" /> Record
+              </button>
+            </div>
           )}
         </div>
       </div>

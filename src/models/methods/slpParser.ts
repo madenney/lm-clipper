@@ -14,26 +14,29 @@ export default (file: FileInterface, params: { [key: string]: any }) => {
     maxHits,
     comboerChar,
     comboerTag,
+    comboerCC,
     comboeeChar,
     comboeeTag,
+    comboeeCC,
     didKill,
   } = params
 
-  const { path, players, stage } = file
+  const { path, players, stage, startedAt } = file
   if (!players) {
-    console.log('No players?')
-    return false
+    return []
   }
 
   const game = new SlippiGame(path)
   let combos
   try {
     const stats = game.getStats()
-    if (!stats) return false
+    if (!stats) return []
     combos = stats.combos
   } catch (e) {
-    return console.log('Broken file:', file)
+    console.log('Broken file:', path)
+    return []
   }
+  if (!combos || combos.length === 0) return []
   const filteredCombos: ClipInterface[] = []
   combos.forEach((combo) => {
     if (!combo.moves || combo.moves.length === 0) return false
@@ -50,7 +53,17 @@ export default (file: FileInterface, params: { [key: string]: any }) => {
       const tags = Array.isArray(comboerTag)
         ? comboerTag.map((t: string) => t.toLowerCase())
         : comboerTag.toLowerCase().split(';')
-      if (tags.indexOf(comboer.displayName.toLowerCase()) === -1) {
+      const name = (comboer.displayName || '').toLowerCase()
+      if (tags.indexOf(name) === -1) {
+        return false
+      }
+    }
+    if (comboerCC && (!Array.isArray(comboerCC) || comboerCC.length > 0)) {
+      const codes = Array.isArray(comboerCC)
+        ? comboerCC.map((t: string) => t.toLowerCase())
+        : comboerCC.toLowerCase().split(';')
+      const code = (comboer.connectCode || '').toLowerCase()
+      if (codes.indexOf(code) === -1) {
         return false
       }
     }
@@ -59,7 +72,17 @@ export default (file: FileInterface, params: { [key: string]: any }) => {
       const tags = Array.isArray(comboeeTag)
         ? comboeeTag.map((t: string) => t.toLowerCase())
         : comboeeTag.toLowerCase().split(';')
-      if (tags.indexOf(comboee.displayName.toLowerCase()) === -1) {
+      const name = (comboee.displayName || '').toLowerCase()
+      if (tags.indexOf(name) === -1) {
+        return false
+      }
+    }
+    if (comboeeCC && (!Array.isArray(comboeeCC) || comboeeCC.length > 0)) {
+      const codes = Array.isArray(comboeeCC)
+        ? comboeeCC.map((t: string) => t.toLowerCase())
+        : comboeeCC.toLowerCase().split(';')
+      const code = (comboee.connectCode || '').toLowerCase()
+      if (codes.indexOf(code) === -1) {
         return false
       }
     }
@@ -72,6 +95,7 @@ export default (file: FileInterface, params: { [key: string]: any }) => {
       comboee,
       path,
       stage,
+      startedAt,
       combo: {
         startPercent: combo.startPercent,
         endPercent: combo.endPercent,

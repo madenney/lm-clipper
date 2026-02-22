@@ -73,7 +73,10 @@ export default (prevResults, params, eventEmitter) => {
       let _startFrame
 
       if (_startFromNthMove != null && moves && moves.length > 0) {
-        const mi = _startFromNthMove >= 0 ? _startFromNthMove : moves.length + _startFromNthMove
+        const mi =
+          _startFromNthMove >= 0
+            ? _startFromNthMove
+            : moves.length + _startFromNthMove
         _startFrame = moves[mi]?.frame ?? moves[0].frame
       } else if (_startFrom) {
         _startFrame =
@@ -90,10 +93,16 @@ export default (prevResults, params, eventEmitter) => {
       if (_offset) _startFrame += _offset
 
       const p1CustomIds = comboerCustomIds
-        ? String(comboerCustomIds).split(',').map((s) => parseInt(s.trim(), 10)).filter((n) => !Number.isNaN(n))
+        ? String(comboerCustomIds)
+            .split(',')
+            .map((s) => parseInt(s.trim(), 10))
+            .filter((n) => !Number.isNaN(n))
         : []
       const p2CustomIds = comboeeCustomIds
-        ? String(comboeeCustomIds).split(',').map((s) => parseInt(s.trim(), 10)).filter((n) => !Number.isNaN(n))
+        ? String(comboeeCustomIds)
+            .split(',')
+            .map((s) => parseInt(s.trim(), 10))
+            .filter((n) => !Number.isNaN(n))
         : []
       const p1States = resolveStates(comboerActionState, p1CustomIds)
       const p2States = resolveStates(comboeeActionState, p2CustomIds)
@@ -138,12 +147,32 @@ export default (prevResults, params, eventEmitter) => {
 
       const matchP1 = (post) => {
         if (hasP1 && p1States.indexOf(post.actionStateId) == -1) return false
-        if (hasP1Pos && !checkPos(post, _comboerMinX, _comboerMaxX, _comboerMinY, _comboerMaxY)) return false
+        if (
+          hasP1Pos &&
+          !checkPos(
+            post,
+            _comboerMinX,
+            _comboerMaxX,
+            _comboerMinY,
+            _comboerMaxY,
+          )
+        )
+          return false
         return true
       }
       const matchP2 = (post) => {
         if (hasP2 && p2States.indexOf(post.actionStateId) == -1) return false
-        if (hasP2Pos && !checkPos(post, _comboeeMinX, _comboeeMaxX, _comboeeMinY, _comboeeMaxY)) return false
+        if (
+          hasP2Pos &&
+          !checkPos(
+            post,
+            _comboeeMinX,
+            _comboeeMaxX,
+            _comboeeMinY,
+            _comboeeMaxY,
+          )
+        )
+          return false
         return true
       }
 
@@ -164,34 +193,36 @@ export default (prevResults, params, eventEmitter) => {
 
         if (hasParsedData) {
           // Parsed mode: match by comboer/comboee player index
-          const comboerPlayer = players.find((p) => p.post.playerIndex == comboer.playerIndex)
-          const comboeePlayer = players.find((p) => p.post.playerIndex == comboee.playerIndex)
+          const comboerPlayer = players.find(
+            (p) => p.post.playerIndex == comboer.playerIndex,
+          )
+          const comboeePlayer = players.find(
+            (p) => p.post.playerIndex == comboee.playerIndex,
+          )
           const p1Ok = !needP1 || (comboerPlayer && matchP1(comboerPlayer.post))
           const p2Ok = !needP2 || (comboeePlayer && matchP2(comboeePlayer.post))
           if (p1Ok && p2Ok) {
             found = true
             break
           }
-        } else {
+        } else if (needP1 && needP2) {
           // Unparsed mode: check any player / any arrangement
-          if (needP1 && needP2) {
-            for (let a = 0; a < players.length; a++) {
-              for (let b = 0; b < players.length; b++) {
-                if (a === b) continue
-                if (matchP1(players[a].post) && matchP2(players[b].post)) {
-                  found = true
-                  break
-                }
+          for (let a = 0; a < players.length; a++) {
+            for (let b = 0; b < players.length; b++) {
+              if (a === b) continue
+              if (matchP1(players[a].post) && matchP2(players[b].post)) {
+                found = true
+                break
               }
-              if (found) break
             }
             if (found) break
-          } else {
-            const match = needP1 ? matchP1 : matchP2
-            if (players.some((p) => match(p.post))) {
-              found = true
-              break
-            }
+          }
+          if (found) break
+        } else {
+          const match = needP1 ? matchP1 : matchP2
+          if (players.some((p) => match(p.post))) {
+            found = true
+            break
           }
         }
       }

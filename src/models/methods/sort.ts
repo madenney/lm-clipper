@@ -1,24 +1,44 @@
 export const sortOptions = [
   {
-    id: 'dps',
-    shortName: 'damage per second',
+    id: 'chronological',
+    shortName: 'chronological',
+    requiresParser: false,
     method: (reverse: boolean) => {
       return (resultA: any, resultB: any) => {
-        const totalDamageA = resultA.combo.moves.reduce(
+        const a = resultA.startedAt || 0
+        const b = resultB.startedAt || 0
+        if (reverse) {
+          return b - a
+        }
+        return a - b
+      }
+    },
+  },
+  {
+    id: 'dps',
+    shortName: 'damage per second',
+    requiresParser: true,
+    method: (reverse: boolean) => {
+      return (resultA: any, resultB: any) => {
+        const movesA = resultA.combo?.moves || []
+        const movesB = resultB.combo?.moves || []
+        const totalDamageA = movesA.reduce(
           (total: number, move: { damage: number }) => {
             return total + move.damage
           },
           0,
         )
-        const totalDamageB = resultB.combo.moves.reduce(
+        const totalDamageB = movesB.reduce(
           (total: number, move: { damage: number }) => {
             return total + move.damage
           },
           0,
         )
 
-        const dpsA = totalDamageA / (resultA.endFrame - resultA.startFrame)
-        const dpsB = totalDamageB / (resultB.endFrame - resultB.startFrame)
+        const durationA = resultA.endFrame - resultA.startFrame || 1
+        const durationB = resultB.endFrame - resultB.startFrame || 1
+        const dpsA = totalDamageA / durationA
+        const dpsB = totalDamageB / durationB
 
         if (reverse) {
           return dpsA - dpsB
@@ -30,26 +50,15 @@ export const sortOptions = [
   {
     id: 'moves',
     shortName: 'number of moves',
+    requiresParser: true,
     method: (reverse: boolean) => {
       return (resultA: any, resultB: any) => {
+        const lenA = resultA.combo?.moves?.length || 0
+        const lenB = resultB.combo?.moves?.length || 0
         if (reverse) {
-          return resultB.combo.moves.length - resultA.combo.moves.length
+          return lenB - lenA
         }
-        return resultA.combo.moves.length - resultB.combo.moves.length
-      }
-    },
-  },
-  {
-    id: 'chronological',
-    shortName: 'chronological',
-    method: (reverse: boolean) => {
-      return (resultA: any, resultB: any) => {
-        const a = resultA.startedAt || 0
-        const b = resultB.startedAt || 0
-        if (reverse) {
-          return b - a
-        }
-        return a - b
+        return lenA - lenB
       }
     },
   },

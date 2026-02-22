@@ -95,6 +95,7 @@ export function fileProcessor(path: string) {
       characterColor: p1.characterColor,
       nametag: p1.nametag ? p1.nametag : '',
       displayName: p1.displayName,
+      connectCode: p1.connectCode || '',
     },
     {
       playerIndex: p2.playerIndex,
@@ -103,6 +104,7 @@ export function fileProcessor(path: string) {
       characterColor: p2.characterColor,
       nametag: p2.nametag ? p2.nametag : '',
       displayName: p2.displayName,
+      connectCode: p2.connectCode || '',
     },
   ]
   return fileJSON

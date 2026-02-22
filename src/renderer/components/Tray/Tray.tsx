@@ -37,6 +37,7 @@ type TrayProps = {
   setIsCalculatingDuration: React.Dispatch<React.SetStateAction<boolean>>
   addStartFrames: number
   addEndFrames: number
+  onClipRecord?: (_clipId: string) => void
 }
 
 // Zoom nudge step - increases at larger sizes
@@ -63,6 +64,7 @@ export function Tray({
   setIsCalculatingDuration: _setIsCalculatingDuration,
   addStartFrames,
   addEndFrames,
+  onClipRecord,
 }: TrayProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const contentRef = useRef<HTMLDivElement>(null)
@@ -103,7 +105,7 @@ export function Tray({
   const [fetchedTotal, setFetchedTotal] = useState(0)
 
   // Num per page (max items to fetch/display)
-  const [numPerPage, setNumPerPage] = useState(10000)
+  const [numPerPage, setNumPerPage] = useState(1000)
   const [dataPage, setDataPage] = useState(0)
 
   // Pagination for full mode
@@ -122,7 +124,13 @@ export function Tray({
   const isGameFilter = activeFilter?.type === 'files'
   const activeFilterIndex =
     archive?.filters.findIndex((f) => f.id === activeFilterId) ?? -1
-  const comboFilterTypes = new Set(['slpParser', 'comboFilter', 'actionStateFilter', 'reverse', 'edgeguard'])
+  const comboFilterTypes = new Set([
+    'slpParser',
+    'comboFilter',
+    'actionStateFilter',
+    'reverse',
+    'edgeguard',
+  ])
   const isClips = useMemo(() => {
     if (!archive || activeFilterIndex < 0) return false
     return archive.filters
@@ -460,7 +468,7 @@ export function Tray({
   }, [])
 
   // Mode label for display
-  const modeLabel = useMemo(() => {
+  const _modeLabel = useMemo(() => {
     switch (mode) {
       case 'full':
         return 'Full'
@@ -609,7 +617,8 @@ export function Tray({
       <div className="tray-controls">
         <div className="tray-info">
           <span className="tray-count">
-            Showing {showCount.toLocaleString()} / {displayTotal.toLocaleString()} {isClips ? 'clips' : 'games'}
+            Showing {showCount.toLocaleString()} /{' '}
+            {displayTotal.toLocaleString()} {isClips ? 'clips' : 'games'}
           </span>
           {/* <span className="tray-mode">
             Mode: {modeLabel} ({clipSize}px)
@@ -628,7 +637,9 @@ export function Tray({
                 &#8249;
               </button>
               <span className="tray-page-indicator">
-                {dataPage + 1}<span className="tray-page-sep">/</span>{totalDataPages}
+                {dataPage + 1}
+                <span className="tray-page-sep">/</span>
+                {totalDataPages}
               </span>
               <button
                 type="button"
@@ -709,6 +720,7 @@ export function Tray({
             selectedIds={selectedIds}
             onClipMouseDown={handleClipMouseDown}
             onClipMouseEnter={handleClipMouseEnter}
+            onClipRecord={onClipRecord}
             onBackgroundClick={() => {
               setSelectedIds(new Set())
               setLastSelectedIndex(null)

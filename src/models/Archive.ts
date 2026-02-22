@@ -25,6 +25,8 @@ import {
   updateMetaData,
   deleteFilter,
   createFilter,
+  getPlayerNameCounts,
+  getConnectCodeCounts,
 } from '../main/db'
 import { asyncForEach } from '../lib'
 
@@ -314,30 +316,11 @@ export default class Archive {
   }
 
   async getNames() {
-    const files = await getFiles(this.path)
+    return getPlayerNameCounts(this.path)
+  }
 
-    const namesObj: { [key: string]: number } = {}
-    files.forEach((file: any) => {
-      if (!file.players) return
-      const players =
-        typeof file.players === 'string'
-          ? JSON.parse(file.players)
-          : file.players
-      players.forEach((player: PlayerInterface) => {
-        const name = player.displayName
-        if (namesObj[name]) {
-          namesObj[name] += 1
-        } else {
-          namesObj[name] = 1
-        }
-      })
-    })
-    const names: { name: string; total: number }[] = []
-    Object.keys(namesObj).forEach((key) => {
-      names.push({ name: key, total: namesObj[key] })
-    })
-    const sortedNames = names.sort((a, b) => b.total - a.total)
-    return sortedNames
+  async getConnectCodes() {
+    return getConnectCodeCounts(this.path)
   }
 
   private parseRows(filterId: string, response: any[], lite?: boolean) {

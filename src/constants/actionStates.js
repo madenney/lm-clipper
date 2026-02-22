@@ -6,22 +6,10 @@ const shineStates = [360, 361, 362, 363, 364, 365, 366, 367, 368]
 
 const actionStates = [
   {
-    id: 1,
-    name: 'Damage',
-    shortName: 'Damage',
-    actionStateID: damageStates,
-  },
-  {
     id: 35,
     name: 'Special Fall',
     shortName: 'Special Fall',
     actionStateID: [35, 36, 37],
-  },
-  {
-    id: 58,
-    name: 'Smash Attack',
-    shortName: 'Smash Attack',
-    actionStateID: [58, 59, 60, 61, 62, 63, 64],
   },
   {
     id: 100,
@@ -138,30 +126,6 @@ const actionStates = [
     actionStateID: [297, 298, 299],
   },
   {
-    id: 345,
-    name: 'Doc Side B',
-    shortName: 'Doc Side B',
-    actionStateID: [345, 346],
-  },
-  {
-    id: 347,
-    name: 'Spacie Side B',
-    shortName: 'Spacie Side B',
-    actionStateID: [347, 348, 349, 350, 351, 352],
-  },
-  {
-    id: 354,
-    name: 'Spacie Up B',
-    shortName: 'Spacie Up B',
-    actionStateID: [354, 356],
-  },
-  {
-    id: 360,
-    name: 'Sheik Poof Reappear',
-    shortName: 'Sheik Poof Reappear',
-    actionStateID: [360],
-  },
-  {
     id: 2,
     name: 'Jab',
     shortName: 'jab',
@@ -204,6 +168,12 @@ const actionStates = [
     actionStateID: 0x39,
   },
   {
+    id: 58,
+    name: 'Smash Attack',
+    shortName: 'Smash Attack',
+    actionStateID: [58, 59, 60, 61, 62, 63, 64],
+  },
+  {
     id: 11,
     name: 'Up Smash',
     shortName: 'usmash',
@@ -244,6 +214,42 @@ const actionStates = [
     name: 'Down Air',
     shortName: 'dair',
     actionStateID: 0x45,
+  },
+  {
+    id: 1,
+    name: 'Damage',
+    shortName: 'Damage',
+    actionStateID: damageStates,
+  },
+  {
+    id: 345,
+    name: 'Doc Side B',
+    shortName: 'Doc Side B',
+    actionStateID: [345, 346],
+  },
+  {
+    id: 347,
+    name: 'Spacie Side B',
+    shortName: 'Spacie Side B',
+    actionStateID: [347, 348, 349, 350, 351, 352],
+  },
+  {
+    id: 354,
+    name: 'Spacie Up B',
+    shortName: 'Spacie Up B',
+    actionStateID: [354, 356],
+  },
+  {
+    id: 360,
+    name: 'Sheik Poof Reappear',
+    shortName: 'Sheik Poof Reappear',
+    actionStateID: [360],
+  },
+  {
+    id: 'custom',
+    name: 'Custom',
+    shortName: 'Custom',
+    actionStateID: [],
   },
 ]
 
