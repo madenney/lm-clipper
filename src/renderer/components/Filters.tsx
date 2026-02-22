@@ -360,6 +360,7 @@ export default function Filters({
       if (
         config.warnOnParserDelete !== false &&
         inputCount >= 10000 &&
+        // eslint-disable-next-line no-alert
         !window.confirm(
           `This combo parser was run on ${inputCount.toLocaleString()} files. Are you sure you want to delete it?`,
         )
@@ -1974,8 +1975,8 @@ export default function Filters({
                 <div
                   className="filter-title"
                   title={
-                    filtersConfig.find((c) => c.id === filter.type)?.tooltip ||
-                    ''
+                    (filtersConfig.find((c) => c.id === filter.type) as any)
+                      ?.tooltip || ''
                   }
                 >
                   {filter.label}
@@ -2113,7 +2114,7 @@ export default function Filters({
                       <div
                         key={p.id}
                         className={`add-filter-item${needsParser ? ' add-filter-item-disabled' : ''}`}
-                        title={p.tooltip || ''}
+                        title={(p as any).tooltip || ''}
                         onClick={() => {
                           if (needsParser) return
                           addFilter({ target: { value: p.id } })

@@ -4,7 +4,6 @@ import {
   FilterInterface,
   EventEmitterInterface,
   ShallowArchiveInterface,
-  PlayerInterface,
   ClipInterface,
   LiteItem,
 } from 'constants/types'
@@ -17,7 +16,6 @@ import {
   getMetaData,
   getFileByPath,
   insertFiles,
-  getFiles,
   getItems,
   getItemsLite,
   getAllFromTable,

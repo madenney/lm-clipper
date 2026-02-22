@@ -1,7 +1,6 @@
 import { URL } from 'url'
 import path from 'path'
 import os from 'os'
-import { app } from 'electron'
 
 export function resolveHtmlPath(htmlFileName: string) {
   if (process.env.NODE_ENV === 'development') {

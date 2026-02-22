@@ -31,7 +31,6 @@ export default function Top({ archive, config, setConfig }: TopProps) {
     ? testModeInfo.debugLines
     : []
 
-
   useEffect(() => {
     const applyStatus = (status: any) => {
       if (!status || typeof status !== 'object') return
