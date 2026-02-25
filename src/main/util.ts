@@ -23,7 +23,7 @@ export function getFFMPEGPath() {
     case 'Linux':
       return path.resolve(resourcesPath, 'ffmpeg', 'ffmpeg-linux-x64')
     case 'Windows_NT':
-      return path.resolve(resourcesPath, 'ffmpeg', 'ffmpeg-win32-x64')
+      return path.resolve(resourcesPath, 'ffmpeg', 'ffmpeg-win32-x64.exe')
     case 'Darwin':
     default:
       throw new Error('no os?')
