@@ -1804,9 +1804,12 @@ export default class Controller {
       await new Promise<void>((resolve) => {
         let targetEndFrame: string | number = Infinity
         let staleTimer: ReturnType<typeof setTimeout> | null = null
+        const stdoutLines: string[] = []
+        let killedReason = ''
         const resetStaleTimer = () => {
           if (staleTimer) clearTimeout(staleTimer)
           staleTimer = setTimeout(() => {
+            killedReason = 'stale timer (no CURRENT_FRAME for 1s)'
             dolphinProcess.kill()
           }, 1000)
         }
@@ -1815,12 +1818,17 @@ export default class Controller {
         dolphinProcess.stdout.on('data', (chunk: string) => {
           const lines = chunk.split('\r\n')
           lines.forEach((line: string) => {
+            if (stdoutLines.length < 50 && line.trim()) {
+              stdoutLines.push(line)
+            }
             if (line.includes('[PLAYBACK_END_FRAME]')) {
               const match = /\[PLAYBACK_END_FRAME\] ([0-9]*)/.exec(line)
               targetEndFrame = match && match[1] ? match[1] : Infinity
             } else if (line.includes('[GAME_END_FRAME]')) {
+              killedReason = `GAME_END_FRAME: ${line.trim()}`
               dolphinProcess.kill()
             } else if (line.includes(`[CURRENT_FRAME] ${targetEndFrame}`)) {
+              killedReason = `reached target end frame ${targetEndFrame}`
               dolphinProcess.kill()
             } else if (line.includes('[CURRENT_FRAME]')) {
               resetStaleTimer()
@@ -1828,9 +1836,12 @@ export default class Controller {
           })
         })
 
-        dolphinProcess.on('exit', (code) => {
+        dolphinProcess.on('exit', (code, signal) => {
           logMain('playClipAsync: Dolphin exited', {
             code,
+            signal,
+            killedReason: killedReason || 'unknown',
+            stdoutLines,
             stderr: dolphinStderr.slice(-2000),
           })
           if (this.activePlaybackProcess === dolphinProcess) {
@@ -1979,9 +1990,12 @@ export default class Controller {
 
       let targetEndFrame: string | number = Infinity
       let staleTimer: ReturnType<typeof setTimeout> | null = null
+      const stdoutLines: string[] = []
+      let killedReason = ''
       const resetStaleTimer = () => {
         if (staleTimer) clearTimeout(staleTimer)
         staleTimer = setTimeout(() => {
+          killedReason = 'stale timer (no CURRENT_FRAME for 1s)'
           dolphinProcess.kill()
         }, 1000)
       }
@@ -1990,12 +2004,17 @@ export default class Controller {
       dolphinProcess.stdout.on('data', (chunk: string) => {
         const lines = chunk.split('\r\n')
         lines.forEach((line: string) => {
+          if (stdoutLines.length < 50 && line.trim()) {
+            stdoutLines.push(line)
+          }
           if (line.includes('[PLAYBACK_END_FRAME]')) {
             const match = /\[PLAYBACK_END_FRAME\] ([0-9]*)/.exec(line)
             targetEndFrame = match && match[1] ? match[1] : Infinity
           } else if (line.includes('[GAME_END_FRAME]')) {
+            killedReason = `GAME_END_FRAME: ${line.trim()}`
             dolphinProcess.kill()
           } else if (line.includes(`[CURRENT_FRAME] ${targetEndFrame}`)) {
+            killedReason = `reached target end frame ${targetEndFrame}`
             dolphinProcess.kill()
           } else if (line.includes('[CURRENT_FRAME]')) {
             resetStaleTimer()
@@ -2003,9 +2022,12 @@ export default class Controller {
         })
       })
 
-      dolphinProcess.on('exit', (code) => {
+      dolphinProcess.on('exit', (code, signal) => {
         logMain('playClip: Dolphin exited', {
           code,
+          signal,
+          killedReason: killedReason || 'unknown',
+          stdoutLines,
           stderr: dolphinStderr.slice(-2000),
         })
         if (code !== 0 && code !== null) {
