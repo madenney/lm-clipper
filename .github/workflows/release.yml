@@ -50,7 +50,7 @@ jobs:
           Invoke-WebRequest -Uri "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip" -OutFile "$env:TEMP\ffmpeg.zip"
           Expand-Archive -Path "$env:TEMP\ffmpeg.zip" -DestinationPath "$env:TEMP\ffmpeg"
           $ffmpegExe = Get-ChildItem -Path "$env:TEMP\ffmpeg" -Recurse -Filter "ffmpeg.exe" | Select-Object -First 1
-          Copy-Item $ffmpegExe.FullName -Destination "release/app/ffmpeg/ffmpeg-win32-x64"
+          Copy-Item $ffmpegExe.FullName -Destination "release/app/ffmpeg/ffmpeg-win32-x64.exe"
 
       - name: Build
         run: npm run build

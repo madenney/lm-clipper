@@ -188,7 +188,9 @@ const createWindow = async () => {
       ipcMain.on('install-update', () => {
         autoUpdater.quitAndInstall()
       })
-      autoUpdater.checkForUpdates()
+      autoUpdater.checkForUpdates().catch((err) => {
+        logMain('updater-check-failed', err?.message ?? err)
+      })
     }
   })
 
