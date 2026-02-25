@@ -1802,7 +1802,7 @@ export default class Controller {
       })
 
       await new Promise<void>((resolve) => {
-        let targetEndFrame: string | number = Infinity
+        let targetEndFrame: number = Infinity
         let staleTimer: ReturnType<typeof setTimeout> | null = null
         const stdoutLines: string[] = []
         let killedReason = ''
@@ -1822,12 +1822,23 @@ export default class Controller {
               stdoutLines.push(line)
             }
             if (line.includes('[PLAYBACK_END_FRAME]')) {
-              const match = /\[PLAYBACK_END_FRAME\] ([0-9]*)/.exec(line)
-              targetEndFrame = match && match[1] ? match[1] : Infinity
+              const match = /\[PLAYBACK_END_FRAME\] ([0-9]+)/.exec(line)
+              if (match?.[1])
+                targetEndFrame = Math.min(
+                  targetEndFrame,
+                  parseInt(match[1], 10),
+                )
             } else if (line.includes('[GAME_END_FRAME]')) {
-              killedReason = `GAME_END_FRAME: ${line.trim()}`
-              dolphinProcess.kill()
-            } else if (line.includes(`[CURRENT_FRAME] ${targetEndFrame}`)) {
+              const match = /\[GAME_END_FRAME\] ([0-9]+)/.exec(line)
+              if (match?.[1])
+                targetEndFrame = Math.min(
+                  targetEndFrame,
+                  parseInt(match[1], 10),
+                )
+            } else if (
+              targetEndFrame !== Infinity &&
+              line.includes(`[CURRENT_FRAME] ${targetEndFrame}`)
+            ) {
               killedReason = `reached target end frame ${targetEndFrame}`
               dolphinProcess.kill()
             } else if (line.includes('[CURRENT_FRAME]')) {
@@ -1988,7 +1999,7 @@ export default class Controller {
         )
       })
 
-      let targetEndFrame: string | number = Infinity
+      let targetEndFrame: number = Infinity
       let staleTimer: ReturnType<typeof setTimeout> | null = null
       const stdoutLines: string[] = []
       let killedReason = ''
@@ -2008,12 +2019,17 @@ export default class Controller {
             stdoutLines.push(line)
           }
           if (line.includes('[PLAYBACK_END_FRAME]')) {
-            const match = /\[PLAYBACK_END_FRAME\] ([0-9]*)/.exec(line)
-            targetEndFrame = match && match[1] ? match[1] : Infinity
+            const match = /\[PLAYBACK_END_FRAME\] ([0-9]+)/.exec(line)
+            if (match?.[1])
+              targetEndFrame = Math.min(targetEndFrame, parseInt(match[1], 10))
           } else if (line.includes('[GAME_END_FRAME]')) {
-            killedReason = `GAME_END_FRAME: ${line.trim()}`
-            dolphinProcess.kill()
-          } else if (line.includes(`[CURRENT_FRAME] ${targetEndFrame}`)) {
+            const match = /\[GAME_END_FRAME\] ([0-9]+)/.exec(line)
+            if (match?.[1])
+              targetEndFrame = Math.min(targetEndFrame, parseInt(match[1], 10))
+          } else if (
+            targetEndFrame !== Infinity &&
+            line.includes(`[CURRENT_FRAME] ${targetEndFrame}`)
+          ) {
             killedReason = `reached target end frame ${targetEndFrame}`
             dolphinProcess.kill()
           } else if (line.includes('[CURRENT_FRAME]')) {
