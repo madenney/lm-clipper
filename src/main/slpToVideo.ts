@@ -87,11 +87,19 @@ const processOneReplay = async (
     path.resolve(config.outputPath, `${fileBasename}${suffix}`)
 
   // 1. Write JSON config for this replay
+  // Check file exists before trying to parse
+  try {
+    await fsPromises.access(replay.path)
+  } catch {
+    logMain('record: replay file not found', { path: replay.path })
+    return false
+  }
+
   let game
   try {
     game = new SlippiGame(replay.path)
   } catch (e) {
-    console.log('Broken file: ', replay.path)
+    logMain('record: broken/unreadable replay file', { path: replay.path })
     return false
   }
 

@@ -816,9 +816,11 @@ export default class Controller {
   async newProject(event: IpcMainEvent, data?: RequestEnvelope<null>) {
     const { requestId } = unpackRequest<null>(data)
     try {
+      logMain('newProject: starting')
       const defaultDir = this.config.lastArchivePath
         ? path.dirname(this.config.lastArchivePath)
         : getDefaultProjectDir()
+      logMain('newProject: defaultDir', { defaultDir })
       if (!fs.existsSync(defaultDir))
         fs.mkdirSync(defaultDir, { recursive: true })
 
@@ -831,12 +833,14 @@ export default class Controller {
         return reply(event, 'newProject', requestId)
       }
 
+      logMain('newProject: creating', { newPath })
       const name = path.basename(newPath)
       const location = path.dirname(newPath)
       const metadata = await this.createNewArchiveInternal({ name, location })
+      logMain('newProject: created successfully')
       return reply(event, 'newProject', requestId, metadata)
     } catch (error) {
-      console.log('Error creating new project:', error)
+      logMain('newProject: error', error)
       return reply(event, 'newProject', requestId, { error: true, info: error })
     }
   }
@@ -1717,9 +1721,17 @@ export default class Controller {
     if (!dolphinPath || !ssbmIsoPath) return
 
     try {
+      await fsPromises.access(payload.path)
+    } catch {
+      logMain('playClipAsync: replay file not found', {
+        path: payload.path,
+      })
+      return
+    }
+
+    try {
       await fsPromises.access(dolphinPath)
       await fsPromises.access(ssbmIsoPath)
-      await fsPromises.access(payload.path)
     } catch {
       return
     }
@@ -2103,6 +2115,16 @@ export default class Controller {
     } = this.config
 
     const effectiveNumCPUs = numCPUs || 1
+
+    try {
+      await fsPromises.access(payload.path)
+    } catch {
+      this.mainWindow.webContents.send(
+        'videoMsg',
+        `Error: Replay file not found: ${payload.path}`,
+      )
+      return reply(event, 'recordClip', requestId)
+    }
 
     try {
       await fsPromises.access(outputPath)
