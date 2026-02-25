@@ -221,8 +221,8 @@
       ],
       "extraResources": [
         {
-          "from": "release/app/ffmpeg/ffmpeg-win32-x64",
-          "to": "ffmpeg/ffmpeg-win32-x64"
+          "from": "release/app/ffmpeg/ffmpeg-win32-x64.exe",
+          "to": "ffmpeg/ffmpeg-win32-x64.exe"
         }
       ]
     },
