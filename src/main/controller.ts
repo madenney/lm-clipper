@@ -442,7 +442,7 @@ export default class Controller {
     try {
       const { canceled, filePaths } = await dialog.showOpenDialog({
         properties: ['openFile'],
-        filters: [{ name: 'SQLite3 Database', extensions: [] }],
+        filters: [{ name: 'SQLite3 Database', extensions: ['*'] }],
         defaultPath: this.config.lastArchivePath
           ? path.dirname(this.config.lastArchivePath)
           : undefined,
@@ -827,7 +827,7 @@ export default class Controller {
       const { canceled, filePath: newPath } = await dialog.showSaveDialog({
         title: 'New Project',
         defaultPath: path.resolve(defaultDir, 'New Project'),
-        filters: [{ name: 'LM Clipper Project', extensions: [] }],
+        filters: [{ name: 'LM Clipper Project', extensions: ['*'] }],
       })
       if (canceled || !newPath) {
         return reply(event, 'newProject', requestId)
@@ -859,7 +859,7 @@ export default class Controller {
         path.dirname(this.archive.path),
         this.archive.name,
       ),
-      filters: [{ name: 'LM Clipper Project', extensions: [] }],
+      filters: [{ name: 'LM Clipper Project', extensions: ['*'] }],
     })
     if (canceled || !newPath) {
       return reply(event, 'saveAsArchive', requestId)
