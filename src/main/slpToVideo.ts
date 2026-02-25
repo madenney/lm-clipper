@@ -23,6 +23,7 @@ import os from 'os'
 
 import { pad } from '../lib'
 import { getFFMPEGPath } from './util'
+import { logMain, getLogPath } from './logger'
 import { ConfigInterface, ReplayInterface } from '../constants/types'
 
 export type VideoJobController = {
@@ -38,6 +39,7 @@ type VideoSignal = {
 }
 
 const ffmpegPath = getFFMPEGPath()
+logMain('slpToVideo: resolved ffmpeg path', { ffmpegPath })
 
 const getAppDataPath = () => {
   if (app && typeof app.getPath === 'function') return app.getPath('appData')
@@ -131,12 +133,37 @@ const processOneReplay = async (
     config.ssbmIsoPath,
     '--cout',
   ]
+
+  logMain('record: spawning Dolphin', {
+    dolphinPath: config.dolphinPath,
+    args: dolphinArgs,
+    replay: replay.path,
+    startFrame: dolphinConfig.startFrame,
+    endFrame: dolphinConfig.endFrame,
+  })
+
   const dolphinProcess = spawn(config.dolphinPath, dolphinArgs, {})
   signal.activeProcesses.add(dolphinProcess)
+
+  let dolphinStderr = ''
+  dolphinProcess.stderr.setEncoding('utf8')
+  dolphinProcess.stderr.on('data', (chunk: string) => {
+    dolphinStderr += chunk
+  })
+  dolphinProcess.on('error', (err) => {
+    logMain('record: Dolphin spawn error', err)
+  })
+
   const dolphinExit = exit(dolphinProcess)
   killDolphinOnEndFrame(dolphinProcess)
-  await dolphinExit
+  const dolphinExitCode = await dolphinExit
   signal.activeProcesses.delete(dolphinProcess)
+
+  logMain('record: Dolphin exited', {
+    code: dolphinExitCode,
+    stderr: dolphinStderr.slice(-2000),
+    replay: replay.path,
+  })
 
   if (signal.stopped || signal.cancelled) return false
 
@@ -154,10 +181,18 @@ const processOneReplay = async (
   }
   ffmpegMergeArgs.push(basePath('-merged.avi'))
 
+  logMain('record: spawning ffmpeg merge', {
+    ffmpegPath,
+    args: ffmpegMergeArgs,
+  })
+
   const mergeProcess = spawn(ffmpegPath, ffmpegMergeArgs, {
     stdio: ['ignore', 'ignore', 'pipe'],
   })
   signal.activeProcesses.add(mergeProcess)
+  mergeProcess.on('error', (err) => {
+    logMain('record: ffmpeg merge spawn error', err)
+  })
   let mergeStderr = ''
   mergeProcess.stderr!.on('data', (chunk: Buffer) => {
     mergeStderr += chunk.toString()
@@ -165,10 +200,9 @@ const processOneReplay = async (
   const mergeCode = await exit(mergeProcess)
   signal.activeProcesses.delete(mergeProcess)
   if (mergeCode !== 0) {
-    console.log(
-      `ffmpeg merge failed (code ${mergeCode}):`,
-      mergeStderr.slice(-500),
-    )
+    logMain(`record: ffmpeg merge failed (code ${mergeCode})`, {
+      stderr: mergeStderr.slice(-2000),
+    })
   }
 
   if (signal.stopped || signal.cancelled) return false
@@ -184,10 +218,15 @@ const processOneReplay = async (
     basePath('.avi'),
   ]
 
+  logMain('record: spawning ffmpeg trim', { args: ffmpegTrimArgs })
+
   const trimProcess = spawn(ffmpegPath, ffmpegTrimArgs, {
     stdio: ['ignore', 'ignore', 'pipe'],
   })
   signal.activeProcesses.add(trimProcess)
+  trimProcess.on('error', (err) => {
+    logMain('record: ffmpeg trim spawn error', err)
+  })
   let trimStderr = ''
   trimProcess.stderr!.on('data', (chunk: Buffer) => {
     trimStderr += chunk.toString()
@@ -195,10 +234,9 @@ const processOneReplay = async (
   const trimCode = await exit(trimProcess)
   signal.activeProcesses.delete(trimProcess)
   if (trimCode !== 0) {
-    console.log(
-      `ffmpeg trim failed (code ${trimCode}):`,
-      trimStderr.slice(-500),
-    )
+    logMain(`record: ffmpeg trim failed (code ${trimCode})`, {
+      stderr: trimStderr.slice(-2000),
+    })
   }
 
   if (signal.stopped || signal.cancelled) return false
@@ -220,10 +258,15 @@ const processOneReplay = async (
       '128k',
       basePath('.mp4'),
     ]
+    logMain('record: spawning ffmpeg mp4 convert', { args: mp4Args })
+
     const mp4Process = spawn(ffmpegPath, mp4Args, {
       stdio: ['ignore', 'ignore', 'pipe'],
     })
     signal.activeProcesses.add(mp4Process)
+    mp4Process.on('error', (err) => {
+      logMain('record: ffmpeg mp4 convert spawn error', err)
+    })
     let mp4Stderr = ''
     mp4Process.stderr!.on('data', (chunk: Buffer) => {
       mp4Stderr += chunk.toString()
@@ -231,10 +274,9 @@ const processOneReplay = async (
     const mp4Code = await exit(mp4Process)
     signal.activeProcesses.delete(mp4Process)
     if (mp4Code !== 0) {
-      console.log(
-        `ffmpeg mp4 convert failed (code ${mp4Code}):`,
-        mp4Stderr.slice(-500),
-      )
+      logMain(`record: ffmpeg mp4 convert failed (code ${mp4Code})`, {
+        stderr: mp4Stderr.slice(-2000),
+      })
     }
 
     // Delete the .avi now that we have the .mp4
@@ -332,11 +374,16 @@ const processReplays = async (
       }
       concatArgs.push(finalPath)
 
+      logMain('record: spawning ffmpeg concat', { args: concatArgs })
+
       const concatProcess = spawn(ffmpegPath, concatArgs, {
         stdio: ['ignore', 'ignore', 'pipe'],
       })
 
       signal.activeProcesses.add(concatProcess)
+      concatProcess.on('error', (err) => {
+        logMain('record: ffmpeg concat spawn error', err)
+      })
       let concatStderr = ''
       concatProcess.stderr!.on('data', (chunk: Buffer) => {
         concatStderr += chunk.toString()
@@ -344,10 +391,9 @@ const processReplays = async (
       const concatCode = await exit(concatProcess)
       signal.activeProcesses.delete(concatProcess)
       if (concatCode !== 0) {
-        console.log(
-          `ffmpeg concat failed (code ${concatCode}):`,
-          concatStderr.slice(-500),
-        )
+        logMain(`record: ffmpeg concat failed (code ${concatCode})`, {
+          stderr: concatStderr.slice(-2000),
+        })
       }
 
       // Clean up concat list
@@ -365,6 +411,11 @@ const configureDolphin = async (
   config: ConfigInterface,
   eventEmitter: (_msg: string) => void,
 ) => {
+  logMain('configureDolphin: starting', {
+    dolphinPath: config.dolphinPath,
+    ssbmIsoPath: config.ssbmIsoPath,
+    platform: os.type(),
+  })
   eventEmitter('Configuring Dolphin...')
   let gameSettingsPath = null
   let graphicsSettingsPath = null
@@ -514,7 +565,8 @@ const slpToVideo = (
       .then(() => configureDolphin(config, eventEmitter))
       .then(() => processReplays(replays, config, eventEmitter, signal))
       .catch((err) => {
-        eventEmitter(`${err}`)
+        logMain('slpToVideo: error', err)
+        eventEmitter(`${err} — Check ${getLogPath()}/main.log`)
         throw new Error(err)
       })
 

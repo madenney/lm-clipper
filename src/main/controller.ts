@@ -31,7 +31,7 @@ import slpToVideo, { VideoJobController } from './slpToVideo'
 import { getMetaData, createDB, getTableCount, deleteFilterRun } from './db'
 import { closeDb, getDb } from './dbConnection'
 import { appendPerfEvents } from './perfLogger'
-import { logRenderer } from './logger'
+import { logMain, logRenderer, getLogPath } from './logger'
 
 type ClipPayload = {
   path?: string
@@ -1773,6 +1773,12 @@ export default class Controller {
       '--cout',
     ]
 
+    logMain('playClipAsync: spawning Dolphin', {
+      dolphinPath: path.resolve(dolphinPath),
+      args,
+      configJson: dolphinConfig,
+    })
+
     try {
       if (this.activePlaybackProcess) {
         try {
@@ -1784,6 +1790,16 @@ export default class Controller {
 
       const dolphinProcess = spawn(path.resolve(dolphinPath), args)
       this.activePlaybackProcess = dolphinProcess
+
+      let dolphinStderr = ''
+      dolphinProcess.stderr.setEncoding('utf8')
+      dolphinProcess.stderr.on('data', (chunk: string) => {
+        dolphinStderr += chunk
+      })
+
+      dolphinProcess.on('error', (err) => {
+        logMain('playClipAsync: Dolphin spawn error', err)
+      })
 
       await new Promise<void>((resolve) => {
         let targetEndFrame: string | number = Infinity
@@ -1812,7 +1828,11 @@ export default class Controller {
           })
         })
 
-        dolphinProcess.on('exit', () => {
+        dolphinProcess.on('exit', (code) => {
+          logMain('playClipAsync: Dolphin exited', {
+            code,
+            stderr: dolphinStderr.slice(-2000),
+          })
           if (this.activePlaybackProcess === dolphinProcess) {
             this.activePlaybackProcess = null
           }
@@ -1823,8 +1843,8 @@ export default class Controller {
           resolve()
         })
       })
-    } catch {
-      // spawn failed
+    } catch (err) {
+      logMain('playClipAsync: spawn failed', err)
     }
   }
 
@@ -1923,6 +1943,13 @@ export default class Controller {
       path.resolve(ssbmIsoPath),
       '--cout',
     ]
+
+    logMain('playClip: spawning Dolphin', {
+      dolphinPath: path.resolve(dolphinPath),
+      args,
+      configJson: dolphinConfig,
+    })
+
     try {
       // Kill any previous playback process
       if (this.activePlaybackProcess) {
@@ -1935,6 +1962,20 @@ export default class Controller {
 
       const dolphinProcess = spawn(path.resolve(dolphinPath), args)
       this.activePlaybackProcess = dolphinProcess
+
+      let dolphinStderr = ''
+      dolphinProcess.stderr.setEncoding('utf8')
+      dolphinProcess.stderr.on('data', (chunk: string) => {
+        dolphinStderr += chunk
+      })
+
+      dolphinProcess.on('error', (err) => {
+        logMain('playClip: Dolphin spawn error', err)
+        this.mainWindow.webContents.send(
+          'videoMsg',
+          `Error launching Dolphin: ${err.message}. Check ${getLogPath()}/main.log`,
+        )
+      })
 
       let targetEndFrame: string | number = Infinity
       let staleTimer: ReturnType<typeof setTimeout> | null = null
@@ -1962,7 +2003,17 @@ export default class Controller {
         })
       })
 
-      dolphinProcess.on('exit', () => {
+      dolphinProcess.on('exit', (code) => {
+        logMain('playClip: Dolphin exited', {
+          code,
+          stderr: dolphinStderr.slice(-2000),
+        })
+        if (code !== 0 && code !== null) {
+          this.mainWindow.webContents.send(
+            'videoMsg',
+            `Dolphin exited with code ${code}. Check ${getLogPath()}/main.log`,
+          )
+        }
         if (this.activePlaybackProcess === dolphinProcess) {
           this.activePlaybackProcess = null
         }
@@ -1972,6 +2023,7 @@ export default class Controller {
         this.activeTmpDirs.delete(tmpDir)
       })
     } catch (error) {
+      logMain('playClip: spawn failed', error)
       this.mainWindow.webContents.send(
         'videoMsg',
         `Error: Failed to launch Dolphin.`,
