@@ -1,0 +1,43 @@
+Reference (general): https://docs.google.com/spreadsheets/d/1JX2w-r2fuvWuNgGb6D3Cs4wHQKLFegZe2jhbBuIhCG8/edit?gid=13#gid=13
+Reference (character-specific): https://docs.google.com/spreadsheets/d/1Nu3hSc1U6apOhU4JIJaWRC4Lj0S1inN8BFsq3Y8cFjI/preview#gid=1329514944
+
+Special Fall
+Shield Stun
+Shine
+Rest
+Star KO
+Plat Drop
+Double Jump
+Missed tech damage
+Any Roll
+Missed Tech Roll
+Neutral Tech
+Tech Roll
+Wall tech
+Wall jump
+Grab
+Normal Roll
+Spot Dodge
+Air Dodge
+Ledge Roll
+Asleep
+Jab
+Jab
+Jab
+Rapid Jabs
+Dash Attack
+Up Tilt
+Down Tilt
+Smash Attack
+Up Smash
+Down Smash
+Neutral Air
+Forward Air
+Back Air
+Up Air
+Down Air
+Damage
+Doc Side B
+Spacie Side B
+Spacie Up B
+Sheik Poof Reappear

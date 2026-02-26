@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Stage Rectangles – Edgeguard Zones</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: system-ui, sans-serif; background: #1a1a2e; color: #eee; padding: 24px; }
+  h1 { margin-bottom: 16px; font-size: 20px; color: #aac; }
+  .stages { display: flex; flex-wrap: wrap; gap: 24px; }
+  .stage { background: #16213e; border-radius: 8px; padding: 16px; }
+  .stage h2 { font-size: 14px; margin-bottom: 8px; color: #7ec8e3; }
+  canvas { display: block; border-radius: 4px; background: #0f0f23; }
+  .legend { display: flex; gap: 16px; margin-bottom: 20px; font-size: 13px; }
+  .legend-item { display: flex; align-items: center; gap: 6px; }
+  .swatch { width: 14px; height: 14px; border-radius: 2px; }
+</style>
+</head>
+<body>
+<h1>Edgeguard Detection Rectangles</h1>
+<div class="legend">
+  <div class="legend-item"><div class="swatch" style="background:rgba(255,60,60,0.25);border:1px solid #f44"></div> Blast Zone (bz)</div>
+  <div class="legend-item"><div class="swatch" style="background:rgba(60,200,255,0.3);border:1px solid #3cf"></div> Edge Region</div>
+  <div class="legend-item"><div class="swatch" style="background:rgba(60,200,255,0.3);border:1px solid #3cf;border-style:dashed"></div> Edge Region (mirrored left)</div>
+  <div class="legend-item"><div class="swatch" style="background:rgba(255,60,60,0.25);border:1px solid #f44;border-style:dashed"></div> Blast Zone (mirrored left)</div>
+  <div class="legend-item"><div class="swatch" style="background:#555"></div> Stage platform (approximate)</div>
+  <div class="legend-item"><div class="swatch" style="background:transparent;border:1px solid #666"></div> Origin (0,0)</div>
+</div>
+<div class="stages" id="stages"></div>
+
+<script>
+const rectangles = {
+  2:  { name: 'Fountain of Dreams', bz: {xMin:0,xMax:210,yMin:-150,yMax:195}, edge: {xMin:55,xMax:70,yMin:-5,yMax:195}, platform: {xMin:-50,xMax:50,yMin:-2,yMax:2} },
+  3:  { name: 'Pokemon Stadium',    bz: {xMin:0,xMax:235,yMin:-115,yMax:175}, edge: {xMin:80,xMax:95,yMin:-7,yMax:175}, platform: {xMin:-75,xMax:75,yMin:-2,yMax:2} },
+  8:  { name: "Yoshi's Story",      bz: {xMin:0,xMax:180,yMin:-100,yMax:160}, edge: {xMin:47,xMax:65,yMin:-15,yMax:160}, platform: {xMin:-42,xMax:42,yMin:-2,yMax:2} },
+  28: { name: 'Dream Land',         bz: {xMin:0,xMax:260,yMin:-130,yMax:255}, edge: {xMin:70,xMax:85,yMin:-7,yMax:255}, platform: {xMin:-65,xMax:65,yMin:-2,yMax:2} },
+  31: { name: 'Battlefield',        bz: {xMin:0,xMax:230,yMin:-115,yMax:190}, edge: {xMin:50,xMax:80,yMin:-10,yMax:200}, platform: {xMin:-55,xMax:55,yMin:-2,yMax:2} },
+  32: { name: 'Final Destination',   bz: {xMin:0,xMax:250,yMin:-140,yMax:180}, edge: {xMin:75,xMax:95,yMin:-10,yMax:180}, platform: {xMin:-70,xMax:70,yMin:-2,yMax:2} },
+};
+
+const container = document.getElementById('stages');
+
+for (const [id, stage] of Object.entries(rectangles)) {
+  const div = document.createElement('div');
+  div.className = 'stage';
+  const h2 = document.createElement('h2');
+  h2.textContent = stage.name;
+  div.appendChild(h2);
+
+  const canvas = document.createElement('canvas');
+  const W = 460, H = 360;
+  canvas.width = W; canvas.height = H;
+  div.appendChild(canvas);
+  container.appendChild(div);
+
+  const ctx = canvas.getContext('2d');
+
+  // Compute world bounds (include mirrored left side)
+  const worldXMin = -stage.bz.xMax - 20;
+  const worldXMax = stage.bz.xMax + 20;
+  const worldYMin = stage.bz.yMin - 20;
+  const worldYMax = stage.bz.yMax + 20;
+  const worldW = worldXMax - worldXMin;
+  const worldH = worldYMax - worldYMin;
+
+  const pad = 16;
+  const scaleX = (W - pad*2) / worldW;
+  const scaleY = (H - pad*2) / worldH;
+  const scale = Math.min(scaleX, scaleY);
+
+  // World to canvas (Y is flipped: game Y up, canvas Y down)
+  const toX = (wx) => pad + (wx - worldXMin) * scale;
+  const toY = (wy) => H - pad - (wy - worldYMin) * scale;
+
+  function drawRect(rect, color, strokeColor, dash) {
+    ctx.save();
+    if (dash) ctx.setLineDash(dash);
+    ctx.fillStyle = color;
+    ctx.strokeStyle = strokeColor;
+    ctx.lineWidth = 1.5;
+    const x = toX(rect.xMin);
+    const y = toY(rect.yMax);
+    const w = (rect.xMax - rect.xMin) * scale;
+    const h = (rect.yMax - rect.yMin) * scale;
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeRect(x, y, w, h);
+    ctx.restore();
+  }
+
+  // Draw blast zones (right)
+  drawRect(stage.bz, 'rgba(255,60,60,0.15)', 'rgba(255,68,68,0.7)');
+  // Blast zone mirrored left
+  const bzL = { xMin: -stage.bz.xMax, xMax: -stage.bz.xMin, yMin: stage.bz.yMin, yMax: stage.bz.yMax };
+  drawRect(bzL, 'rgba(255,60,60,0.10)', 'rgba(255,68,68,0.4)', [4,4]);
+
+  // Draw edge regions (right)
+  drawRect(stage.edge, 'rgba(60,200,255,0.25)', 'rgba(60,200,255,0.8)');
+  // Edge mirrored left
+  const edgeL = { xMin: -stage.edge.xMax, xMax: -stage.edge.xMin, yMin: stage.edge.yMin, yMax: stage.edge.yMax };
+  drawRect(edgeL, 'rgba(60,200,255,0.15)', 'rgba(60,200,255,0.5)', [4,4]);
+
+  // Draw approximate stage platform
+  const plat = stage.platform;
+  ctx.fillStyle = '#555';
+  ctx.strokeStyle = '#888';
+  ctx.lineWidth = 2;
+  const px = toX(plat.xMin);
+  const py = toY(plat.yMax);
+  const pw = (plat.xMax - plat.xMin) * scale;
+  const ph = (plat.yMax - plat.yMin) * scale;
+  ctx.fillRect(px, py, pw, Math.max(ph, 4));
+  ctx.strokeRect(px, py, pw, Math.max(ph, 4));
+
+  // Draw origin crosshair
+  const ox = toX(0), oy = toY(0);
+  ctx.save();
+  ctx.strokeStyle = '#666';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([2,3]);
+  ctx.beginPath();
+  ctx.moveTo(ox, pad); ctx.lineTo(ox, H - pad);
+  ctx.moveTo(pad, oy); ctx.lineTo(W - pad, oy);
+  ctx.stroke();
+  ctx.restore();
+
+  // Label origin
+  ctx.fillStyle = '#666';
+  ctx.font = '10px system-ui';
+  ctx.fillText('0,0', ox + 3, oy - 4);
+
+  // Label key coordinates
+  ctx.fillStyle = '#aaa';
+  ctx.font = '10px system-ui';
+  ctx.textAlign = 'center';
+
+  // BZ right edge
+  ctx.fillText(`bz.xMax=${stage.bz.xMax}`, toX(stage.bz.xMax), toY(stage.bz.yMin) + 12);
+  // Edge xMin/xMax
+  const edgeMidX = (stage.edge.xMin + stage.edge.xMax) / 2;
+  ctx.fillText(`edge ${stage.edge.xMin}–${stage.edge.xMax}`, toX(edgeMidX), toY(stage.edge.yMin) + 12);
+  // BZ yMin
+  ctx.textAlign = 'right';
+  ctx.fillText(`yMin=${stage.bz.yMin}`, toX(stage.bz.xMax) - 4, toY(stage.bz.yMin) - 4);
+}
+</script>
+</body>
+</html>

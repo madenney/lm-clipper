@@ -1,0 +1,11 @@
+files: Filter replay metadata
+slpParser: Parse .slp for combo data 
+comboFilter: Filter parsed combos
+actionStateFilter: Filter clips by action states at specific frames
+reverse: Filter for combos where the Nth hit was a reverse hitbox
+edgeguard: Parse for edgeguard sequences (experimental)
+koDirection: Filter KOs by blast zone direction
+removeStarKOFrames: Trim star KO animations from the end of clips
+trim: Add or remove frames from the start/end of clips
+sort: Sort results
+custom: Run a custom function
