@@ -4,6 +4,7 @@ import {
   FilterInterface,
   EventEmitterInterface,
   ShallowArchiveInterface,
+  SavedCustomFilter,
   ClipInterface,
   LiteItem,
 } from 'constants/types'
@@ -34,6 +35,7 @@ export default class Archive {
   createdAt: number
   files: number
   filters: FilterInterface[]
+  savedCustomFilters: SavedCustomFilter[]
 
   constructor(archiveJSON: ArchiveInterface) {
     this.path = archiveJSON.path
@@ -41,6 +43,7 @@ export default class Archive {
     this.createdAt = archiveJSON.createdAt
     this.files = archiveJSON.files || 0
     this.filters = archiveJSON.filters || []
+    this.savedCustomFilters = (archiveJSON as any).savedCustomFilters || []
   }
 
   async addFiles(
@@ -250,7 +253,7 @@ export default class Archive {
   }
 
   async saveMetaData() {
-    const objToSave = {
+    const objToSave: any = {
       name: this.name,
       path: this.path,
       createdAt: this.createdAt,
@@ -262,6 +265,9 @@ export default class Archive {
         params: filter.params,
         results: filter.results,
       })),
+    }
+    if (this.savedCustomFilters && this.savedCustomFilters.length > 0) {
+      objToSave.savedCustomFilters = this.savedCustomFilters
     }
     await updateMetaData(this.path, objToSave)
   }
@@ -275,6 +281,8 @@ export default class Archive {
       createdAt: metadata.createdAt,
       files: metadata.files,
       filters: metadata.filters,
+      savedCustomFilters:
+        metadata.savedCustomFilters || this.savedCustomFilters || [],
     }
 
     return shallowArchive

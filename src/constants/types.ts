@@ -138,12 +138,18 @@ export interface ShallowFilterInterface {
   resumable?: boolean
 }
 
+export interface SavedCustomFilter {
+  name: string
+  code: string
+}
+
 export interface ShallowArchiveInterface {
   path: string
   name: string
   createdAt: number
   files: number
   filters: ShallowFilterInterface[]
+  savedCustomFilters?: SavedCustomFilter[]
 }
 
 export interface ArchiveInterface {
