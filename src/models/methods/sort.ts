@@ -3,75 +3,61 @@ export const sortOptions = [
     id: 'chronological',
     shortName: 'chronological',
     requiresParser: false,
-    method: (reverse: boolean) => {
-      return (resultA: any, resultB: any) => {
-        const a = resultA.startedAt || 0
-        const b = resultB.startedAt || 0
-        if (reverse) {
-          return b - a
-        }
-        return a - b
-      }
-    },
   },
   {
     id: 'dps',
     shortName: 'damage per second',
     requiresParser: true,
-    method: (reverse: boolean) => {
-      return (resultA: any, resultB: any) => {
-        const movesA = resultA.combo?.moves || []
-        const movesB = resultB.combo?.moves || []
-        const totalDamageA = movesA.reduce(
-          (total: number, move: { damage: number }) => {
-            return total + move.damage
-          },
-          0,
-        )
-        const totalDamageB = movesB.reduce(
-          (total: number, move: { damage: number }) => {
-            return total + move.damage
-          },
-          0,
-        )
-
-        const durationA = resultA.endFrame - resultA.startFrame || 1
-        const durationB = resultB.endFrame - resultB.startFrame || 1
-        const dpsA = totalDamageA / durationA
-        const dpsB = totalDamageB / durationB
-
-        if (reverse) {
-          return dpsA - dpsB
-        }
-        return dpsB - dpsA
-      }
-    },
   },
   {
     id: 'moves',
     shortName: 'number of moves',
     requiresParser: true,
-    method: (reverse: boolean) => {
-      return (resultA: any, resultB: any) => {
-        const lenA = resultA.combo?.moves?.length || 0
-        const lenB = resultB.combo?.moves?.length || 0
-        if (reverse) {
-          return lenB - lenA
-        }
-        return lenA - lenB
-      }
-    },
+  },
+  {
+    id: 'length',
+    shortName: 'clip length',
+    requiresParser: false,
   },
 ]
 
-export const sort = (prevResults: any[], params: { [key: string]: any }) => {
-  const { sortFunction, reverse } = params
-  console.log(params)
-  const sortOption = sortOptions.find((s) => s.id === sortFunction)
-  if (!sortOption) throw Error('sortOption undefined')
-  const copy = prevResults.map((result: any) => {
-    return { ...result }
-  })
-  console.log(sortOption.method(reverse))
-  return copy.sort(sortOption.method(reverse))
+/**
+ * Returns a SQL ORDER BY expression for the given sort option.
+ * Used by Worker.ts to sort entirely in SQLite (no JS memory overhead).
+ */
+export function getSortOrderExpr(
+  sortFunction: string,
+  reverse: boolean,
+): string | null {
+  switch (sortFunction) {
+    case 'chronological': {
+      const dir = reverse ? 'DESC' : 'ASC'
+      return `CAST(json_extract(JSON, '$.startedAt') AS REAL) ${dir}`
+    }
+    case 'dps': {
+      // Default: highest DPS first (DESC), reverse: lowest first (ASC)
+      const dir = reverse ? 'ASC' : 'DESC'
+      return (
+        `(SELECT COALESCE(SUM(CAST(json_extract(value, '$.damage') AS REAL)), 0) ` +
+        `FROM json_each(json_extract(JSON, '$.combo.moves'))) * 1.0 ` +
+        `/ MAX(1, CAST(json_extract(JSON, '$.endFrame') AS INTEGER) ` +
+        `- CAST(json_extract(JSON, '$.startFrame') AS INTEGER)) ${dir}`
+      )
+    }
+    case 'moves': {
+      // Default: fewest moves first (ASC), reverse: most first (DESC)
+      const dir = reverse ? 'DESC' : 'ASC'
+      return `COALESCE(json_array_length(json_extract(JSON, '$.combo.moves')), 0) ${dir}`
+    }
+    case 'length': {
+      // Default: longest clips first (DESC), reverse: shortest first (ASC)
+      const dir = reverse ? 'ASC' : 'DESC'
+      return (
+        `(CAST(json_extract(JSON, '$.endFrame') AS INTEGER) ` +
+        `- CAST(json_extract(JSON, '$.startFrame') AS INTEGER)) ${dir}`
+      )
+    }
+    default:
+      return null
+  }
 }

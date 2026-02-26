@@ -3,6 +3,7 @@ import { parentPort, workerData } from 'worker_threads'
 import Database from 'better-sqlite3'
 
 import methods from './methods'
+import { getSortOrderExpr } from './methods/sort'
 
 function postMessage(message: WorkerMessage) {
   parentPort?.postMessage(message)
@@ -27,9 +28,42 @@ function run() {
   db.pragma('journal_mode = WAL')
   db.pragma('busy_timeout = 5000')
 
-  const _FLUSH_SIZE = 100 // default for non-parser paths
-
   try {
+    // Sort is handled entirely in SQLite — no JS method needed
+    if (type === 'sort') {
+      const { sortFunction, reverse } = params
+      const orderExpr = getSortOrderExpr(sortFunction, reverse)
+      if (!orderExpr) {
+        postMessage({
+          type: 'error',
+          message: `Unknown sort function: ${sortFunction}`,
+          filterType: type,
+        })
+        postMessage({ type: 'done', results: 0 })
+        return
+      }
+      try {
+        db.exec(
+          `INSERT INTO "${nextTableId}" (JSON) ` +
+            `SELECT JSON FROM "${prevTableId}" ` +
+            `WHERE id >= ${slice.bottom} AND id <= ${slice.top} ` +
+            `ORDER BY ${orderExpr}`,
+        )
+        const row = db
+          .prepare(`SELECT COUNT(*) as cnt FROM "${nextTableId}"`)
+          .get() as { cnt: number }
+        postMessage({ type: 'done', results: row.cnt })
+      } catch (err: any) {
+        postMessage({
+          type: 'error',
+          message: err?.message || String(err),
+          filterType: type,
+        })
+        postMessage({ type: 'done', results: 0 })
+      }
+      return
+    }
+
     const method = methods[type]
     if (!method) {
       postMessage({
@@ -61,12 +95,6 @@ function run() {
         })
       }
     }
-
-    // Sort loads all rows upfront; parsers and other filters stream in chunks
-    const prevResults =
-      type === 'sort'
-        ? parseRows(prevTableId, getRows(db, prevTableId, slice))
-        : []
 
     if (type === 'slpParser') {
       // Parser methods read .slp files from disk (slow) — stream from DB
@@ -142,24 +170,6 @@ function run() {
         results: totalInserted,
       })
       postMessage({ type: 'done', results: totalInserted })
-    } else if (type === 'sort') {
-      // Sort needs all data in memory — keep as single batch
-      const progressEmitter = createProgressEmitter()
-      let results: any[] = []
-      try {
-        if (method.length >= 3) {
-          const res = method(prevResults, params, progressEmitter)
-          if (Array.isArray(res)) results = res
-        } else {
-          const res = method(prevResults, params)
-          if (Array.isArray(res)) results = res
-        }
-      } catch (err: any) {
-        sendError(err?.message || String(err))
-      }
-      results = results.filter(Boolean)
-      insertBatch(results)
-      postMessage({ type: 'done', results: results.length })
     } else {
       // Non-parser filters: process in chunks to avoid OOM
       const CHUNK_SIZE = 5000
@@ -174,6 +184,7 @@ function run() {
         'actionStateFilter',
         'reverse',
         'removeStarKOFrames',
+        'koDirection',
         'edgeguard',
       ])
       const isSlow = slowTypes.has(type)
@@ -223,6 +234,7 @@ function run() {
         }
 
         results = results.filter(Boolean)
+
         if (results.length > 0) {
           insertBatch(results)
           totalInserted += results.length
@@ -260,17 +272,6 @@ try {
     filterType: type,
   })
   postMessage({ type: 'done', results: 0 })
-}
-
-function createProgressEmitter() {
-  let lastSent = -1
-  return ({ current, total }: { current: number; total: number }) => {
-    const adjusted = Math.min(total, current + 1)
-    if (adjusted !== lastSent) {
-      lastSent = adjusted
-      postMessage({ type: 'progress', current: adjusted, total })
-    }
-  }
 }
 
 function getRows(

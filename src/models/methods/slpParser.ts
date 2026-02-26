@@ -1,5 +1,6 @@
 import { SlippiGame } from '@slippi/slippi-js'
 import { FileInterface, ClipInterface } from '../../constants/types'
+import { detectCombos } from './comboDetection'
 
 const matchesAny = (value: any, param: any) => {
   if (!param || (Array.isArray(param) && param.length === 0)) return true
@@ -19,6 +20,7 @@ export default (file: FileInterface, params: { [key: string]: any }) => {
     comboeeTag,
     comboeeCC,
     didKill,
+    comboTimeout,
   } = params
 
   const { path, players, stage, startedAt } = file
@@ -29,9 +31,11 @@ export default (file: FileInterface, params: { [key: string]: any }) => {
   const game = new SlippiGame(path)
   let combos
   try {
-    const stats = game.getStats()
-    if (!stats) return []
-    combos = stats.combos
+    const settings = game.getSettings()
+    const frames = game.getFrames()
+    if (!settings || !frames) return []
+    const timeout = comboTimeout ? parseInt(comboTimeout, 10) : 45
+    combos = detectCombos(frames, settings, timeout)
   } catch (e) {
     console.log('Broken file:', path)
     return []
