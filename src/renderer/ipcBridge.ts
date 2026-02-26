@@ -38,7 +38,11 @@ setInterval(() => {
   for (const [channel, pending] of pendingByChannel) {
     for (const [requestId] of pending) {
       const ts = requestTimestamps.get(requestId)
-      if (ts && now - ts > STALE_REQUEST_MS && !LONG_RUNNING_CHANNELS.has(channel)) {
+      if (
+        ts &&
+        now - ts > STALE_REQUEST_MS &&
+        !LONG_RUNNING_CHANNELS.has(channel)
+      ) {
         pending.delete(requestId)
         requestTimestamps.delete(requestId)
         console.warn(
