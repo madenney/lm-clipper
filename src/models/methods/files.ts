@@ -15,16 +15,21 @@ export default (
     const { stage, char1, char2, player1, player2, player1CC, player2CC } =
       params
 
-    if (stage) {
-      const stageArray = Array.isArray(stage) ? stage : [stage]
+    const hasStage = Array.isArray(stage) ? stage.length > 0 : !!stage
+    if (hasStage) {
+      const stageArray = (Array.isArray(stage) ? stage : [stage]).map(String)
       if (stageArray.indexOf(file.stage.toString()) === -1) return false
     }
 
-    if (char1 || char2) {
-      let c1 = char1
-      let c2 = char2
-      if (char1 && !Array.isArray(char1)) c1 = [char1]
-      if (char2 && !Array.isArray(char2)) c2 = [char2]
+    const hasChar1 = Array.isArray(char1) ? char1.length > 0 : !!char1
+    const hasChar2 = Array.isArray(char2) ? char2.length > 0 : !!char2
+    if (hasChar1 || hasChar2) {
+      const c1 = hasChar1
+        ? (Array.isArray(char1) ? char1 : [char1]).map(String)
+        : null
+      const c2 = hasChar2
+        ? (Array.isArray(char2) ? char2 : [char2]).map(String)
+        : null
       if (file.players[0]?.characterId == null) return false
       if (file.players[1]?.characterId == null) return false
       const p1 = file.players[0].characterId.toString()

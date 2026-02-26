@@ -79,6 +79,9 @@ export default function App() {
     const removeRefreshListener = window.electron.ipcRenderer.on(
       'refreshProject',
       () => {
+        ipcBridge.cancelRunningFilters()
+        ipcBridge.cancelImport()
+        ipcBridge.cancelVideo()
         ipcBridge.getArchive((nextArchive) => {
           setArchive(nextArchive || null)
         })

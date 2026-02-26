@@ -121,6 +121,7 @@ export default class Filter {
           'edgeguard',
           'reverse',
           'removeStarKOFrames',
+          'koDirection',
         ])
         const resourceLimits = slowIOTypes.has(this.type)
           ? { maxOldGenerationSizeMb: 512 }

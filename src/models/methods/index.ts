@@ -4,7 +4,8 @@ import comboFilter from './comboFilter'
 import actionStateFilter from './actionStateFilter'
 import removeStarKOFrames from './removeStarKOFrames'
 import reverse from './reverse'
-import { sort } from './sort'
+import trim from './trim'
+import koDirection from './koDirection'
 import custom from './custom'
 import edgeguard from './edgeguard'
 
@@ -16,10 +17,11 @@ const methods: Methods = {
   files,
   slpParser,
   comboFilter,
-  sort,
   actionStateFilter,
   removeStarKOFrames,
   reverse,
+  trim,
+  koDirection,
   custom,
   edgeguard,
 }
