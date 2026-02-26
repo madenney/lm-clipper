@@ -1,47 +1,35 @@
 import { ClipInterface, EventEmitterInterface } from 'constants/types'
+import { SlippiGame } from '@slippi/slippi-js'
 
 export default (
   prevResults: ClipInterface[],
   params: { [key: string]: any },
   eventEmitter: EventEmitterInterface,
 ) => {
-  const results: ClipInterface[] = []
+  const { code, maxFiles } = params
 
-  const { maxFiles, n } = params
+  if (!code || typeof code !== 'string') {
+    return prevResults
+  }
 
   const limit =
     maxFiles === '' || maxFiles === undefined
-      ? undefined
+      ? prevResults.length
       : parseInt(maxFiles, 10)
 
-  const total =
-    limit === undefined
-      ? prevResults.length
-      : Math.min(limit, prevResults.length)
+  const sliced = prevResults.slice(
+    0,
+    Number.isNaN(limit) ? prevResults.length : limit,
+  )
 
-  prevResults.slice(0, limit).forEach((prevResult, index) => {
-    eventEmitter({ current: index, total })
+  eventEmitter({ current: 0, total: sliced.length })
 
-    const { combo } = prevResult
-    if (!combo || !combo.moves) return false
-    const { moves } = combo
-    switch (n) {
-      case 'test':
-        console.log('MOVES: ', moves)
-        let upBCount = 0
-        moves.forEach((move) => {
-          if (move.moveId === 20) {
-            upBCount++
-          }
-        })
-        if (upBCount > 3) {
-          results.push(prevResult)
-        }
-        break
-      default:
-        return false
-    }
-  })
-
-  return results
+  try {
+    // eslint-disable-next-line no-new-func
+    const userFn = new Function('clips', 'params', 'SlippiGame', code)
+    const result = userFn(sliced, params, SlippiGame)
+    return Array.isArray(result) ? result : []
+  } catch (err: any) {
+    throw new Error(`Custom code error: ${err?.message || String(err)}`)
+  }
 }

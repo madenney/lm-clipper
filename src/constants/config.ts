@@ -9,6 +9,7 @@ export const filtersConfig = [
   {
     id: 'files',
     label: 'Game Filter',
+    tooltip: 'Filter replay metadata',
     options: [
       {
         name: 'Stage',
@@ -64,6 +65,7 @@ export const filtersConfig = [
   {
     id: 'slpParser',
     label: 'Combo Parser',
+    tooltip: 'Parse .slp for combo data',
     options: [
       {
         name: 'Min Hits',
@@ -82,6 +84,15 @@ export const filtersConfig = [
         id: 'maxFiles',
         type: 'int',
         default: '',
+      },
+      {
+        name: 'Combo Timeout',
+        id: 'comboTimeout',
+        type: 'int',
+        default: '',
+        placeholder: '45',
+        tooltip:
+          'Frames opponent must be out of hitstun before the combo ends. Lower = stricter, higher = more lenient. Default: 45 (~0.75s).',
       },
       {
         name: 'Comboer Char',
@@ -136,6 +147,7 @@ export const filtersConfig = [
   {
     id: 'comboFilter',
     label: 'Combo Filter',
+    tooltip: 'Filter parsed combos',
     options: [
       {
         name: 'Min Hits',
@@ -229,6 +241,7 @@ export const filtersConfig = [
   {
     id: 'actionStateFilter',
     label: 'Action State',
+    tooltip: 'Filter clips by action states at specific frames',
     options: [
       {
         name: 'Start Frame',
@@ -378,6 +391,7 @@ export const filtersConfig = [
   {
     id: 'reverse',
     label: 'Reverse Hit',
+    tooltip: 'Filter for combos where the Nth hit was a reverse hitbox',
     options: [
       {
         name: 'Nth Move',
@@ -388,95 +402,10 @@ export const filtersConfig = [
     ],
   },
   {
-    id: 'sort',
-    label: 'Sort',
-    options: [
-      {
-        name: 'Sort Function',
-        id: 'sortFunction',
-        type: 'dropdown',
-        options: sortOptions,
-        default: 'dps',
-      },
-      {
-        name: 'Reverse',
-        id: 'reverse',
-        type: 'checkbox',
-        default: false,
-      },
-    ],
-  },
-  {
-    id: 'removeStarKOFrames',
-    label: 'Cut Star KO',
-    options: [
-      {
-        name: 'Max Files',
-        id: 'maxFiles',
-        type: 'int',
-        default: '',
-      },
-    ],
-  },
-  {
-    id: 'custom',
-    label: 'Custom Code',
-    options: [
-      {
-        name: 'N',
-        id: 'n',
-        type: 'int',
-        default: '',
-      },
-      {
-        name: 'X',
-        id: 'x',
-        type: 'int',
-        default: '',
-      },
-      {
-        name: 'Y',
-        id: 'y',
-        type: 'int',
-        default: '',
-      },
-      {
-        name: 'Max Files',
-        id: 'maxFiles',
-        type: 'int',
-        default: '',
-      },
-    ],
-  },
-  {
-    id: 'koDirection',
-    label: 'KO Direction',
-    options: [
-      {
-        name: 'Max Files',
-        id: 'maxFiles',
-        type: 'int',
-        default: '',
-      },
-      {
-        name: 'Direction',
-        id: 'direction',
-        type: 'dropdown',
-        options: deathDirections,
-        default: '',
-      },
-    ],
-  },
-  {
     id: 'edgeguard',
     label: 'Edgeguards',
+    tooltip: 'Parse for edgeguard sequences (experimental)',
     options: [
-      {
-        name: 'Max Files',
-        id: 'maxFiles',
-        type: 'int',
-        default: '',
-      },
       {
         name: 'Edgeguarder Char',
         id: 'comboerChar',
@@ -525,6 +454,102 @@ export const filtersConfig = [
         type: 'multiDropdown',
         options: legalStages,
         default: [],
+      },
+    ],
+  },
+  {
+    id: 'koDirection',
+    label: 'KO Direction',
+    tooltip: 'Filter KOs by blast zone direction',
+    options: [
+      {
+        name: 'Max Files',
+        id: 'maxFiles',
+        type: 'int',
+        default: '',
+      },
+      {
+        name: 'Direction',
+        id: 'direction',
+        type: 'multiDropdown',
+        options: deathDirections,
+        default: [],
+      },
+    ],
+  },
+  {
+    id: 'removeStarKOFrames',
+    label: 'Cut Star KO',
+    tooltip: 'Trim star KO animations from the end of clips',
+    options: [],
+  },
+  {
+    id: 'trim',
+    label: 'Trim',
+    tooltip: 'Add or remove frames from the start/end of clips',
+    options: [
+      {
+        name: 'Add Start Frames',
+        id: 'addStartFrames',
+        type: 'int',
+        default: '',
+        tooltip:
+          'Frames to add before the clip starts. Use a negative value to trim the beginning.',
+      },
+      {
+        name: 'Add End Frames',
+        id: 'addEndFrames',
+        type: 'int',
+        default: '',
+        tooltip:
+          'Frames to add after the clip ends. Use a negative value to trim the end.',
+      },
+    ],
+  },
+  {
+    id: 'sort',
+    label: 'Sort',
+    tooltip: 'Sort results',
+    options: [
+      {
+        name: 'Sort Function',
+        id: 'sortFunction',
+        type: 'dropdown',
+        options: sortOptions,
+        default: 'dps',
+      },
+      {
+        name: 'Reverse',
+        id: 'reverse',
+        type: 'checkbox',
+        default: false,
+      },
+    ],
+  },
+  {
+    id: 'custom',
+    label: 'Custom Code',
+    tooltip: 'Run a custom JavaScript function',
+    options: [
+      {
+        name: 'Code',
+        id: 'code',
+        type: 'code',
+        default: `// \`clips\` = array of clip objects from the previous filter
+// \`params\` = this filter's params (maxFiles, etc.)
+// \`SlippiGame\` = slippi-js class — new SlippiGame(clip.path) to open files
+//
+// Return an array of clips to keep.
+
+return clips.filter(clip => {
+  return true
+})`,
+      },
+      {
+        name: 'Max Files',
+        id: 'maxFiles',
+        type: 'int',
+        default: '',
       },
     ],
   },

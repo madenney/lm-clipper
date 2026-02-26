@@ -108,6 +108,7 @@ const buildShallowArchive = (
       results: filter.results,
       ...(filter.resumable ? { resumable: true } : {}),
     })),
+    savedCustomFilters: (archive as any).savedCustomFilters || [],
   }
 }
 
@@ -968,7 +969,11 @@ export default class Controller {
         error: 'invalid filter type',
       })
     }
-    const template = filtersConfig.find((p) => p.id === payload)
+
+    // Handle saved custom templates: "customTemplate:INDEX"
+    const isCustomTemplate = payload?.startsWith('customTemplate:')
+    const filterType = isCustomTemplate ? 'custom' : payload
+    const template = filtersConfig.find((p) => p.id === filterType)
     if (!template) {
       throw Error(`Invalid Filter Type ${payload}`)
     }
@@ -997,6 +1002,17 @@ export default class Controller {
         newFilterJSON.params.sortFunction = 'chronological'
       }
     }
+
+    // Pre-fill from saved custom template
+    if (isCustomTemplate) {
+      const templateIndex = parseInt(payload!.split(':')[1], 10)
+      const saved = (this.archive as any).savedCustomFilters?.[templateIndex]
+      if (saved) {
+        newFilterJSON.label = saved.name
+        newFilterJSON.params.code = saved.code
+      }
+    }
+
     // this.archive.filters.push(new Filter(newFilterJSON))
     await this.archive.addFilter(newFilterJSON)
     const metadata = await this.archive.shallowCopy()
@@ -1029,6 +1045,77 @@ export default class Controller {
     return reply(
       event,
       'removeFilter',
+      requestId,
+      await this.archive.shallowCopy(),
+    )
+  }
+
+  async saveCustomFilter(
+    event: IpcMainEvent,
+    data: RequestEnvelope<{ name: string; code: string }>,
+  ) {
+    const { requestId, payload } = unpackRequest<{
+      name: string
+      code: string
+    }>(data)
+    if (!this.archive || !this.archive.shallowCopy) {
+      return reply(event, 'saveCustomFilter', requestId, {
+        error: 'archive undefined',
+      })
+    }
+    if (!payload?.name || !payload?.code) {
+      return reply(event, 'saveCustomFilter', requestId, {
+        error: 'missing name or code',
+      })
+    }
+    const archive = this.archive as any
+    if (!archive.savedCustomFilters) {
+      archive.savedCustomFilters = []
+    }
+    // Update existing template with same name, or add new
+    const existing = archive.savedCustomFilters.findIndex(
+      (t: any) => t.name === payload.name,
+    )
+    if (existing >= 0) {
+      archive.savedCustomFilters[existing].code = payload.code
+    } else {
+      archive.savedCustomFilters.push({
+        name: payload.name,
+        code: payload.code,
+      })
+    }
+    await archive.saveMetaData()
+    return reply(
+      event,
+      'saveCustomFilter',
+      requestId,
+      await this.archive.shallowCopy(),
+    )
+  }
+
+  async deleteCustomFilter(event: IpcMainEvent, data: RequestEnvelope<number>) {
+    const { requestId, payload } = unpackRequest<number>(data)
+    if (!this.archive || !this.archive.shallowCopy) {
+      return reply(event, 'deleteCustomFilter', requestId, {
+        error: 'archive undefined',
+      })
+    }
+    const archive = this.archive as any
+    if (
+      !archive.savedCustomFilters ||
+      typeof payload !== 'number' ||
+      payload < 0 ||
+      payload >= archive.savedCustomFilters.length
+    ) {
+      return reply(event, 'deleteCustomFilter', requestId, {
+        error: 'invalid index',
+      })
+    }
+    archive.savedCustomFilters.splice(payload, 1)
+    await archive.saveMetaData()
+    return reply(
+      event,
+      'deleteCustomFilter',
       requestId,
       await this.archive.shallowCopy(),
     )
@@ -2381,6 +2468,8 @@ export default class Controller {
     ipcMain.on('updateFilter', this.updateFilter.bind(this))
     ipcMain.on('reorderFilter', this.reorderFilter.bind(this))
     ipcMain.on('removeFilter', this.removeFilter.bind(this))
+    ipcMain.on('saveCustomFilter', this.saveCustomFilter.bind(this))
+    ipcMain.on('deleteCustomFilter', this.deleteCustomFilter.bind(this))
     ipcMain.on('getResults', this.getResults.bind(this))
     ipcMain.on('getNames', this.getNames.bind(this))
     ipcMain.on('getConnectCodes', this.getConnectCodes.bind(this))

@@ -129,7 +129,7 @@ export function getMetaData(path: string) {
     throw new Error('metadata missing')
   }
 
-  let extra: { filters?: any[] } = {}
+  let extra: { filters?: any[]; savedCustomFilters?: any[] } = {}
   try {
     extra = JSON.parse(row.extra || '{}')
   } catch (_) {
@@ -141,6 +141,7 @@ export function getMetaData(path: string) {
     path: row.path,
     createdAt: row.createdAt,
     filters: extra.filters || [],
+    savedCustomFilters: extra.savedCustomFilters || [],
   }
 
   let needsUpdate = false
@@ -232,10 +233,15 @@ export function updateMetaData(
     path?: string
     createdAt?: number
     filters?: any[]
+    savedCustomFilters?: any[]
   },
 ) {
   const db = getDb(path)
-  const extra = JSON.stringify({ filters: metadata.filters || [] })
+  const extraObj: any = { filters: metadata.filters || [] }
+  if (metadata.savedCustomFilters && metadata.savedCustomFilters.length > 0) {
+    extraObj.savedCustomFilters = metadata.savedCustomFilters
+  }
+  const extra = JSON.stringify(extraObj)
   db.prepare(
     'UPDATE metadata SET name = ?, path = ?, createdAt = ?, extra = ?',
   ).run(

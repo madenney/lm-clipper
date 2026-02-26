@@ -18,6 +18,14 @@ const responseListeners = new Map<string, () => void>()
 let requestCounter = 0
 const STALE_REQUEST_MS = 30_000
 const REAP_INTERVAL_MS = 10_000
+const LONG_RUNNING_CHANNELS = new Set([
+  'runFilter',
+  'runFilters',
+  'resumeFilter',
+  'generateVideo',
+  'addFilesManual',
+  'addDroppedFiles',
+])
 
 const nextRequestId = () => {
   requestCounter += 1
@@ -30,7 +38,7 @@ setInterval(() => {
   for (const [channel, pending] of pendingByChannel) {
     for (const [requestId] of pending) {
       const ts = requestTimestamps.get(requestId)
-      if (ts && now - ts > STALE_REQUEST_MS) {
+      if (ts && now - ts > STALE_REQUEST_MS && !LONG_RUNNING_CHANNELS.has(channel)) {
         pending.delete(requestId)
         requestTimestamps.delete(requestId)
         console.warn(
@@ -258,6 +266,15 @@ export default {
     lastFrame?: number
   }) {
     return send('recordClip', payload)
+  },
+  saveCustomFilter(
+    payload: { name: string; code: string },
+    handler?: ResponseHandler<any>,
+  ) {
+    return request('saveCustomFilter', payload, 'saveCustomFilter', handler)
+  },
+  deleteCustomFilter(index: number, handler?: ResponseHandler<any>) {
+    return request('deleteCustomFilter', index, 'deleteCustomFilter', handler)
   },
   logPerfEvents(events: any[]) {
     return send('logPerfEvents', events)

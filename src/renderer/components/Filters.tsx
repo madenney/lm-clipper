@@ -21,6 +21,62 @@ import {
   ShallowArchiveInterface,
   ShallowFilterInterface,
 } from '../../constants/types'
+import CodeEditorModal from './CodeEditorModal'
+
+function DeferredInput({
+  value,
+  placeholder,
+  disabled,
+  className,
+  title,
+  inputMode,
+  validate,
+  onChange,
+}: {
+  value: string
+  placeholder?: string
+  disabled?: boolean
+  className?: string
+  title?: string
+  inputMode?: 'numeric' | 'text'
+  validate?: (_raw: string) => boolean
+  onChange: (_val: string) => void
+}) {
+  const [local, setLocal] = useState(value)
+  const committed = useRef(value)
+
+  useEffect(() => {
+    setLocal(value)
+    committed.current = value
+  }, [value])
+
+  const commit = () => {
+    if (local !== committed.current) {
+      committed.current = local
+      onChange(local)
+    }
+  }
+
+  return (
+    <input
+      className={className}
+      inputMode={inputMode}
+      value={disabled ? '' : local}
+      placeholder={placeholder}
+      disabled={disabled}
+      title={title}
+      onChange={(e) => {
+        const raw = e.target.value
+        if (validate && !validate(raw)) return
+        setLocal(raw)
+      }}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') commit()
+      }}
+    />
+  )
+}
 
 type FiltersProps = {
   archive: ShallowArchiveInterface | null
@@ -79,6 +135,8 @@ export default function Filters({
   const dropdownRef = useRef<HTMLDivElement>(null)
   const dragAllowedRef = useRef(true)
   const [multiSearch, setMultiSearch] = useState('')
+  const [codeEditorFilter, setCodeEditorFilter] =
+    useState<ShallowFilterInterface | null>(null)
   useEffect(() => {
     const removeRunningListener = window.electron.ipcRenderer.on(
       'currentlyRunningFilter',
@@ -323,25 +381,31 @@ export default function Filters({
     })
   }
 
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
   function updateFilter(
     newFilter: ShallowFilterInterface,
     previousFilter: ShallowFilterInterface,
   ) {
     if (!archive) return
-    const prevFilterIndex = archive.filters.indexOf(previousFilter)
-    ipcBridge.updateFilter(
-      {
-        filterIndex: prevFilterIndex,
-        newFilter,
-      },
-      (response) => {
+    const filterIndex = archive.filters.indexOf(previousFilter)
+
+    // Optimistic local update — instant UI, preserve results display
+    const nextFilters = [...archive.filters]
+    nextFilters[filterIndex] = newFilter
+    setArchive({ ...archive, filters: nextFilters })
+
+    // Debounce the IPC save
+    if (saveTimer.current) clearTimeout(saveTimer.current)
+    saveTimer.current = setTimeout(() => {
+      ipcBridge.updateFilter({ filterIndex, newFilter }, (response) => {
         if (!response || response?.error) {
-          console.log('updateFilter response error:', response.error)
+          console.log('updateFilter response error:', response?.error)
           return
         }
         setArchive(response)
-      },
-    )
+      })
+    }, 300)
   }
 
   function deleteFilter(filter: FilterInterface) {
@@ -1390,18 +1454,18 @@ export default function Filters({
                     break
                   }
                   input = (
-                    <input
+                    <DeferredInput
                       className="filter-control-input"
-                      value={disabled ? '' : value}
+                      value={value}
                       placeholder={
                         disabled
                           ? 'Requires combo parser'
                           : option.placeholder || ''
                       }
                       disabled={disabled}
-                      onChange={(event) => {
+                      onChange={(raw) => {
                         const filterClone = cloneDeep(filter)
-                        filterClone.params[option.id] = event.target.value
+                        filterClone.params[option.id] = raw
                         updateFilter(filterClone, filter)
                       }}
                     />
@@ -1413,10 +1477,11 @@ export default function Filters({
                     !!filter.params?.startFromNthMove
                   const intDisabled = disabled || posDisabled
                   input = (
-                    <input
+                    <DeferredInput
                       className="filter-control-input"
                       inputMode="numeric"
-                      value={intDisabled ? '' : value}
+                      validate={(raw) => raw === '' || /^-?\d*$/.test(raw)}
+                      value={value}
                       placeholder={
                         disabled
                           ? 'Requires combo parser'
@@ -1425,9 +1490,7 @@ export default function Filters({
                             : option.placeholder || 'Any'
                       }
                       disabled={intDisabled}
-                      onChange={(event) => {
-                        const raw = event.target.value
-                        if (raw !== '' && !/^-?\d*$/.test(raw)) return
+                      onChange={(raw) => {
                         const filterClone = cloneDeep(filter)
                         filterClone.params[option.id] = raw
                         updateFilter(filterClone, filter)
@@ -1634,7 +1697,7 @@ export default function Filters({
                         )}
                       </div>
                       {posHasCustom && (
-                        <input
+                        <DeferredInput
                           className="filter-control-input filter-nth-pos-custom-input"
                           value={
                             posDisplayValues
@@ -1643,9 +1706,9 @@ export default function Filters({
                           }
                           placeholder="e.g. 3,4,-4"
                           title="Move index (0-based). Positive = from start, negative = from end. Comma-separate for multiple (e.g. 0,2,-1)."
-                          onChange={(e) => {
-                            const customVals = e.target.value
-                              ? e.target.value
+                          onChange={(raw) => {
+                            const customVals = raw
+                              ? raw
                                   .split(',')
                                   .map((s: string) => s.trim())
                                   .filter(Boolean)
@@ -1683,6 +1746,21 @@ export default function Filters({
                         className={`filter-control-checkbox-mark${disabled ? ' filter-control-checkbox-disabled' : ''}`}
                       />
                     </label>
+                  )
+                  break
+                case 'code':
+                  input = (
+                    <button
+                      type="button"
+                      className="filter-button"
+                      style={{ fontSize: 12, padding: '2px 8px' }}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setCodeEditorFilter(filter)
+                      }}
+                    >
+                      Edit Code
+                    </button>
                   )
                   break
                 case 'checkbox-disabled':
@@ -1979,7 +2057,20 @@ export default function Filters({
                       ?.tooltip || ''
                   }
                 >
-                  {filter.label}
+                  {filter.type === 'custom' ? (
+                    <DeferredInput
+                      className="filter-title-input"
+                      value={filter.label}
+                      placeholder="Custom Code"
+                      onChange={(val) => {
+                        const filterClone = cloneDeep(filter)
+                        filterClone.label = val || 'Custom Code'
+                        updateFilter(filterClone, filter)
+                      }}
+                    />
+                  ) : (
+                    filter.label
+                  )}
                 </div>
                 <div className="filter-meta">
                   <div className="filter-results">
@@ -2037,6 +2128,35 @@ export default function Filters({
                       ✕
                     </button>
                   </div>
+                )}
+                {filter.type === 'custom' && !isRunning && (
+                  <button
+                    type="button"
+                    className="filter-button"
+                    style={{ fontSize: 11 }}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      ipcBridge.saveCustomFilter(
+                        {
+                          name: filter.label,
+                          code: filter.params?.code || '',
+                        },
+                        (response) => {
+                          if (!response || response?.error) {
+                            console.log(
+                              'saveCustomFilter error:',
+                              response?.error,
+                            )
+                            return
+                          }
+                          setArchive(response)
+                        },
+                      )
+                    }}
+                    title="Save this filter as a reusable template"
+                  >
+                    Save
+                  </button>
                 )}
                 <button
                   type="button"
@@ -2106,6 +2226,7 @@ export default function Filters({
                   (f) => f.type === 'slpParser',
                 )
                 const requiresParserId = new Set(['comboFilter', 'reverse'])
+                const savedTemplates = archive?.savedCustomFilters || []
                 return filtersConfig
                   .filter((p) => p.id !== 'files')
                   .flatMap((p) => {
@@ -2130,6 +2251,58 @@ export default function Filters({
                         )}
                       </div>,
                     ]
+                    // Show saved custom templates beneath "Custom Code"
+                    if (p.id === 'custom' && savedTemplates.length > 0) {
+                      savedTemplates.forEach((tmpl, tmplIdx) => {
+                        items.push(
+                          <div
+                            key={`customTmpl-${tmplIdx}`}
+                            className="add-filter-item add-filter-item-template"
+                            style={{ paddingLeft: 24, fontSize: 12 }}
+                            onClick={() => {
+                              addFilter({
+                                target: {
+                                  value: `customTemplate:${tmplIdx}`,
+                                },
+                              })
+                              setDropdownOpen(false)
+                            }}
+                          >
+                            <span style={{ opacity: 0.5, marginRight: 4 }}>
+                              {'\u2514 '}
+                            </span>
+                            {tmpl.name}
+                            <span
+                              className="add-filter-template-delete"
+                              style={{
+                                marginLeft: 'auto',
+                                opacity: 0.5,
+                                cursor: 'pointer',
+                                padding: '0 4px',
+                              }}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                ipcBridge.deleteCustomFilter(
+                                  tmplIdx,
+                                  (response) => {
+                                    if (!response || response?.error) {
+                                      console.log(
+                                        'deleteCustomFilter error:',
+                                        response?.error,
+                                      )
+                                      return
+                                    }
+                                    setArchive(response)
+                                  },
+                                )
+                              }}
+                            >
+                              ✕
+                            </span>
+                          </div>,
+                        )
+                      })
+                    }
                     if (p.id === 'sort') {
                       items.push(
                         <div key="divider" className="add-filter-divider" />,
@@ -2226,6 +2399,18 @@ export default function Filters({
             </button>
           </div>
         </div>
+      )}
+      {codeEditorFilter && (
+        <CodeEditorModal
+          code={codeEditorFilter.params?.code || ''}
+          filterName={codeEditorFilter.label}
+          onSave={(newCode) => {
+            const filterClone = cloneDeep(codeEditorFilter)
+            filterClone.params.code = newCode
+            updateFilter(filterClone, codeEditorFilter)
+          }}
+          onClose={() => setCodeEditorFilter(null)}
+        />
       )}
     </div>
   )

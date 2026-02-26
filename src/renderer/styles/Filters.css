@@ -116,6 +116,16 @@
   padding-right: 170px;
 }
 
+.filter-title-input {
+  background: transparent;
+  border: none;
+  color: inherit;
+  font: inherit;
+  padding: 0;
+  width: 100%;
+  outline: none;
+}
+
 .filter-meta {
   display: flex;
   flex-wrap: wrap;
