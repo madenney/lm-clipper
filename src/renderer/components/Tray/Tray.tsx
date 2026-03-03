@@ -12,9 +12,11 @@ import { FiZoomIn, FiZoomOut } from 'react-icons/fi'
 
 import { DomLayer } from './DomLayer'
 import { GpuLayer } from './GpuLayer'
+import { FullCard } from '../Clip'
 import { useClipMode } from '../../hooks/useClipMode'
 import { clipDisplayConfig } from '../../config/clipDisplay'
 import type { ClipData } from '../Clip'
+import type { ClipMode } from '../../config/clipDisplay'
 import type {
   ShallowArchiveInterface,
   ClipInterface,
@@ -111,6 +113,9 @@ export function Tray({
   // Pagination for full mode
   const [currentPage, setCurrentPage] = useState(0)
 
+  // Saved zoom state for returning from full mode (double-click → Escape/close)
+  const [savedZoom, setSavedZoom] = useState<number | null>(null)
+
   // Track pending fetch to cancel stale ones
   const fetchIdRef = useRef(0)
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -194,24 +199,32 @@ export function Tray({
     trayHeight,
   })
 
-  const { mode, isDom, isGpu, clipSize, gap, columns, visibleCount } = modeInfo
+  const {
+    mode,
+    isDom,
+    isGpu,
+    clipSize,
+    clipHeight: _clipHeight,
+    gap,
+    columns,
+    visibleCount,
+  } = modeInfo
 
-  // Pagination for full mode
+  // Pagination for full mode — one card per page since it fills the tray
   const itemsPerPage = useMemo(() => {
     if (mode !== 'full') return 0
-    const rowHeight = clipSize + gap
-    return rowHeight > 0 ? Math.max(1, Math.floor(trayHeight / rowHeight)) : 1
-  }, [mode, clipSize, gap, trayHeight])
+    return 1
+  }, [mode])
 
   const totalPages = useMemo(() => {
     if (mode !== 'full' || itemsPerPage === 0) return 0
     return Math.ceil(clips.length / itemsPerPage)
   }, [mode, clips.length, itemsPerPage])
 
-  // Reset page when mode or filter changes
+  // Reset page when filter changes (but not mode — double-click sets currentPage before mode switches)
   useEffect(() => {
     setCurrentPage(0)
-  }, [mode, activeFilterId])
+  }, [activeFilterId])
 
   // Reset data page when filter or numPerPage changes
   useEffect(() => {
@@ -409,7 +422,7 @@ export function Tray({
   const handleZoomIn = useCallback(() => {
     setZoomSize((prev) => {
       const step = getZoomStep(prev)
-      return Math.min(prev + step, clipDisplayConfig.thresholds.full + 200)
+      return Math.min(prev + step, clipDisplayConfig.thresholds.full)
     })
   }, [getZoomStep])
 
@@ -420,22 +433,43 @@ export function Tray({
     })
   }, [getZoomStep])
 
-  // Keyboard shortcuts: Escape to clear, Ctrl+A to select all visible
+  // Keyboard shortcuts: Escape to clear, Ctrl+A to select all visible, Z/X/arrows for full mode nav
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Skip when an input/textarea is focused
+      const tag = (e.target as HTMLElement)?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
+
       if (e.key === 'Escape') {
-        setSelectedIds(new Set())
-        setLastSelectedIndex(null)
+        if (mode === 'full' && savedZoom !== null) {
+          // Return to previous zoom level
+          setZoomSize(savedZoom)
+          setSavedZoom(null)
+        } else {
+          setSelectedIds(new Set())
+          setLastSelectedIndex(null)
+        }
       } else if (e.key === 'a' && (e.ctrlKey || e.metaKey)) {
         e.preventDefault()
         // Select all visible clips
         const allIds = new Set(lightData.map((item) => item.id))
         setSelectedIds(allIds)
+      } else if (mode === 'full' && (e.key === 'z' || e.key === 'ArrowLeft')) {
+        setCurrentPage((p) => Math.max(0, p - 1))
+      } else if (mode === 'full' && (e.key === 'x' || e.key === 'ArrowRight')) {
+        setCurrentPage((p) => Math.min(Math.max(0, clips.length - 1), p + 1))
       }
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [setSelectedIds, setLastSelectedIndex, lightData])
+  }, [
+    setSelectedIds,
+    setLastSelectedIndex,
+    lightData,
+    mode,
+    clips.length,
+    savedZoom,
+  ])
 
   // Wheel zoom - use native listener with { passive: false } to allow preventDefault
   useEffect(() => {
@@ -457,7 +491,7 @@ export function Tray({
           const delta = e.deltaY > 0 ? -step : step
           return Math.max(
             1,
-            Math.min(prev + delta, clipDisplayConfig.thresholds.full + 200),
+            Math.min(prev + delta, clipDisplayConfig.thresholds.full),
           )
         })
       }
@@ -602,6 +636,25 @@ export function Tray({
     return () => document.removeEventListener('mouseup', handleMouseUp)
   }, [])
 
+  // Double-click a clip to open it in full mode
+  const handleClipDoubleClick = useCallback(
+    (index: number, _clipId: string) => {
+      if (mode === 'full') return // Already in full mode
+      setSavedZoom(zoomSize)
+      setCurrentPage(index)
+      setZoomSize(clipDisplayConfig.thresholds.full)
+    },
+    [mode, zoomSize],
+  )
+
+  // Close full mode (return to previous zoom)
+  const handleFullCardClose = useCallback(() => {
+    if (savedZoom !== null) {
+      setZoomSize(savedZoom)
+      setSavedZoom(null)
+    }
+  }, [savedZoom])
+
   // Show how many clips are visible on screen (capped by what we've loaded)
   const loadedCount = isDom ? clips.length : lightData.length
   const showCount = Math.min(visibleCount, loadedCount)
@@ -706,11 +759,57 @@ export function Tray({
           </div>
         )}
 
-        {/* DOM Layer (modes full and mode2) */}
-        {hasContent && (
+        {/* Full mode: FullCard (bypasses DomLayer) */}
+        {hasContent && mode === 'full' && paginatedClips.length > 0 && (
+          <FullCard
+            data={paginatedClips[0]}
+            isSelected={(() => {
+              const clip = paginatedClips[0]
+              const clipId =
+                'id' in clip && clip.id != null
+                  ? String(clip.id)
+                  : 'path' in clip && clip.path
+                    ? clip.path
+                    : ''
+              return selectedIds.has(clipId as string)
+            })()}
+            onMouseDown={(e: React.MouseEvent) => {
+              const clip = paginatedClips[0]
+              const clipId =
+                'id' in clip && clip.id != null
+                  ? String(clip.id)
+                  : 'path' in clip && clip.path
+                    ? clip.path
+                    : ''
+              handleClipMouseDown(
+                currentPage * itemsPerPage,
+                clipId as string,
+                e,
+              )
+            }}
+            onRecord={
+              onClipRecord
+                ? () => {
+                    const clip = paginatedClips[0]
+                    const clipId =
+                      'id' in clip && clip.id != null
+                        ? String(clip.id)
+                        : 'path' in clip && clip.path
+                          ? clip.path
+                          : ''
+                    onClipRecord(clipId as string)
+                  }
+                : undefined
+            }
+            onClose={savedZoom !== null ? handleFullCardClose : undefined}
+          />
+        )}
+
+        {/* DOM Layer (mode2 only now — full mode uses FullCard above) */}
+        {hasContent && mode !== 'full' && (
           <DomLayer
-            clips={mode === 'full' ? paginatedClips : clips}
-            mode={mode}
+            clips={clips}
+            mode={mode as Exclude<ClipMode, 'full'>}
             clipSize={clipSize}
             gap={gap}
             columns={columns}
@@ -720,40 +819,14 @@ export function Tray({
             selectedIds={selectedIds}
             onClipMouseDown={handleClipMouseDown}
             onClipMouseEnter={handleClipMouseEnter}
+            onClipDoubleClick={handleClipDoubleClick}
             onClipRecord={onClipRecord}
             onBackgroundClick={() => {
               setSelectedIds(new Set())
               setLastSelectedIndex(null)
             }}
-            startIndex={mode === 'full' ? currentPage * itemsPerPage : 0}
+            startIndex={0}
           />
-        )}
-
-        {/* Pagination controls for full mode */}
-        {mode === 'full' && totalPages > 1 && (
-          <div className="tray-pagination">
-            <button
-              type="button"
-              className="tray-page-btn"
-              onClick={() => setCurrentPage((p) => Math.max(0, p - 1))}
-              disabled={currentPage === 0}
-            >
-              Prev
-            </button>
-            <span className="tray-page-info">
-              {currentPage + 1} / {totalPages}
-            </span>
-            <button
-              type="button"
-              className="tray-page-btn"
-              onClick={() =>
-                setCurrentPage((p) => Math.min(totalPages - 1, p + 1))
-              }
-              disabled={currentPage >= totalPages - 1}
-            >
-              Next
-            </button>
-          </div>
         )}
 
         {/* GPU Layer (modes mode3 and mode4) */}

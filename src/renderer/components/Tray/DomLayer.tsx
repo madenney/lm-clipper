@@ -37,6 +37,7 @@ type DomLayerProps = {
     _event: React.MouseEvent,
   ) => void
   onClipMouseEnter: (_index: number) => void
+  onClipDoubleClick?: (_index: number, _clipId: string) => void
   onClipRecord?: (_clipId: string) => void
   onBackgroundClick: () => void
   startIndex?: number // For pagination - offset to add to local indices
@@ -60,6 +61,7 @@ const MemoClip = memo(
     style,
     isSelected,
     onMouseDown,
+    onDoubleClick,
     onMouseEnter,
     onRecord,
   }: {
@@ -69,6 +71,7 @@ const MemoClip = memo(
     style: CSSProperties
     isSelected: boolean
     onMouseDown: (_e: React.MouseEvent) => void
+    onDoubleClick?: (_e: React.MouseEvent) => void
     onMouseEnter: () => void
     onRecord?: () => void
   }) {
@@ -80,6 +83,7 @@ const MemoClip = memo(
         style={style}
         isSelected={isSelected}
         onMouseDown={onMouseDown}
+        onDoubleClick={onDoubleClick}
         onMouseEnter={onMouseEnter}
         onRecord={onRecord}
       />
@@ -109,6 +113,7 @@ export function DomLayer({
   selectedIds,
   onClipMouseDown,
   onClipMouseEnter,
+  onClipDoubleClick,
   onClipRecord,
   onBackgroundClick,
   startIndex = 0,
@@ -119,9 +124,9 @@ export function DomLayer({
   // Calculate layout - memoized for performance
   const layout = useMemo((): LayoutInfo => {
     if (mode === 'full') {
-      // Full mode: vertical list, full width rows
-      const rowHeight = clipSize + gap
-      const padding = gap
+      // Full mode: vertical list, full width rows with proper padding
+      const padding = 16
+      const rowHeight = clipSize + padding
       const totalRows = clips.length
       const totalHeight = totalRows * rowHeight + padding * 2
       return { cellSize: rowHeight, padding, totalRows, totalHeight }
@@ -229,6 +234,8 @@ export function DomLayer({
   onClipMouseDownRef.current = onClipMouseDown
   const onClipMouseEnterRef = useRef(onClipMouseEnter)
   onClipMouseEnterRef.current = onClipMouseEnter
+  const onClipDoubleClickRef = useRef(onClipDoubleClick)
+  onClipDoubleClickRef.current = onClipDoubleClick
   const onClipRecordRef = useRef(onClipRecord)
   onClipRecordRef.current = onClipRecord
 
@@ -263,6 +270,9 @@ export function DomLayer({
       const handleMouseEnter = () => {
         onClipMouseEnterRef.current(globalIndex)
       }
+      const handleDoubleClick = onClipDoubleClickRef.current
+        ? () => onClipDoubleClickRef.current?.(globalIndex, clipId)
+        : undefined
       const handleRecord = onClipRecordRef.current
         ? () => onClipRecordRef.current?.(clipId)
         : undefined
@@ -285,6 +295,7 @@ export function DomLayer({
             }}
             isSelected={isSelected}
             onMouseDown={handleMouseDown}
+            onDoubleClick={handleDoubleClick}
             onMouseEnter={handleMouseEnter}
             onRecord={handleRecord}
           />,
@@ -309,6 +320,7 @@ export function DomLayer({
             }}
             isSelected={isSelected}
             onMouseDown={handleMouseDown}
+            onDoubleClick={handleDoubleClick}
             onMouseEnter={handleMouseEnter}
             onRecord={handleRecord}
           />,

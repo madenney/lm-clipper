@@ -38,6 +38,7 @@ type ClipProps = {
   style?: CSSProperties
   isSelected?: boolean
   onMouseDown?: (_e: React.MouseEvent) => void
+  onDoubleClick?: (_e: React.MouseEvent) => void
   onMouseEnter?: () => void
   onRecord?: () => void
 }
@@ -125,6 +126,7 @@ function ClipComponent({
   style,
   isSelected,
   onMouseDown,
+  onDoubleClick,
   onMouseEnter,
   onRecord,
 }: ClipProps) {
@@ -180,10 +182,10 @@ function ClipComponent({
   if (size < 50) classNames.push('clip--low-res')
   if (isSelected) classNames.push('clip--selected')
 
-  // Full mode: horizontal rectangle. Other modes: square
+  // Full mode: horizontal rectangle (width from left+right positioning). Other modes: square
   const containerStyle: CSSProperties =
     mode === 'full'
-      ? { ...style, width: '100%', height: size }
+      ? { ...style, height: size }
       : { ...style, width: size, height: size }
 
   // Full mode: horizontal layout with stage on left, info on right
@@ -278,6 +280,7 @@ function ClipComponent({
       className={classNames.join(' ')}
       style={containerStyle}
       onMouseDown={onMouseDown}
+      onDoubleClick={onDoubleClick}
       onMouseEnter={onMouseEnter}
       onDragStart={preventDrag}
     >
