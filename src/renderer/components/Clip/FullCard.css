@@ -1,0 +1,368 @@
+/* ─── FullCard: Full-mode game card ─── */
+
+.fullcard {
+  position: absolute;
+  inset: 16px;
+  display: flex;
+  flex-direction: column;
+  background: #131313;
+  border: 1px solid #2a2a2a;
+  border-radius: 8px;
+  overflow: hidden;
+  cursor: default;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.fullcard--selected {
+  outline: 2px solid #3a7bff;
+  outline-offset: -2px;
+}
+
+/* Top-right toolbar */
+.fullcard-toolbar {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 10;
+  display: flex;
+  gap: 4px;
+}
+
+.fullcard-toolbar-btn {
+  width: 28px;
+  height: 28px;
+  border: 1px solid #444;
+  border-radius: 4px;
+  background: #222;
+  color: #ccc;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.fullcard-toolbar-btn:hover {
+  background: #333;
+  color: #fff;
+}
+
+.fullcard-close {
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 4px;
+  background: #8a2626;
+  color: #f6f4f2;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.fullcard-close:hover {
+  background: #a03131;
+}
+
+/* ─── Hero (top ~40%) ─── */
+
+.fullcard-hero {
+  display: flex;
+  flex-direction: row;
+  flex: 0 0 40%;
+  min-height: 0;
+  overflow: hidden;
+  border-bottom: 1px solid #2a2a2a;
+}
+
+/* Stage image fills left side at natural aspect ratio */
+.fullcard-stage {
+  position: relative;
+  height: 100%;
+  aspect-ratio: 73 / 60;
+  flex-shrink: 0;
+  overflow: hidden;
+  background: #000;
+}
+
+.fullcard-stage img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* Summary panel to the right of stage */
+.fullcard-summary {
+  flex: 1;
+  min-width: 0;
+  padding: 20px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow: hidden;
+}
+
+/* Matchup row: char icons + arrow + names */
+.fullcard-matchup {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.fullcard-matchup-icons {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.fullcard-char-icon {
+  width: 48px;
+  height: 48px;
+  object-fit: contain;
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.5));
+}
+
+.fullcard-arrow-icon {
+  width: 16px;
+  height: auto;
+  object-fit: contain;
+  opacity: 0.6;
+}
+
+.fullcard-matchup-names {
+  font-size: 18px;
+  font-weight: 600;
+  color: #f0f0f0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Meta: stage name, duration */
+.fullcard-meta {
+  display: flex;
+  gap: 16px;
+  color: #888;
+  font-size: 14px;
+}
+
+.fullcard-meta-duration {
+  color: #aaa;
+}
+
+/* Combo summary */
+.fullcard-combo-summary {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  font-size: 14px;
+  color: #ccc;
+  flex-wrap: wrap;
+}
+
+.fullcard-combo-label {
+  color: #777;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 11px;
+}
+
+.fullcard-kill-badge {
+  color: #e85454;
+  font-weight: 600;
+}
+
+/* Move pills */
+.fullcard-moves {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.fullcard-move-pill {
+  background: #222;
+  border: 1px solid #333;
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: 12px;
+  color: #ccc;
+  white-space: nowrap;
+}
+
+/* ─── Body (scrollable) ─── */
+
+.fullcard-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 24px;
+}
+
+/* Expandable section */
+.fullcard-section {
+  border-bottom: 1px solid #222;
+}
+
+.fullcard-section:last-child {
+  border-bottom: none;
+}
+
+.fullcard-section-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 0;
+  cursor: pointer;
+  color: #aaa;
+  font-size: 13px;
+  font-weight: 500;
+  user-select: none;
+}
+
+.fullcard-section-header:hover {
+  color: #ddd;
+}
+
+.fullcard-section-chevron {
+  font-size: 10px;
+  transition: transform 150ms ease;
+  flex-shrink: 0;
+  width: 14px;
+  text-align: center;
+}
+
+.fullcard-section-chevron--open {
+  transform: rotate(90deg);
+}
+
+.fullcard-section-content {
+  padding: 0 0 12px 22px;
+}
+
+/* Data rows inside sections */
+.fullcard-row {
+  display: flex;
+  gap: 12px;
+  padding: 3px 0;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.fullcard-row-label {
+  color: #666;
+  flex-shrink: 0;
+  min-width: 100px;
+}
+
+.fullcard-row-value {
+  color: #ddd;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* File path (selectable monospace) */
+.fullcard-filepath {
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  font-size: 12px;
+  color: #888;
+  word-break: break-all;
+  white-space: pre-wrap;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+/* Raw JSON */
+.fullcard-raw {
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  font-size: 11px;
+  color: #888;
+  white-space: pre-wrap;
+  word-break: break-all;
+  user-select: text;
+  -webkit-user-select: text;
+  max-height: 400px;
+  overflow-y: auto;
+  background: #0d0d0d;
+  border-radius: 4px;
+  padding: 12px;
+}
+
+/* ─── Footer ─── */
+
+.fullcard-footer {
+  flex-shrink: 0;
+  display: flex;
+  gap: 8px;
+  padding: 12px 24px;
+  border-top: 1px solid #2a2a2a;
+}
+
+.fullcard-btn {
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 8px 20px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  color: #f6f4f2;
+}
+
+.fullcard-btn--play {
+  background-color: #1f7a3a;
+  border-color: #2fa954;
+}
+
+.fullcard-btn--play:hover {
+  background-color: #249147;
+}
+
+.fullcard-btn--record {
+  background-color: #8a2626;
+  border-color: #b13a3a;
+}
+
+.fullcard-btn--record:hover {
+  background-color: #a03131;
+}
+
+/* ─── Scrollbar styling ─── */
+
+.fullcard-body::-webkit-scrollbar {
+  width: 6px;
+}
+
+.fullcard-body::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.fullcard-body::-webkit-scrollbar-thumb {
+  background: #333;
+  border-radius: 3px;
+}
+
+.fullcard-body::-webkit-scrollbar-thumb:hover {
+  background: #444;
+}
+
+.fullcard-raw::-webkit-scrollbar {
+  width: 6px;
+}
+
+.fullcard-raw::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.fullcard-raw::-webkit-scrollbar-thumb {
+  background: #333;
+  border-radius: 3px;
+}
