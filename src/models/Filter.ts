@@ -89,6 +89,7 @@ export default class Filter {
     const workerResults = new Array(slices.length).fill(0)
     const workers: Worker[] = []
     const errors: string[] = []
+    const logs: string[] = []
     let terminated = false
     let lastProgress = -1
 
@@ -168,6 +169,15 @@ export default class Filter {
               if (errors.length < 10) errors.push(errMsg)
             }
 
+            if ((e as any).type === 'logs') {
+              const workerLogs = (e as any).logs
+              if (Array.isArray(workerLogs)) {
+                for (const l of workerLogs) {
+                  if (logs.length < 500) logs.push(l)
+                }
+              }
+            }
+
             if (e.type === 'done') {
               resolve()
               worker.terminate().then(() => {
@@ -209,13 +219,13 @@ export default class Filter {
     if (terminated) {
       this.isProcessed = false
       // Leave run record as-is so resume is available
-      return { terminated: true, errors }
+      return { terminated: true, errors, logs }
     }
 
     // Successful completion: remove run record
     deleteFilterRun(dbPath, this.id)
     this.isProcessed = true
-    return { terminated: false, errors }
+    return { terminated: false, errors, logs }
   }
 }
 

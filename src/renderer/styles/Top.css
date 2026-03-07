@@ -585,3 +585,59 @@
 .settings-action-btn:active {
     transform: translateY(1px);
 }
+
+/* Code Templates in Settings */
+.settings-template-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 14px;
+    border-radius: 6px;
+    background: #212121;
+    margin-bottom: 3px;
+}
+
+.settings-template-row:hover {
+    background: #262626;
+}
+
+.settings-template-name {
+    flex: 1;
+    min-width: 0;
+    font-size: 13px;
+    color: #c8c8c8;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.settings-template-btn {
+    flex-shrink: 0;
+    padding: 4px 12px;
+    font-size: 11px;
+    font-weight: 500;
+    color: #c0c0c0;
+    background: #2a2a2a;
+    border: 1px solid #3a3a3a;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 120ms ease, border-color 120ms ease;
+}
+
+.settings-template-btn:hover {
+    background: #383838;
+    border-color: #555;
+    color: #e0e0e0;
+}
+
+.settings-template-btn--delete:hover {
+    background: #3a2222;
+    border-color: #6a3333;
+    color: #f0b0b0;
+}
+
+.settings-template-empty {
+    font-size: 13px;
+    color: #555;
+    padding: 10px 14px;
+}

@@ -25,12 +25,15 @@ const configuration: webpack.Configuration = {
 
   target: ['web', 'electron-renderer'],
 
-  entry: [path.join(webpackPaths.srcRendererPath, 'index.tsx')],
+  entry: {
+    renderer: path.join(webpackPaths.srcRendererPath, 'index.tsx'),
+    codeEditor: path.join(webpackPaths.srcRendererPath, 'codeEditor.tsx'),
+  },
 
   output: {
     path: webpackPaths.distRendererPath,
     publicPath: './',
-    filename: 'renderer.js',
+    filename: '[name].js',
     library: {
       type: 'umd',
     },
@@ -117,7 +120,7 @@ const configuration: webpack.Configuration = {
     }),
 
     new MiniCssExtractPlugin({
-      filename: 'style.css',
+      filename: '[name].css',
     }),
 
     new BundleAnalyzerPlugin({
@@ -135,6 +138,20 @@ const configuration: webpack.Configuration = {
       },
       isBrowser: false,
       isDevelopment: process.env.NODE_ENV !== 'production',
+      chunks: ['renderer'],
+    }),
+
+    new HtmlWebpackPlugin({
+      filename: 'codeEditor.html',
+      template: path.join(webpackPaths.srcRendererPath, 'codeEditor.ejs'),
+      minify: {
+        collapseWhitespace: true,
+        removeAttributeQuotes: true,
+        removeComments: true,
+      },
+      isBrowser: false,
+      isDevelopment: process.env.NODE_ENV !== 'production',
+      chunks: ['codeEditor'],
     }),
 
     new webpack.DefinePlugin({

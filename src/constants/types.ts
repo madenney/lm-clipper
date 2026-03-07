@@ -36,6 +36,7 @@ export interface ConfigInterface {
   concatenate: boolean
   convertToMp4: boolean
   detectDuplicatesOnImport: boolean
+  savedCustomFilters: SavedCustomFilter[]
   testMode?: boolean
   [key: string]: any
 }
@@ -138,9 +139,25 @@ export interface ShallowFilterInterface {
   resumable?: boolean
 }
 
+export interface CustomParamDef {
+  name: string
+  type: 'int' | 'string' | 'array'
+  value: string
+}
+
+export interface OutputFieldDef {
+  name: string
+  type: 'number' | 'string' | 'boolean' | 'array' | 'object'
+}
+
 export interface SavedCustomFilter {
   name: string
   code: string
+  customParams?: CustomParamDef[]
+  outputFields?: OutputFieldDef[]
+  builtIn?: boolean
+  category?: string
+  description?: string
 }
 
 export interface ShallowArchiveInterface {
@@ -149,7 +166,6 @@ export interface ShallowArchiveInterface {
   createdAt: number
   files: number
   filters: ShallowFilterInterface[]
-  savedCustomFilters?: SavedCustomFilter[]
 }
 
 export interface ArchiveInterface {

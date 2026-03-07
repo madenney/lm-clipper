@@ -14,7 +14,6 @@ import Filter from './Filter'
 
 import { streamSlpFilePaths } from '../lib/file'
 import {
-  getMetaData,
   getFileByPath,
   insertFiles,
   getItems,
@@ -273,16 +272,21 @@ export default class Archive {
   }
 
   async shallowCopy() {
-    const metadata = await getMetaData(this.path)
-
     const shallowArchive: ShallowArchiveInterface = {
       path: this.path,
-      name: metadata.name,
-      createdAt: metadata.createdAt,
-      files: metadata.files,
-      filters: metadata.filters,
-      savedCustomFilters:
-        metadata.savedCustomFilters || this.savedCustomFilters || [],
+      name: this.name,
+      createdAt: this.createdAt,
+      files: this.files,
+      filters: this.filters.map((filter) => ({
+        id: filter.id,
+        type: filter.type,
+        label: filter.label,
+        isProcessed: filter.isProcessed,
+        params: filter.params,
+        results: filter.results,
+        resumable: filter.resumable,
+      })),
+      savedCustomFilters: this.savedCustomFilters || [],
     }
 
     return shallowArchive

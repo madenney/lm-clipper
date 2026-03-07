@@ -80,10 +80,7 @@
   box-shadow: 0 8px 18px -12px rgba(0, 0, 0, 0.8);
   min-height: 64px;
   cursor: pointer;
-  transition:
-    padding 200ms ease,
-    min-height 200ms ease,
-    transform 150ms ease;
+  transition: transform 150ms ease;
 }
 
 
@@ -148,10 +145,7 @@
   padding-top: 6px;
   max-height: 2000px;
   overflow: hidden;
-  transition:
-    max-height 200ms ease,
-    opacity 200ms ease,
-    padding-top 200ms ease;
+  transition: none;
   opacity: 1;
 }
 
@@ -666,10 +660,6 @@
 }
 
 .add-filter-menu {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  right: 0;
   margin-top: 4px;
   background: #1e2126;
   border: 1px solid var(--filter-border);
@@ -677,7 +667,6 @@
   padding: 4px 0;
   z-index: 100;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
-  overflow: visible;
 }
 
 .add-filter-item {
@@ -715,6 +704,13 @@
   height: 1px;
   margin: 4px 10px;
   background: var(--filter-border);
+}
+
+.add-filter-item-browse {
+  color: #7ab4e8;
+  border-top: 1px solid var(--filter-border);
+  margin-top: 4px;
+  padding-top: 10px;
 }
 
 .stopButton,
@@ -1026,6 +1022,31 @@
   border: 1px solid rgba(255, 80, 80, 0.15);
   word-break: break-word;
   line-height: 1.4;
+}
+
+.filter-logs-modal {
+  max-width: 540px;
+}
+
+.filter-logs-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 300px;
+  overflow-y: auto;
+  background: #0d0f13;
+  border-radius: 6px;
+  padding: 8px;
+  border: 1px solid #2e333d;
+}
+
+.filter-logs-item {
+  font-size: 12px;
+  font-family: monospace;
+  color: #a6e3a1;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 /* Drag-and-drop reorder */

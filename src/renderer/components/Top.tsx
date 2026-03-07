@@ -243,6 +243,39 @@ export default function Top({ archive, config, setConfig }: TopProps) {
                 </div>
               )
             })}
+            {/* Code Templates section */}
+            <div className="settings-section">
+              <h3 className="settings-section-title">Code Templates</h3>
+              {(!config.savedCustomFilters ||
+                config.savedCustomFilters.length === 0) && (
+                <div className="settings-template-empty">
+                  No saved templates
+                </div>
+              )}
+              {config.savedCustomFilters?.map((tmpl, i) => (
+                <div className="settings-template-row" key={i}>
+                  <span className="settings-template-name">{tmpl.name}</span>
+                  <button
+                    type="button"
+                    className="settings-template-btn"
+                    onClick={() =>
+                      ipcBridge.openCodeEditorForTemplate({
+                        templateIndex: i,
+                      })
+                    }
+                  >
+                    Edit
+                  </button>
+                  <button
+                    type="button"
+                    className="settings-template-btn settings-template-btn--delete"
+                    onClick={() => ipcBridge.deleteCustomFilter(i)}
+                  >
+                    Delete
+                  </button>
+                </div>
+              ))}
+            </div>
           </div>
           <div className="settings-footer">
             <button

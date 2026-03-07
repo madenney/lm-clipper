@@ -224,13 +224,23 @@ function run() {
         try {
           if (method.length >= 3) {
             const res = method(chunk, params, chunkEmitter)
-            if (Array.isArray(res)) results = res
+            if (Array.isArray(res)) {
+              results = res
+            } else if (res && Array.isArray(res.clips)) {
+              results = res.clips
+              if (res.logs?.length) {
+                postMessage({ type: 'logs', logs: res.logs })
+              }
+            }
           } else {
             const res = method(chunk, params)
             if (Array.isArray(res)) results = res
           }
         } catch (err: any) {
           sendError(err?.message || String(err), processed)
+          if ((err as any).logs?.length) {
+            postMessage({ type: 'logs', logs: (err as any).logs })
+          }
         }
 
         results = results.filter(Boolean)

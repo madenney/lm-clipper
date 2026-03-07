@@ -8,6 +8,8 @@ import trim from './trim'
 import koDirection from './koDirection'
 import custom from './custom'
 import edgeguard from './edgeguard'
+import deduplicate from './deduplicate'
+import zeroToDeaths from './zerotoDeaths'
 
 type Methods = {
   [key: string]: Function
@@ -24,6 +26,8 @@ const methods: Methods = {
   koDirection,
   custom,
   edgeguard,
+  deduplicate,
+  zeroToDeaths,
 }
 
 export default methods

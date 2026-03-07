@@ -18,10 +18,11 @@ import ipcBridge from '../ipcBridge'
 import {
   ConfigInterface,
   FilterInterface,
+  SavedCustomFilter,
   ShallowArchiveInterface,
   ShallowFilterInterface,
 } from '../../constants/types'
-import CodeEditorModal from './CodeEditorModal'
+import TemplateCatalog from './TemplateCatalog'
 
 function DeferredInput({
   value,
@@ -100,6 +101,7 @@ export default function Filters({
     Record<string, boolean>
   >({})
   const [dropdownOpen, setDropdownOpen] = useState(false)
+  const [catalogOpen, setCatalogOpen] = useState(false)
   const [multiOpen, setMultiOpen] = useState<string | null>(null)
   const [multiPos, setMultiPos] = useState<{
     top: number
@@ -123,6 +125,10 @@ export default function Filters({
     filterLabel: string
     errors: string[]
   } | null>(null)
+  const [filterLogs, setFilterLogs] = useState<{
+    filterLabel: string
+    logs: string[]
+  } | null>(null)
   const [dragIndex, setDragIndex] = useState<number | null>(null)
   const [dropIndex, setDropIndex] = useState<number | null>(null)
   const [dragWarning, setDragWarning] = useState<string | null>(null)
@@ -135,8 +141,6 @@ export default function Filters({
   const dropdownRef = useRef<HTMLDivElement>(null)
   const dragAllowedRef = useRef(true)
   const [multiSearch, setMultiSearch] = useState('')
-  const [codeEditorFilter, setCodeEditorFilter] =
-    useState<ShallowFilterInterface | null>(null)
   useEffect(() => {
     const removeRunningListener = window.electron.ipcRenderer.on(
       'currentlyRunningFilter',
@@ -202,6 +206,23 @@ export default function Filters({
       },
     )
 
+    const removeLogsListener = window.electron.ipcRenderer.on(
+      'filterLogs',
+      (event: { filterId: string; filterLabel: string; logs: string[] }) => {
+        setFilterLogs({
+          filterLabel: event.filterLabel,
+          logs: event.logs,
+        })
+      },
+    )
+
+    const removeCodeEditorSavedListener = window.electron.ipcRenderer.on(
+      'code-editor-saved',
+      (shallowArchive: any) => {
+        if (shallowArchive) setArchive(shallowArchive)
+      },
+    )
+
     const handleClickOutside = (event: Event) => {
       if (
         dropdownRef.current &&
@@ -216,6 +237,8 @@ export default function Filters({
       removeRunningListener()
       removeUpdateListener()
       removeErrorListener()
+      removeLogsListener()
+      removeCodeEditorSavedListener()
       document.removeEventListener('mousedown', handleClickOutside)
     }
   }, [])
@@ -377,6 +400,11 @@ export default function Filters({
         console.log('addFilter response error:', response.error)
         return
       }
+      // Auto-expand the newly added filter
+      const newFilter = response.filters?.[response.filters.length - 1]
+      if (newFilter) {
+        setExpandedFilters((prev) => ({ ...prev, [newFilter.id]: true }))
+      }
       setArchive(response)
     })
   }
@@ -419,8 +447,11 @@ export default function Filters({
         return
       }
       const idx = archive.filters.findIndex((f) => f.id === filter.id)
-      const inputCount =
-        idx > 0 ? archive.filters[idx - 1].results : archive.files
+      const inputCount = filter.isProcessed
+        ? idx > 0
+          ? archive.filters[idx - 1].results
+          : archive.files
+        : 0
       if (
         config.warnOnParserDelete !== false &&
         inputCount >= 10000 &&
@@ -1756,7 +1787,10 @@ export default function Filters({
                       style={{ fontSize: 12, padding: '2px 8px' }}
                       onClick={(e) => {
                         e.stopPropagation()
-                        setCodeEditorFilter(filter)
+                        ipcBridge.openCodeEditor({
+                          filterIndex,
+                          filter,
+                        })
                       }}
                     >
                       Edit Code
@@ -1881,6 +1915,284 @@ export default function Filters({
             </div>
           )}
         {nthMovesOption && renderNthMoves(filter, nthMovesOption)}
+        {filter.type === 'custom' &&
+          (() => {
+            const customParams: {
+              name: string
+              type: string
+              value: string
+              options?: string
+            }[] = filter.params?.customParams || []
+            const isValidIdent = (s: string) =>
+              /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(s)
+            const reservedNames = new Set(['code', 'maxFiles', 'customParams'])
+            return (
+              <div style={{ width: '100%', marginTop: 4 }}>
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    marginBottom: 2,
+                  }}
+                >
+                  <span
+                    className="filter-control-label"
+                    style={{ fontSize: 11, opacity: 0.7 }}
+                  >
+                    Custom Params
+                  </span>
+                  <button
+                    type="button"
+                    className="filter-button"
+                    style={{ fontSize: 10, padding: '1px 6px' }}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      const filterClone = cloneDeep(filter)
+                      if (!filterClone.params.customParams)
+                        filterClone.params.customParams = []
+                      filterClone.params.customParams.push({
+                        name: '',
+                        type: 'int',
+                        value: '',
+                      })
+                      updateFilter(filterClone, filter)
+                    }}
+                  >
+                    + Add
+                  </button>
+                </div>
+                {customParams.length > 0 && (
+                  <div
+                    style={{
+                      display: 'flex',
+                      gap: 3,
+                      marginBottom: 2,
+                      fontSize: 10,
+                      opacity: 0.5,
+                    }}
+                  >
+                    <span style={{ flex: 1 }}>name</span>
+                    <span style={{ width: 72 }}>type</span>
+                    <span style={{ flex: 1 }}>value</span>
+                    <span style={{ width: 22 }} />
+                  </div>
+                )}
+                {customParams.map((cp, cpIdx) => (
+                  <div
+                    key={cpIdx}
+                    style={{
+                      display: 'flex',
+                      gap: 3,
+                      alignItems: 'center',
+                      marginBottom: 3,
+                    }}
+                  >
+                    <DeferredInput
+                      className="filter-control-input"
+                      value={cp.name}
+                      placeholder="name"
+                      validate={(raw) =>
+                        raw === '' || /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(raw)
+                      }
+                      onChange={(val) => {
+                        if (
+                          val &&
+                          (!isValidIdent(val) || reservedNames.has(val))
+                        )
+                          return
+                        const filterClone = cloneDeep(filter)
+                        filterClone.params.customParams[cpIdx].name = val
+                        updateFilter(filterClone, filter)
+                      }}
+                    />
+                    <select
+                      className="filter-control-input"
+                      style={{ width: 72, fontSize: 11 }}
+                      value={cp.type}
+                      onClick={(e) => e.stopPropagation()}
+                      onChange={(e) => {
+                        const filterClone = cloneDeep(filter)
+                        filterClone.params.customParams[cpIdx].type =
+                          e.target.value
+                        updateFilter(filterClone, filter)
+                      }}
+                    >
+                      <option value="int">int</option>
+                      <option value="string">string</option>
+                      <option value="array">array</option>
+                    </select>
+                    {cp.type === 'array' ? (
+                      <DeferredInput
+                        className="filter-control-input"
+                        value={cp.value}
+                        placeholder="a,b,c"
+                        onChange={(val) => {
+                          const filterClone = cloneDeep(filter)
+                          filterClone.params.customParams[cpIdx].value = val
+                          updateFilter(filterClone, filter)
+                        }}
+                      />
+                    ) : (
+                      <DeferredInput
+                        className="filter-control-input"
+                        value={cp.value}
+                        placeholder={cp.type === 'int' ? '0' : ''}
+                        inputMode={cp.type === 'int' ? 'numeric' : 'text'}
+                        validate={
+                          cp.type === 'int'
+                            ? (raw) =>
+                                raw === '' || raw === '-' || /^-?\d+$/.test(raw)
+                            : undefined
+                        }
+                        onChange={(val) => {
+                          const filterClone = cloneDeep(filter)
+                          filterClone.params.customParams[cpIdx].value = val
+                          updateFilter(filterClone, filter)
+                        }}
+                      />
+                    )}
+                    <button
+                      type="button"
+                      className="filter-button"
+                      style={{
+                        fontSize: 10,
+                        padding: '1px 5px',
+                        flexShrink: 0,
+                      }}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        const filterClone = cloneDeep(filter)
+                        filterClone.params.customParams.splice(cpIdx, 1)
+                        updateFilter(filterClone, filter)
+                      }}
+                      title="Remove parameter"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )
+          })()}
+        {filter.type === 'custom' &&
+          (() => {
+            const outputFields: { name: string; type: string }[] =
+              filter.params?.outputFields || []
+            return (
+              <div style={{ width: '100%', marginTop: 4 }}>
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    marginBottom: 2,
+                  }}
+                >
+                  <span
+                    className="filter-control-label"
+                    style={{ fontSize: 11, opacity: 0.7 }}
+                  >
+                    Output Fields
+                  </span>
+                  <button
+                    type="button"
+                    className="filter-button"
+                    style={{ fontSize: 10, padding: '1px 6px' }}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      const filterClone = cloneDeep(filter)
+                      if (!filterClone.params.outputFields)
+                        filterClone.params.outputFields = []
+                      filterClone.params.outputFields.push({
+                        name: '',
+                        type: 'number',
+                      })
+                      updateFilter(filterClone, filter)
+                    }}
+                  >
+                    + Add
+                  </button>
+                </div>
+                {outputFields.length > 0 && (
+                  <div
+                    style={{
+                      display: 'flex',
+                      gap: 3,
+                      marginBottom: 2,
+                      fontSize: 10,
+                      opacity: 0.5,
+                    }}
+                  >
+                    <span style={{ flex: 1 }}>name</span>
+                    <span style={{ width: 72 }}>type</span>
+                    <span style={{ width: 22 }} />
+                  </div>
+                )}
+                {outputFields.map((of, ofIdx) => (
+                  <div
+                    key={ofIdx}
+                    style={{
+                      display: 'flex',
+                      gap: 3,
+                      alignItems: 'center',
+                      marginBottom: 3,
+                    }}
+                  >
+                    <DeferredInput
+                      className="filter-control-input"
+                      value={of.name}
+                      placeholder="fieldName"
+                      validate={(raw) =>
+                        raw === '' || /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(raw)
+                      }
+                      onChange={(val) => {
+                        const filterClone = cloneDeep(filter)
+                        filterClone.params.outputFields[ofIdx].name = val
+                        updateFilter(filterClone, filter)
+                      }}
+                    />
+                    <select
+                      className="filter-control-input"
+                      style={{ width: 72, fontSize: 11 }}
+                      value={of.type}
+                      onClick={(e) => e.stopPropagation()}
+                      onChange={(e) => {
+                        const filterClone = cloneDeep(filter)
+                        filterClone.params.outputFields[ofIdx].type =
+                          e.target.value
+                        updateFilter(filterClone, filter)
+                      }}
+                    >
+                      <option value="number">number</option>
+                      <option value="string">string</option>
+                      <option value="boolean">boolean</option>
+                      <option value="array">array</option>
+                      <option value="object">object</option>
+                    </select>
+                    <button
+                      type="button"
+                      className="filter-button"
+                      style={{
+                        fontSize: 10,
+                        padding: '1px 5px',
+                        flexShrink: 0,
+                      }}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        const filterClone = cloneDeep(filter)
+                        filterClone.params.outputFields.splice(ofIdx, 1)
+                        updateFilter(filterClone, filter)
+                      }}
+                      title="Remove field"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )
+          })()}
       </div>
     )
   }
@@ -2032,16 +2344,11 @@ export default function Filters({
                   setDropIndex(null)
                 }
               }}
-              onClick={(e) => {
+              onClick={() => {
                 setActiveFilterId(filter.id)
-                const rect = e.currentTarget.getBoundingClientRect()
-                const clickY = e.clientY - rect.top
-                if (!isCollapsed && clickY < 60) {
-                  setExpandedFilters((prev) => ({
-                    ...prev,
-                    [filter.id]: false,
-                  }))
-                } else if (isCollapsed) {
+              }}
+              onDoubleClick={() => {
+                if (!expandedFilters[filter.id]) {
                   setExpandedFilters((prev) => ({
                     ...prev,
                     [filter.id]: true,
@@ -2129,35 +2436,6 @@ export default function Filters({
                     </button>
                   </div>
                 )}
-                {filter.type === 'custom' && !isRunning && (
-                  <button
-                    type="button"
-                    className="filter-button"
-                    style={{ fontSize: 11 }}
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      ipcBridge.saveCustomFilter(
-                        {
-                          name: filter.label,
-                          code: filter.params?.code || '',
-                        },
-                        (response) => {
-                          if (!response || response?.error) {
-                            console.log(
-                              'saveCustomFilter error:',
-                              response?.error,
-                            )
-                            return
-                          }
-                          setArchive(response)
-                        },
-                      )
-                    }}
-                    title="Save this filter as a reusable template"
-                  >
-                    Save
-                  </button>
-                )}
                 <button
                   type="button"
                   className={`filter-button${isRunning ? ' filter-button-stop' : ''}`}
@@ -2225,10 +2503,14 @@ export default function Filters({
                 const hasParser = archive?.filters.some(
                   (f) => f.type === 'slpParser',
                 )
-                const requiresParserId = new Set(['comboFilter', 'reverse'])
-                const savedTemplates = archive?.savedCustomFilters || []
+                const requiresParserId = new Set([
+                  'comboFilter',
+                  'reverse',
+                  'zeroToDeaths',
+                ])
+                const hiddenFilters = new Set(['edgeguard', 'zeroToDeaths'])
                 return filtersConfig
-                  .filter((p) => p.id !== 'files')
+                  .filter((p) => p.id !== 'files' && !hiddenFilters.has(p.id))
                   .flatMap((p) => {
                     const needsParser = requiresParserId.has(p.id) && !hasParser
                     const items = [
@@ -2251,58 +2533,6 @@ export default function Filters({
                         )}
                       </div>,
                     ]
-                    // Show saved custom templates beneath "Custom Code"
-                    if (p.id === 'custom' && savedTemplates.length > 0) {
-                      savedTemplates.forEach((tmpl, tmplIdx) => {
-                        items.push(
-                          <div
-                            key={`customTmpl-${tmplIdx}`}
-                            className="add-filter-item add-filter-item-template"
-                            style={{ paddingLeft: 24, fontSize: 12 }}
-                            onClick={() => {
-                              addFilter({
-                                target: {
-                                  value: `customTemplate:${tmplIdx}`,
-                                },
-                              })
-                              setDropdownOpen(false)
-                            }}
-                          >
-                            <span style={{ opacity: 0.5, marginRight: 4 }}>
-                              {'\u2514 '}
-                            </span>
-                            {tmpl.name}
-                            <span
-                              className="add-filter-template-delete"
-                              style={{
-                                marginLeft: 'auto',
-                                opacity: 0.5,
-                                cursor: 'pointer',
-                                padding: '0 4px',
-                              }}
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                ipcBridge.deleteCustomFilter(
-                                  tmplIdx,
-                                  (response) => {
-                                    if (!response || response?.error) {
-                                      console.log(
-                                        'deleteCustomFilter error:',
-                                        response?.error,
-                                      )
-                                      return
-                                    }
-                                    setArchive(response)
-                                  },
-                                )
-                              }}
-                            >
-                              ✕
-                            </span>
-                          </div>,
-                        )
-                      })
-                    }
                     if (p.id === 'sort') {
                       items.push(
                         <div key="divider" className="add-filter-divider" />,
@@ -2311,6 +2541,15 @@ export default function Filters({
                     return items
                   })
               })()}
+              <div
+                className="add-filter-item add-filter-item-browse"
+                onClick={() => {
+                  setDropdownOpen(false)
+                  setCatalogOpen(true)
+                }}
+              >
+                Browse Templates...
+              </div>
             </div>
           )}
         </div>
@@ -2366,6 +2605,27 @@ export default function Filters({
           </div>
         </div>
       )}
+      {catalogOpen && (
+        <TemplateCatalog
+          templates={config.savedCustomFilters || []}
+          onClose={() => setCatalogOpen(false)}
+          onSelect={(tmpl: SavedCustomFilter) => {
+            setCatalogOpen(false)
+            // Find the index of this template in savedCustomFilters
+            const allTemplates = config.savedCustomFilters || []
+            const idx = allTemplates.findIndex(
+              (t) => t.name === tmpl.name && t.code === tmpl.code,
+            )
+            if (idx >= 0) {
+              addFilter({ target: { value: `customTemplate:${idx}` } })
+            } else {
+              // User template or unknown — add as plain custom with code
+              addFilter({ target: { value: `customTemplate:${idx}` } })
+            }
+          }}
+        />
+      )}
+
       {filterError && (
         <div
           className="filter-warn-overlay"
@@ -2390,27 +2650,67 @@ export default function Filters({
                 </div>
               ))}
             </div>
-            <button
-              type="button"
-              className="filter-warn-btn"
-              onClick={() => setFilterError(null)}
-            >
-              Dismiss
-            </button>
+            <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+              <button
+                type="button"
+                className="filter-warn-btn"
+                onClick={() => {
+                  const text = filterError.errors.join('\n')
+                  navigator.clipboard.writeText(text)
+                }}
+              >
+                Copy Error
+              </button>
+              <button
+                type="button"
+                className="filter-warn-btn"
+                onClick={() => setFilterError(null)}
+              >
+                Dismiss
+              </button>
+            </div>
           </div>
         </div>
       )}
-      {codeEditorFilter && (
-        <CodeEditorModal
-          code={codeEditorFilter.params?.code || ''}
-          filterName={codeEditorFilter.label}
-          onSave={(newCode) => {
-            const filterClone = cloneDeep(codeEditorFilter)
-            filterClone.params.code = newCode
-            updateFilter(filterClone, codeEditorFilter)
-          }}
-          onClose={() => setCodeEditorFilter(null)}
-        />
+      {filterLogs && (
+        <div
+          className="filter-warn-overlay"
+          onClick={() => setFilterLogs(null)}
+        >
+          <div
+            className="filter-warn-modal filter-logs-modal"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="filter-warn-title">
+              Console Output — {filterLogs.filterLabel}
+            </div>
+            <div className="filter-logs-list">
+              {filterLogs.logs.map((log, i) => (
+                <div key={i} className="filter-logs-item">
+                  {log}
+                </div>
+              ))}
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+              <button
+                type="button"
+                className="filter-warn-btn"
+                onClick={() => {
+                  navigator.clipboard.writeText(filterLogs.logs.join('\n'))
+                }}
+              >
+                Copy Logs
+              </button>
+              <button
+                type="button"
+                className="filter-warn-btn"
+                onClick={() => setFilterLogs(null)}
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

@@ -28,6 +28,7 @@ import {
 import Archive from '../models/Archive'
 import Filter from '../models/Filter'
 import slpToVideo, { VideoJobController } from './slpToVideo'
+import { resolveHtmlPath } from './util'
 import { getMetaData, createDB, getTableCount, deleteFilterRun } from './db'
 import { closeDb, getDb } from './dbConnection'
 import { appendPerfEvents } from './perfLogger'
@@ -108,7 +109,6 @@ const buildShallowArchive = (
       results: filter.results,
       ...(filter.resumable ? { resumable: true } : {}),
     })),
-    savedCustomFilters: (archive as any).savedCustomFilters || [],
   }
 }
 
@@ -147,6 +147,11 @@ export default class Controller {
   activeVideoJob: VideoJobController | null
   activePlaybackProcess: ChildProcess | null
   activeTmpDirs: Set<string>
+  codeEditorWindow: BrowserWindow | null
+  codeEditorContext: {
+    filterIndex: number
+    filterId: string
+  } | null
 
   constructor(mainWindow: BrowserWindow) {
     this.mainWindow = mainWindow
@@ -158,6 +163,14 @@ export default class Controller {
 
     const loadedConfig = JSON.parse(fs.readFileSync(this.configPath).toString())
     this.config = { ...defaultConfig, ...loadedConfig }
+    // Always merge built-in templates from defaults + keep user templates
+    const userTemplates = (this.config.savedCustomFilters || []).filter(
+      (t: any) => !t.builtIn,
+    )
+    this.config.savedCustomFilters = [
+      ...defaultConfig.savedCustomFilters,
+      ...userTemplates,
+    ]
     if (this.config.lastArchivePath === '') {
       this.config.lastArchivePath = null
     }
@@ -209,6 +222,8 @@ export default class Controller {
     this.activeVideoJob = null
     this.activePlaybackProcess = null
     this.activeTmpDirs = new Set()
+    this.codeEditorWindow = null
+    this.codeEditorContext = null
     this.countWorkerExecArgv = getWorkerExecArgv()
     this.importStatus = {
       isImporting: false,
@@ -265,6 +280,13 @@ export default class Controller {
       }
     }
     this.activeTmpDirs.clear()
+
+    // Close code editor window
+    if (this.codeEditorWindow && !this.codeEditorWindow.isDestroyed()) {
+      this.codeEditorWindow.destroy()
+      this.codeEditorWindow = null
+      this.codeEditorContext = null
+    }
   }
 
   private addToRecentProjects(name: string, projectPath: string) {
@@ -1006,16 +1028,30 @@ export default class Controller {
     // Pre-fill from saved custom template
     if (isCustomTemplate) {
       const templateIndex = parseInt(payload!.split(':')[1], 10)
-      const saved = (this.archive as any).savedCustomFilters?.[templateIndex]
+      const saved = this.config.savedCustomFilters?.[templateIndex]
       if (saved) {
         newFilterJSON.label = saved.name
         newFilterJSON.params.code = saved.code
+        if (saved.customParams) {
+          newFilterJSON.params.customParams = JSON.parse(
+            JSON.stringify(saved.customParams),
+          )
+        }
+        if (saved.outputFields) {
+          newFilterJSON.params.outputFields = JSON.parse(
+            JSON.stringify(saved.outputFields),
+          )
+        }
       }
     }
 
     // this.archive.filters.push(new Filter(newFilterJSON))
+    const _t0 = Date.now()
     await this.archive.addFilter(newFilterJSON)
+    console.log(`[addFilter] addFilter took ${Date.now() - _t0}ms`)
+    const _t1 = Date.now()
     const metadata = await this.archive.shallowCopy()
+    console.log(`[addFilter] shallowCopy took ${Date.now() - _t1}ms`)
     return reply(event, 'addFilter', requestId, metadata)
   }
 
@@ -1039,86 +1075,80 @@ export default class Controller {
     }
 
     if (payload) {
+      const _t0 = Date.now()
       deleteFilterRun(this.archive.path, payload)
+      console.log(`[removeFilter] deleteFilterRun took ${Date.now() - _t0}ms`)
+      const _t1 = Date.now()
       await this.archive.deleteFilter(payload)
+      console.log(`[removeFilter] deleteFilter took ${Date.now() - _t1}ms`)
     }
-    return reply(
-      event,
-      'removeFilter',
-      requestId,
-      await this.archive.shallowCopy(),
-    )
+    const _t2 = Date.now()
+    const metadata = await this.archive.shallowCopy()
+    console.log(`[removeFilter] shallowCopy took ${Date.now() - _t2}ms`)
+    return reply(event, 'removeFilter', requestId, metadata)
   }
 
   async saveCustomFilter(
     event: IpcMainEvent,
-    data: RequestEnvelope<{ name: string; code: string }>,
+    data: RequestEnvelope<{
+      name: string
+      code: string
+      customParams?: { name: string; type: string; value: string }[]
+      outputFields?: { name: string; type: string }[]
+    }>,
   ) {
     const { requestId, payload } = unpackRequest<{
       name: string
       code: string
+      customParams?: { name: string; type: string; value: string }[]
+      outputFields?: { name: string; type: string }[]
     }>(data)
-    if (!this.archive || !this.archive.shallowCopy) {
-      return reply(event, 'saveCustomFilter', requestId, {
-        error: 'archive undefined',
-      })
-    }
     if (!payload?.name || !payload?.code) {
       return reply(event, 'saveCustomFilter', requestId, {
         error: 'missing name or code',
       })
     }
-    const archive = this.archive as any
-    if (!archive.savedCustomFilters) {
-      archive.savedCustomFilters = []
+    if (!this.config.savedCustomFilters) {
+      this.config.savedCustomFilters = []
     }
     // Update existing template with same name, or add new
-    const existing = archive.savedCustomFilters.findIndex(
-      (t: any) => t.name === payload.name,
+    const existing = this.config.savedCustomFilters.findIndex(
+      (t) => t.name === payload.name,
     )
-    if (existing >= 0) {
-      archive.savedCustomFilters[existing].code = payload.code
-    } else {
-      archive.savedCustomFilters.push({
-        name: payload.name,
-        code: payload.code,
-      })
+    const entry = {
+      name: payload.name,
+      code: payload.code,
+      customParams: payload.customParams,
+      outputFields: payload.outputFields,
     }
-    await archive.saveMetaData()
-    return reply(
-      event,
-      'saveCustomFilter',
-      requestId,
-      await this.archive.shallowCopy(),
-    )
+    if (existing >= 0) {
+      this.config.savedCustomFilters[existing] = entry
+    } else {
+      this.config.savedCustomFilters.push(entry)
+    }
+    fs.writeFileSync(this.configPath, JSON.stringify(this.config, null, 2))
+    return reply(event, 'saveCustomFilter', requestId, {
+      savedCustomFilters: this.config.savedCustomFilters,
+    })
   }
 
   async deleteCustomFilter(event: IpcMainEvent, data: RequestEnvelope<number>) {
     const { requestId, payload } = unpackRequest<number>(data)
-    if (!this.archive || !this.archive.shallowCopy) {
-      return reply(event, 'deleteCustomFilter', requestId, {
-        error: 'archive undefined',
-      })
-    }
-    const archive = this.archive as any
     if (
-      !archive.savedCustomFilters ||
+      !this.config.savedCustomFilters ||
       typeof payload !== 'number' ||
       payload < 0 ||
-      payload >= archive.savedCustomFilters.length
+      payload >= this.config.savedCustomFilters.length
     ) {
       return reply(event, 'deleteCustomFilter', requestId, {
         error: 'invalid index',
       })
     }
-    archive.savedCustomFilters.splice(payload, 1)
-    await archive.saveMetaData()
-    return reply(
-      event,
-      'deleteCustomFilter',
-      requestId,
-      await this.archive.shallowCopy(),
-    )
+    this.config.savedCustomFilters.splice(payload, 1)
+    fs.writeFileSync(this.configPath, JSON.stringify(this.config, null, 2))
+    return reply(event, 'deleteCustomFilter', requestId, {
+      savedCustomFilters: this.config.savedCustomFilters,
+    })
   }
 
   async reorderFilter(
@@ -1462,13 +1492,21 @@ export default class Controller {
       abortController.signal,
       resume ? { resume: true } : undefined,
     )
-    const { terminated, errors: filterErrors } = filterResult
+    const { terminated, errors: filterErrors, logs: filterLogs } = filterResult
 
     if (filterErrors.length > 0) {
       this.mainWindow.webContents.send('filterError', {
         filterId,
         filterLabel: filterJSON.label,
         errors: filterErrors,
+      })
+    }
+
+    if (filterLogs && filterLogs.length > 0) {
+      this.mainWindow.webContents.send('filterLogs', {
+        filterId,
+        filterLabel: filterJSON.label,
+        logs: filterLogs,
       })
     }
 
@@ -1631,13 +1669,25 @@ export default class Controller {
         },
         batchAbort.signal,
       )
-      const { terminated, errors: filterErrors } = filterResult
+      const {
+        terminated,
+        errors: filterErrors,
+        logs: filterLogs,
+      } = filterResult
 
       if (filterErrors.length > 0) {
         this.mainWindow.webContents.send('filterError', {
           filterId: filterJSON.id,
           filterLabel: filterJSON.label,
           errors: filterErrors,
+        })
+      }
+
+      if (filterLogs && filterLogs.length > 0) {
+        this.mainWindow.webContents.send('filterLogs', {
+          filterId: filterJSON.id,
+          filterLabel: filterJSON.label,
+          logs: filterLogs,
         })
       }
 
@@ -2447,6 +2497,415 @@ export default class Controller {
     return reply(event, 'cancelVideo', requestId)
   }
 
+  openCodeEditor(
+    _event: IpcMainEvent,
+    data: RequestEnvelope<{
+      filterIndex: number
+      filter: ShallowFilterInterface
+    }>,
+  ) {
+    const { payload } = unpackRequest<{
+      filterIndex: number
+      filter: ShallowFilterInterface
+    }>(data)
+    if (!payload) return
+
+    const { filterIndex, filter } = payload
+    // Collect upstream context: filter types and custom output fields
+    const upstreamFields: { name: string; type: string; from: string }[] = []
+    const upstreamTypes: string[] = []
+    if (this.archive) {
+      for (const f of this.archive.filters) {
+        if (f.id === filter.id) break
+        upstreamTypes.push(f.type)
+        if (f.type === 'custom' && Array.isArray(f.params?.outputFields)) {
+          for (const of2 of f.params.outputFields) {
+            if (of2.name) {
+              upstreamFields.push({
+                name: of2.name,
+                type: of2.type || 'any',
+                from: f.label || 'Custom Code',
+              })
+            }
+          }
+        }
+      }
+    }
+    const initData = {
+      code: filter.params?.code || '',
+      filterName: filter.label,
+      filterId: filter.id,
+      savedCustomFilters: this.config.savedCustomFilters || [],
+      mode: 'filter' as const,
+      customParams: filter.params?.customParams || [],
+      outputFields: filter.params?.outputFields || [],
+      upstreamFields,
+      upstreamTypes,
+    }
+
+    this._openCodeEditorWindow(initData, { filterIndex, filterId: filter.id })
+  }
+
+  openCodeEditorForTemplate(
+    _event: IpcMainEvent,
+    data: RequestEnvelope<{ templateIndex: number }>,
+  ) {
+    const { payload } = unpackRequest<{ templateIndex: number }>(data)
+    if (!payload) return
+    const { templateIndex } = payload
+    const tmpl = this.config.savedCustomFilters?.[templateIndex]
+    if (!tmpl) return
+
+    const initData = {
+      code: tmpl.code,
+      filterName: tmpl.name,
+      filterId: '',
+      savedCustomFilters: this.config.savedCustomFilters || [],
+      mode: 'template' as const,
+      templateIndex,
+      customParams: tmpl.customParams || [],
+    }
+
+    this._openCodeEditorWindow(initData, null)
+  }
+
+  _openCodeEditorWindow(
+    initData: {
+      code: string
+      filterName: string
+      filterId: string
+      savedCustomFilters: { name: string; code: string }[]
+      mode: 'filter' | 'template'
+      templateIndex?: number
+      customParams?: { name: string; type: string; value: string }[]
+      outputFields?: { name: string; type: string }[]
+      upstreamFields?: { name: string; type: string; from: string }[]
+      upstreamTypes?: string[]
+    },
+    filterContext: { filterIndex: number; filterId: string } | null,
+  ) {
+    const windowTitle =
+      initData.mode === 'template'
+        ? `LM Clipper Code Editor - ${initData.filterName}`
+        : `LM Clipper Custom Code Editor - ${initData.filterName}`
+
+    // If window already open, focus it and send new init data
+    if (this.codeEditorWindow && !this.codeEditorWindow.isDestroyed()) {
+      this.codeEditorContext = filterContext
+      this.codeEditorWindow.setTitle(windowTitle)
+      this.codeEditorWindow.webContents.send('code-editor-init', initData)
+      this.codeEditorWindow.focus()
+      return
+    }
+
+    this.codeEditorContext = filterContext
+
+    const preloadPath = app.isPackaged
+      ? path.join(__dirname, 'preload.js')
+      : path.join(__dirname, '../../.erb/dll/preload.js')
+
+    this.codeEditorWindow = new BrowserWindow({
+      title: windowTitle,
+      width: 1100,
+      height: 750,
+      webPreferences: {
+        preload: preloadPath,
+        devTools: false,
+      },
+      autoHideMenuBar: true,
+    })
+
+    // Remove menu bar entirely
+    this.codeEditorWindow.setMenu(null)
+
+    const editorWindow = this.codeEditorWindow
+
+    // Listen for ready signal before sending init data
+    ipcMain.once('code-editor-ready', () => {
+      if (editorWindow && !editorWindow.isDestroyed()) {
+        editorWindow.webContents.send('code-editor-init', initData)
+      }
+    })
+
+    // Listen for save (filter mode)
+    const onSave = (
+      _saveEvent: IpcMainEvent,
+      saveData: {
+        code: string
+        filterId: string
+        mode?: string
+        templateIndex?: number
+      },
+    ) => {
+      if (!saveData) return
+
+      // Template mode: overwrite the template in config
+      if (
+        saveData.mode === 'template' &&
+        typeof saveData.templateIndex === 'number'
+      ) {
+        const idx = saveData.templateIndex
+        if (
+          this.config.savedCustomFilters &&
+          idx >= 0 &&
+          idx < this.config.savedCustomFilters.length
+        ) {
+          this.config.savedCustomFilters[idx].code = saveData.code
+          fs.writeFileSync(
+            this.configPath,
+            JSON.stringify(this.config, null, 2),
+          )
+          // Notify editor of updated templates
+          if (editorWindow && !editorWindow.isDestroyed()) {
+            editorWindow.webContents.send('code-editor-templates-updated', [
+              ...this.config.savedCustomFilters,
+            ])
+          }
+          // Notify main window
+          this.mainWindow.webContents.send(
+            'config-templates-updated',
+            this.config.savedCustomFilters,
+          )
+        }
+        return
+      }
+
+      // Filter mode
+      if (!this.archive || !this.codeEditorContext) return
+      const { filterIndex: idx, filterId } = this.codeEditorContext
+      if (saveData.filterId !== filterId) return
+      const existingFilter = this.archive.filters[idx]
+      if (!existingFilter) return
+      existingFilter.params = { ...existingFilter.params, code: saveData.code }
+
+      // If the saved code matches a template, sync its customParams & outputFields
+      const matchedTemplate = (this.config.savedCustomFilters || []).find(
+        (t) => t.code.trim() === saveData.code.trim(),
+      )
+      if (matchedTemplate) {
+        existingFilter.label = matchedTemplate.name
+        if (matchedTemplate.customParams) {
+          existingFilter.params.customParams = JSON.parse(
+            JSON.stringify(matchedTemplate.customParams),
+          )
+        }
+        if (matchedTemplate.outputFields) {
+          existingFilter.params.outputFields = JSON.parse(
+            JSON.stringify(matchedTemplate.outputFields),
+          )
+        }
+      }
+      existingFilter.isProcessed = false
+      existingFilter.results = 0
+      // Invalidate downstream filters
+      this.archive.filters.slice(idx + 1).forEach((f) => {
+        f.isProcessed = false
+        f.results = 0
+      })
+      if (this.archive.saveMetaData) this.archive.saveMetaData()
+      const shallow = buildShallowArchive(this.archive)
+      console.log(
+        '[code-editor-save] filter params:',
+        JSON.stringify(existingFilter.params.customParams),
+      )
+      console.log(
+        '[code-editor-save] matched template:',
+        matchedTemplate?.name || 'none',
+      )
+      this.mainWindow.webContents.send('code-editor-saved', shallow)
+    }
+    ipcMain.on('code-editor-save', onSave)
+
+    // Listen for template save
+    const onSaveTemplate = (
+      _e: IpcMainEvent,
+      tmplData: {
+        name: string
+        code: string
+        customParams?: { name: string; type: string; value: string }[]
+        outputFields?: { name: string; type: string }[]
+      },
+    ) => {
+      if (!tmplData?.name || !tmplData?.code) return
+      if (!this.config.savedCustomFilters) this.config.savedCustomFilters = []
+      const existing = this.config.savedCustomFilters.findIndex(
+        (t) => t.name === tmplData.name,
+      )
+      const entry = {
+        name: tmplData.name,
+        code: tmplData.code,
+        customParams: tmplData.customParams,
+        outputFields: tmplData.outputFields,
+      }
+      if (existing >= 0) {
+        this.config.savedCustomFilters[existing] = entry
+      } else {
+        this.config.savedCustomFilters.push(entry)
+      }
+      fs.writeFileSync(this.configPath, JSON.stringify(this.config, null, 2))
+      const templates = [...this.config.savedCustomFilters]
+      if (editorWindow && !editorWindow.isDestroyed()) {
+        editorWindow.webContents.send(
+          'code-editor-templates-updated',
+          templates,
+        )
+      }
+      // Notify main window
+      this.mainWindow.webContents.send('config-templates-updated', templates)
+    }
+    ipcMain.on('code-editor-save-template', onSaveTemplate)
+
+    // Listen for template delete
+    const onDeleteTemplate = (_e: IpcMainEvent, index: number) => {
+      if (
+        !this.config.savedCustomFilters ||
+        typeof index !== 'number' ||
+        index < 0 ||
+        index >= this.config.savedCustomFilters.length
+      )
+        return
+      this.config.savedCustomFilters.splice(index, 1)
+      fs.writeFileSync(this.configPath, JSON.stringify(this.config, null, 2))
+      const templates = [...this.config.savedCustomFilters]
+      if (editorWindow && !editorWindow.isDestroyed()) {
+        editorWindow.webContents.send(
+          'code-editor-templates-updated',
+          templates,
+        )
+      }
+      this.mainWindow.webContents.send('config-templates-updated', templates)
+    }
+    ipcMain.on('code-editor-delete-template', onDeleteTemplate)
+
+    // Test run: execute code on a sample of clips from the previous filter
+    const onTestRun = async (
+      _e: IpcMainEvent,
+      testData: { code: string; customParams?: any[]; sampleSize?: number },
+    ) => {
+      if (!this.archive || !this.codeEditorContext) {
+        editorWindow?.webContents.send('code-editor-test-result', {
+          error: 'No archive or filter context',
+        })
+        return
+      }
+      const { filterIndex } = this.codeEditorContext
+      try {
+        // Get clips from the previous filter (or files table)
+        const prevFilterId =
+          filterIndex > 0 ? this.archive.filters[filterIndex - 1].id : 'files'
+        const sampleSize =
+          testData.sampleSize && testData.sampleSize > 0
+            ? testData.sampleSize
+            : 5
+        const items = await this.archive.getItems!({
+          filterId: prevFilterId,
+          limit: sampleSize,
+          offset: 0,
+        })
+        if (!items || items.length === 0) {
+          editorWindow?.webContents.send('code-editor-test-result', {
+            error: 'No clips available from previous filter',
+          })
+          return
+        }
+
+        // Build merged params
+        const params: any = { code: testData.code }
+        const reserved = new Set(['code', 'maxFiles', 'customParams'])
+        if (Array.isArray(testData.customParams)) {
+          params.customParams = testData.customParams
+          for (const cp of testData.customParams) {
+            if (!cp.name || reserved.has(cp.name)) continue
+            if (cp.type === 'int') {
+              const n = parseInt(cp.value, 10)
+              params[cp.name] = Number.isNaN(n) ? 0 : n
+            } else if (cp.type === 'array') {
+              params[cp.name] = (cp.value ?? '')
+                .split(',')
+                .map((s: string) => s.trim())
+                .filter(Boolean)
+            } else {
+              params[cp.name] = cp.value ?? ''
+            }
+          }
+        }
+
+        // Capture console output
+        const logs: string[] = []
+        const fakeConsole = {
+          log: (...args: any[]) => {
+            logs.push(
+              args
+                .map((a) =>
+                  typeof a === 'object'
+                    ? JSON.stringify(a, null, 2)
+                    : String(a),
+                )
+                .join(' '),
+            )
+          },
+          warn: (...args: any[]) => {
+            logs.push(
+              `[warn] ${args.map((a) => (typeof a === 'object' ? JSON.stringify(a) : String(a))).join(' ')}`,
+            )
+          },
+          error: (...args: any[]) => {
+            logs.push(
+              `[error] ${args.map((a) => (typeof a === 'object' ? JSON.stringify(a) : String(a))).join(' ')}`,
+            )
+          },
+        }
+
+        // eslint-disable-next-line no-new-func
+        const userFn = new Function(
+          'clips',
+          'params',
+          'SlippiGame',
+          'console',
+          testData.code,
+        )
+        // eslint-disable-next-line global-require
+        const { SlippiGame } = require('@slippi/slippi-js')
+        const result = userFn(items as any[], params, SlippiGame, fakeConsole)
+
+        const outputClips = Array.isArray(result) ? result : []
+
+        editorWindow?.webContents.send('code-editor-test-result', {
+          logs,
+          inputClips: items,
+          outputClips: outputClips.slice(0, 20),
+          inputCount: items.length,
+          outputCount: outputClips.length,
+        })
+      } catch (err: any) {
+        editorWindow?.webContents.send('code-editor-test-result', {
+          error: err?.message || String(err),
+        })
+      }
+    }
+    ipcMain.on('code-editor-test-run', onTestRun)
+
+    // Close editor via IPC from renderer
+    const onClose = () => {
+      if (editorWindow && !editorWindow.isDestroyed()) {
+        editorWindow.close()
+      }
+    }
+    ipcMain.on('code-editor-close', onClose)
+
+    editorWindow.on('closed', () => {
+      ipcMain.removeListener('code-editor-save', onSave)
+      ipcMain.removeListener('code-editor-save-template', onSaveTemplate)
+      ipcMain.removeListener('code-editor-delete-template', onDeleteTemplate)
+      ipcMain.removeListener('code-editor-test-run', onTestRun)
+      ipcMain.removeListener('code-editor-close', onClose)
+      this.codeEditorWindow = null
+      this.codeEditorContext = null
+    })
+
+    editorWindow.loadURL(resolveHtmlPath('codeEditor.html'))
+  }
+
   initiateListeners() {
     ipcMain.on('getConfig', this.getConfig.bind(this))
     ipcMain.on('updateConfig', this.updateConfig.bind(this))
@@ -2502,6 +2961,11 @@ export default class Controller {
     })
     ipcMain.on('rendererError', this.logRendererError.bind(this))
     ipcMain.on('testDolphin', this.testDolphin.bind(this))
+    ipcMain.on('openCodeEditor', this.openCodeEditor.bind(this))
+    ipcMain.on(
+      'openCodeEditorForTemplate',
+      this.openCodeEditorForTemplate.bind(this),
+    )
   }
 
   async testDolphin() {

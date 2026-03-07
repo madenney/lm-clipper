@@ -37,7 +37,7 @@ const isDebug =
   process.env.NODE_ENV === 'development' || process.env.DEBUG_PROD === 'true'
 
 if (isDebug) {
-  require('electron-debug')()
+  require('electron-debug')({ showDevTools: false })
 }
 
 process.on('uncaughtException', (error) => {
@@ -89,10 +89,12 @@ const createWindow = async () => {
     return path.join(RESOURCES_PATH, ...paths)
   }
 
+  const { width, height } =
+    require('electron').screen.getPrimaryDisplay().workAreaSize
   mainWindow = new BrowserWindow({
     show: false,
-    width: process.env.NODE_ENV === 'development' ? 1200 : 875,
-    height: 728,
+    width,
+    height,
     icon: getAssetPath('icon.png'),
     webPreferences: {
       preload: app.isPackaged
