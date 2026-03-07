@@ -239,6 +239,19 @@ export const filtersConfig = [
     ],
   },
   {
+    id: 'reverse',
+    label: 'Reverse Hit',
+    tooltip: 'Filter for combos where the Nth hit was a reverse hitbox',
+    options: [
+      {
+        name: 'Nth Move',
+        id: 'n',
+        type: 'positionDropdown',
+        default: '',
+      },
+    ],
+  },
+  {
     id: 'actionStateFilter',
     label: 'Action State',
     tooltip: 'Filter clips by action states at specific frames',
@@ -389,19 +402,6 @@ export const filtersConfig = [
     ],
   },
   {
-    id: 'reverse',
-    label: 'Reverse Hit',
-    tooltip: 'Filter for combos where the Nth hit was a reverse hitbox',
-    options: [
-      {
-        name: 'Nth Move',
-        id: 'n',
-        type: 'positionDropdown',
-        default: '',
-      },
-    ],
-  },
-  {
     id: 'edgeguard',
     label: 'Edgeguards',
     tooltip: 'Parse for edgeguard sequences (experimental)',
@@ -458,6 +458,21 @@ export const filtersConfig = [
     ],
   },
   {
+    id: 'zeroToDeaths',
+    label: 'Zero-to-Deaths',
+    tooltip: 'Keep only combos that start near 0% and kill',
+    options: [
+      {
+        name: 'Start Threshold',
+        id: 'startThreshold',
+        type: 'int',
+        default: '5',
+        tooltip:
+          'Maximum starting percent to count as a zero-to-death. Default: 5%.',
+      },
+    ],
+  },
+  {
     id: 'koDirection',
     label: 'KO Direction',
     tooltip: 'Filter KOs by blast zone direction',
@@ -481,6 +496,13 @@ export const filtersConfig = [
     id: 'removeStarKOFrames',
     label: 'Cut Star KO',
     tooltip: 'Trim star KO animations from the end of clips',
+    options: [],
+  },
+  {
+    id: 'deduplicate',
+    label: 'Deduplicate',
+    tooltip:
+      'Remove duplicate clips (matches by game time, stage, frames, and characters)',
     options: [],
   },
   {

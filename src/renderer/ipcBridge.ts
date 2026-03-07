@@ -272,7 +272,12 @@ export default {
     return send('recordClip', payload)
   },
   saveCustomFilter(
-    payload: { name: string; code: string },
+    payload: {
+      name: string
+      code: string
+      customParams?: { name: string; type: string; value: string }[]
+      outputFields?: { name: string; type: string }[]
+    },
     handler?: ResponseHandler<any>,
   ) {
     return request('saveCustomFilter', payload, 'saveCustomFilter', handler)
@@ -288,5 +293,14 @@ export default {
   },
   testDolphin() {
     return send('testDolphin', null)
+  },
+  openCodeEditor(payload: {
+    filterIndex: number
+    filter: ShallowFilterInterface
+  }) {
+    return send('openCodeEditor', payload)
+  },
+  openCodeEditorForTemplate(payload: { templateIndex: number }) {
+    return send('openCodeEditorForTemplate', payload)
   },
 }

@@ -4,7 +4,11 @@ import './styles/App.css'
 import Main from './components/Main'
 import LoadingScreen from './components/LoadingScreen'
 import UpdateBanner from './components/UpdateBanner'
-import { ConfigInterface, ShallowArchiveInterface } from '../constants/types'
+import {
+  ConfigInterface,
+  SavedCustomFilter,
+  ShallowArchiveInterface,
+} from '../constants/types'
 import { initPerfObservers } from './perfLogger'
 
 import ipcBridge from './ipcBridge'
@@ -136,6 +140,15 @@ export default function App() {
       },
     )
 
+    const removeTemplatesUpdated = window.electron.ipcRenderer.on(
+      'config-templates-updated',
+      (templates: SavedCustomFilter[]) => {
+        setConfig((prev) =>
+          prev ? { ...prev, savedCustomFilters: templates } : prev,
+        )
+      },
+    )
+
     return () => {
       removeCloseListener()
       removeOpenListener()
@@ -147,6 +160,7 @@ export default function App() {
       removeUpdateAvailable()
       removeUpdateProgress()
       removeUpdateDownloaded()
+      removeTemplatesUpdated()
     }
   }, [])
 

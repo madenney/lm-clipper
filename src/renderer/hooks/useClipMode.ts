@@ -31,6 +31,7 @@ type ClipModeResult = {
 
   // Layout
   clipSize: number
+  clipHeight: number
   gap: number
   columns: number
   visibleCount: number
@@ -110,10 +111,15 @@ export const useClipMode = ({
     const isGpu = isGpuMode(mode)
     const canScroll = isScrollable(mode)
 
-    // In full mode, clip takes full available width
+    // In full mode, clip fills the tray with padding
     const padding = gap
     const availableWidth = Math.max(0, trayWidth - padding * 2)
     const effectiveClipSize = mode === 'full' ? availableWidth : zoomSize
+    const fullPadding = 16
+    const clipHeight =
+      mode === 'full'
+        ? Math.max(0, trayHeight - fullPadding * 2)
+        : effectiveClipSize
 
     return {
       mode,
@@ -121,6 +127,7 @@ export const useClipMode = ({
       isGpu,
       canScroll,
       clipSize: effectiveClipSize,
+      clipHeight,
       gap,
       columns,
       visibleCount,
