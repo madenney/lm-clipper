@@ -104,7 +104,7 @@ export default function Top({
     }
   }, [])
 
-  function handleChange(key: string, value: string | number | boolean) {
+  function handleChange(key: string, value: any) {
     setConfig({
       ...config,
       [key]: value,
