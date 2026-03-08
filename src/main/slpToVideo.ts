@@ -98,8 +98,8 @@ const resolveFilenamePattern = (
   replay: ReplayInterface,
 ): string => {
   const m = replay.meta || {}
-  const sanitize = (s: string) =>
-    s.replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').trim()
+  const unsafeChars = /[<>:"/\\|?*\x00-\x1f]/g // eslint-disable-line no-control-regex
+  const sanitize = (s: string) => s.replace(unsafeChars, '_').trim()
 
   const vars: Record<string, string> = {
     character1: sanitize(m.character1 || 'Unknown'),
