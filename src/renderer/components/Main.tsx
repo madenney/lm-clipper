@@ -1,6 +1,7 @@
 import { useState, Dispatch, SetStateAction, useEffect, useRef } from 'react'
 import { FaFolder, FaPlay, FaCircle } from 'react-icons/fa'
 import ipcBridge from 'renderer/ipcBridge'
+import { videoConfig } from 'constants/config'
 import {
   ConfigInterface,
   ShallowArchiveInterface,
@@ -408,6 +409,19 @@ export default function Main({
     return () => window.removeEventListener('resize', clampWidths)
   }, [])
 
+  function handleConfigChange(key: string, value: string | number | boolean) {
+    setConfig({ ...config, [key]: value })
+    ipcBridge.updateConfig({ key, value })
+  }
+
+  const resolutionOptions = videoConfig.find(
+    (c: any) => c.id === 'resolution',
+  )?.options as { value: number; label: string }[] | undefined
+
+  const playbackResOptions = videoConfig.find(
+    (c: any) => c.id === 'playbackResolution',
+  )?.options as { value: number; label: string }[] | undefined
+
   function playClips() {
     ipcBridge.playClips({
       filterId: activeFilterId,
@@ -505,6 +519,133 @@ export default function Main({
         />
       </div>
       <div className="footer">
+        <div className="footer-left">
+          <div className="footer-setting" title="Recording resolution">
+            <span className="footer-setting-label">Rec</span>
+            <select
+              className="footer-select"
+              value={config.resolution}
+              onChange={(e) =>
+                handleConfigChange('resolution', parseInt(e.target.value, 10))
+              }
+            >
+              {resolutionOptions?.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="footer-setting" title="Playback resolution">
+            <span className="footer-setting-label">Play</span>
+            <select
+              className="footer-select"
+              value={config.playbackResolution}
+              onChange={(e) =>
+                handleConfigChange(
+                  'playbackResolution',
+                  parseInt(e.target.value, 10),
+                )
+              }
+            >
+              {playbackResOptions?.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="footer-sep" />
+          <div className="footer-setting" title="Bitrate (kbps)">
+            <span className="footer-setting-label">Bitrate</span>
+            <input
+              type="text"
+              className="footer-input footer-input--wide"
+              value={config.bitrateKbps}
+              onChange={(e) => handleConfigChange('bitrateKbps', e.target.value)}
+            />
+          </div>
+          <div className="footer-setting" title="Extra frames before clip start">
+            <span className="footer-setting-label">+Start</span>
+            <input
+              type="number"
+              className="footer-input"
+              value={config.addStartFrames}
+              onChange={(e) =>
+                handleConfigChange(
+                  'addStartFrames',
+                  parseInt(e.target.value, 10) || 0,
+                )
+              }
+            />
+          </div>
+          <div className="footer-setting" title="Extra frames after clip end">
+            <span className="footer-setting-label">+End</span>
+            <input
+              type="number"
+              className="footer-input"
+              value={config.addEndFrames}
+              onChange={(e) =>
+                handleConfigChange(
+                  'addEndFrames',
+                  parseInt(e.target.value, 10) || 0,
+                )
+              }
+            />
+          </div>
+          <div className="footer-sep" />
+          <label className="footer-setting footer-toggle" title="Concatenate clips into one video">
+            <span className="footer-setting-label">Concat</span>
+            <input
+              type="checkbox"
+              checked={!!config.concatenate}
+              onChange={(e) =>
+                handleConfigChange('concatenate', e.target.checked)
+              }
+            />
+          </label>
+          <label className="footer-setting footer-toggle" title="Convert AVI output to MP4">
+            <span className="footer-setting-label">MP4</span>
+            <input
+              type="checkbox"
+              checked={!!config.convertToMp4}
+              onChange={(e) =>
+                handleConfigChange('convertToMp4', e.target.checked)
+              }
+            />
+          </label>
+          <div className="footer-sep" />
+          <div className="footer-setting" title="Number of Dolphin instances for recording">
+            <span className="footer-setting-label">Inst</span>
+            <input
+              type="number"
+              className="footer-input"
+              value={config.numCPUs}
+              min={1}
+              onChange={(e) =>
+                handleConfigChange(
+                  'numCPUs',
+                  parseInt(e.target.value, 10) || 1,
+                )
+              }
+            />
+          </div>
+          <div className="footer-setting" title="Clips per Dolphin batch">
+            <span className="footer-setting-label">Batch</span>
+            <input
+              type="number"
+              className="footer-input"
+              value={config.slice}
+              min={1}
+              onChange={(e) =>
+                handleConfigChange(
+                  'slice',
+                  parseInt(e.target.value, 10) || 1,
+                )
+              }
+            />
+          </div>
+        </div>
         <div className="footer-right">
           {!isGenerating && selectedIds.size > 0 ? (
             <div className="footer-selection">

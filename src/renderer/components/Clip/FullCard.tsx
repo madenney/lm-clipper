@@ -7,7 +7,7 @@
  */
 
 import React, { memo, useState, useCallback, type MouseEvent } from 'react'
-import { FiPlay, FiCircle, FiCopy, FiCheck } from 'react-icons/fi'
+import { FiPlay, FiCircle, FiCopy, FiCheck, FiFolder } from 'react-icons/fi'
 
 import './FullCard.css'
 import type {
@@ -285,6 +285,20 @@ function FullCardComponent({
     >
       {/* Top-right toolbar */}
       <div className="fullcard-toolbar">
+        {'path' in data && data.path && (
+          <button
+            type="button"
+            className="fullcard-toolbar-btn"
+            onClick={(e) => {
+              e.stopPropagation()
+              const folder = (data.path as string).replace(/[\\/][^\\/]+$/, '')
+              window.electron.ipcRenderer.sendMessage('openFolder', folder)
+            }}
+            title="Open containing folder"
+          >
+            <FiFolder />
+          </button>
+        )}
         <CopyButton data={data} />
         {onClose && (
           <button

@@ -14,6 +14,8 @@ import path from 'path'
 import fs, { promises as fsPromises } from 'fs'
 import { shuffleArray } from '../lib'
 import { config as defaultConfig } from '../constants/defaults'
+import { characters } from '../constants/characters'
+import { stages } from '../constants/stages'
 import { filtersConfig } from '../constants/config'
 import {
   ArchiveInterface,
@@ -27,7 +29,7 @@ import {
 } from '../constants/types'
 import Archive from '../models/Archive'
 import Filter from '../models/Filter'
-import slpToVideo, { VideoJobController } from './slpToVideo'
+import slpToVideo, { VideoJobController, setFFMPEGPathOverride } from './slpToVideo'
 import { resolveHtmlPath } from './util'
 import { getMetaData, createDB, getTableCount, deleteFilterRun } from './db'
 import { closeDb, getDb } from './dbConnection'
@@ -210,6 +212,9 @@ export default class Controller {
       }
     })
     fs.writeFileSync(this.configPath, JSON.stringify(this.config, null, 2))
+    if (this.config.ffmpegPath) {
+      setFFMPEGPathOverride(this.config.ffmpegPath)
+    }
     this.archive = null
     this.runningFilterControllers = new Map()
     this.runningFilterIndices = new Set()
@@ -400,6 +405,9 @@ export default class Controller {
       return reply(event, 'updateConfig', requestId)
     }
     this.config[payload.key] = payload.value
+    if (payload.key === 'ffmpegPath') {
+      setFFMPEGPathOverride(payload.value as string)
+    }
     fs.writeFileSync(this.configPath, JSON.stringify(this.config, null, 2))
     return reply(event, 'updateConfig', requestId)
   }
@@ -2451,11 +2459,56 @@ export default class Controller {
         const adjustedStart = startFrame - addStartFrames
         const adjustedEnd = endFrame + addEndFrames
 
+        // Extract metadata for filename pattern
+        const p1 =
+          ('comboer' in result && result.comboer) ||
+          ('players' in result && result.players?.[0]) ||
+          undefined
+        const p2 =
+          ('comboee' in result && result.comboee) ||
+          ('players' in result && result.players?.[1]) ||
+          undefined
+        const stageInfo = stages[result.stage as keyof typeof stages] as
+          | { shortName?: string; name?: string }
+          | undefined
+        const combo = 'combo' in result ? result.combo : undefined
+        const startedAt = result.startedAt
+          ? new Date(result.startedAt * 1000)
+          : undefined
+
         replays.push({
           index,
           path: result.path,
           startFrame: adjustedStart < -123 ? -123 : adjustedStart,
           endFrame: adjustedEnd,
+          meta: {
+            character1: p1
+              ? characters[p1.characterId]?.shortName ||
+                characters[p1.characterId]?.name
+              : undefined,
+            character2: p2
+              ? characters[p2.characterId]?.shortName ||
+                characters[p2.characterId]?.name
+              : undefined,
+            player1:
+              p1?.displayName || p1?.connectCode || p1?.nametag || undefined,
+            player2:
+              p2?.displayName || p2?.connectCode || p2?.nametag || undefined,
+            stage:
+              stageInfo?.shortName || stageInfo?.name || undefined,
+            date: startedAt
+              ? `${startedAt.getFullYear()}-${String(startedAt.getMonth() + 1).padStart(2, '0')}-${String(startedAt.getDate()).padStart(2, '0')}`
+              : undefined,
+            time: startedAt
+              ? `${String(startedAt.getHours()).padStart(2, '0')}${String(startedAt.getMinutes()).padStart(2, '0')}`
+              : undefined,
+            didKill: combo?.didKill,
+            damage:
+              combo && typeof combo.startPercent === 'number' && typeof combo.endPercent === 'number'
+                ? Math.round(combo.endPercent - combo.startPercent)
+                : undefined,
+            moves: combo?.moves?.length,
+          },
         })
       },
     )
@@ -2958,6 +3011,27 @@ export default class Controller {
       shell.openPath(folderPath).then((err) => {
         if (err) console.error('shell.openPath failed:', err)
       })
+    })
+    ipcMain.on('getLogsPath', (event: IpcMainEvent) => {
+      event.reply('logsPath', getLogPath())
+    })
+    ipcMain.on('getAppVersion', (event: IpcMainEvent) => {
+      event.reply('appVersion', app.getVersion())
+    })
+    ipcMain.on('resetConfig', (event: IpcMainEvent) => {
+      const preserveKeys = ['recentProjects', 'lastArchivePath', 'ssbmIsoPath', 'dolphinPath', 'outputPath', 'defaultProjectDirectory']
+      const preserved: Record<string, any> = {}
+      for (const key of preserveKeys) {
+        if (this.config[key] !== undefined) preserved[key] = this.config[key]
+      }
+      this.config = { ...defaultConfig, ...preserved }
+      fs.writeFileSync(this.configPath, JSON.stringify(this.config, null, 2))
+      event.reply('config', this.config)
+    })
+    ipcMain.on('openExternal', (_event: IpcMainEvent, url: string) => {
+      if (typeof url === 'string' && (url.startsWith('https://') || url.startsWith('http://'))) {
+        shell.openExternal(url)
+      }
     })
     ipcMain.on('rendererError', this.logRendererError.bind(this))
     ipcMain.on('testDolphin', this.testDolphin.bind(this))

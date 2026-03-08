@@ -31,6 +31,10 @@ export const config = {
   outputPath: '',
   concatenate: false,
   convertToMp4: false,
+  outputFilenamePattern: '{index}',
+  defaultProjectDirectory: '',
+  ffmpegPath: '',
+  customGeckoCodes: [] as { name: string; code: string; enabled: boolean }[],
   detectDuplicatesOnImport: false,
   savedCustomFilters: [
     // ── Sampling ──

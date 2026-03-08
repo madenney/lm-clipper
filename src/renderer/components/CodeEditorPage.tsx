@@ -17,6 +17,7 @@ import { searchKeymap, highlightSelectionMatches } from '@codemirror/search'
 import { bracketMatching, indentOnInput } from '@codemirror/language'
 import { closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete'
 import { oneDark } from '@codemirror/theme-one-dark'
+import { FiCopy, FiCheck } from 'react-icons/fi'
 
 type SavedTemplate = {
   name: string
@@ -788,10 +789,11 @@ export default function CodeEditorPage() {
     inputCount?: number
     outputCount?: number
     error?: string
-  } | null>(null)
+  } | null>({ logs: [] })
   const [testRunning, setTestRunning] = useState(false)
   const [testSampleSize, setTestSampleSize] = useState(5)
   const [consoleHeight, setConsoleHeight] = useState(200)
+  const [consoleCopied, setConsoleCopied] = useState(false)
   const consoleEndRef = useRef<HTMLDivElement>(null)
   const consoleDragRef = useRef<{ startY: number; startH: number } | null>(null)
   const [templateNamePrompt, setTemplateNamePrompt] = useState<string | null>(
@@ -1835,42 +1837,47 @@ export default function CodeEditorPage() {
             }}
           >
             <span style={{ color: '#a6adc8', fontWeight: 500 }}>Console</span>
-            <button
-              type="button"
-              onClick={() =>
-                navigator.clipboard.writeText(testOutput.logs.join('\n'))
-              }
-              style={{
-                background: 'none',
-                border: 'none',
-                color: '#7f849c',
-                cursor: 'pointer',
-                fontSize: 11,
-                padding: '1px 4px',
-              }}
-            >
-              Copy
-            </button>
-            <button
-              type="button"
-              onClick={(ev) => {
-                ev.stopPropagation()
-                setTestOutput(null)
-              }}
-              style={{
-                background: 'none',
-                border: 'none',
-                color: '#7f849c',
-                cursor: 'pointer',
-                fontSize: 11,
-                marginLeft: 'auto',
-                padding: '4px 8px',
-                position: 'relative',
-                zIndex: 2,
-              }}
-            >
-              Close
-            </button>
+            <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 4 }}>
+              <button
+                type="button"
+                title="Copy console output"
+                onClick={() => {
+                  navigator.clipboard.writeText(testOutput.logs.join('\n'))
+                  setConsoleCopied(true)
+                  setTimeout(() => setConsoleCopied(false), 1500)
+                }}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: consoleCopied ? '#a6e3a1' : '#7f849c',
+                  cursor: 'pointer',
+                  fontSize: 13,
+                  padding: '2px 6px',
+                  transition: 'color 0.2s',
+                }}
+              >
+                {consoleCopied ? <FiCheck /> : <FiCopy />}
+              </button>
+              <button
+                type="button"
+                onClick={(ev) => {
+                  ev.stopPropagation()
+                  setTestOutput(null)
+                }}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: '#7f849c',
+                  cursor: 'pointer',
+                  fontSize: 11,
+                  padding: '4px 8px',
+                  position: 'relative',
+                  zIndex: 2,
+                }}
+              >
+                Close
+              </button>
+            </div>
           </div>
           {/* Log output */}
           <div
@@ -1885,6 +1892,12 @@ export default function CodeEditorPage() {
               lineHeight: 1.5,
             }}
           >
+            {/* Placeholder when empty */}
+            {testOutput.logs.length === 0 && !testOutput.inputClips && !testOutput.error && (
+              <div style={{ color: '#585b70', fontStyle: 'italic', padding: '8px 0' }}>
+                Run a test to see output here
+              </div>
+            )}
             {/* Console log lines */}
             {testOutput.logs.map((line, i) => (
               <div
@@ -1930,11 +1943,6 @@ export default function CodeEditorPage() {
                 label={`Output Clips${testOutput.outputCount && testOutput.outputClips.length < testOutput.outputCount ? ` (showing ${testOutput.outputClips.length} of ${testOutput.outputCount})` : ''}`}
                 data={testOutput.outputClips}
               />
-            )}
-            {testOutput.outputCount !== undefined && (
-              <div style={{ color: '#7f849c', marginTop: 6, fontSize: 11 }}>
-                {testOutput.inputCount} in → {testOutput.outputCount} out
-              </div>
             )}
             <div ref={consoleEndRef} />
           </div>
