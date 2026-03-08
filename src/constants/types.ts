@@ -5,6 +5,12 @@ export interface RecentProject {
   lastOpened: number
 }
 
+export interface CustomGeckoCode {
+  name: string
+  code: string
+  enabled: boolean
+}
+
 export interface ConfigInterface {
   recentProjects: RecentProject[]
   outputPath: string
@@ -35,6 +41,10 @@ export interface ConfigInterface {
   dolphinPath: string
   concatenate: boolean
   convertToMp4: boolean
+  outputFilenamePattern: string
+  defaultProjectDirectory: string
+  ffmpegPath: string
+  customGeckoCodes: CustomGeckoCode[]
   detectDuplicatesOnImport: boolean
   savedCustomFilters: SavedCustomFilter[]
   testMode?: boolean
@@ -217,6 +227,18 @@ export interface ReplayInterface {
   path: string
   startFrame: number
   endFrame: number
+  meta?: {
+    character1?: string
+    character2?: string
+    player1?: string
+    player2?: string
+    stage?: string
+    date?: string
+    time?: string
+    didKill?: boolean
+    damage?: number
+    moves?: number
+  }
 }
 
 export type WorkerMessage =

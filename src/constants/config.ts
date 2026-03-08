@@ -579,6 +579,7 @@ return clips.filter(clip => {
 
 export const settingsCategories = [
   { key: 'paths', label: 'Paths' },
+  { key: 'output', label: 'Output' },
   { key: 'video', label: 'Video Output' },
   { key: 'rendering', label: 'Gecko Codes' },
   { key: 'performance', label: 'Performance' },
@@ -607,6 +608,29 @@ export const videoConfig = [
     id: 'outputPath',
     type: 'openDirectory',
     category: 'paths',
+  },
+  {
+    label: 'Default Project Directory',
+    default: '',
+    id: 'defaultProjectDirectory',
+    type: 'openDirectory',
+    category: 'paths',
+  },
+  {
+    label: 'FFmpeg Path Override',
+    default: '',
+    id: 'ffmpegPath',
+    type: 'openFile',
+    category: 'paths',
+  },
+  // Output
+  {
+    label: 'Filename Pattern',
+    default: '{index}',
+    id: 'outputFilenamePattern',
+    type: 'textInput',
+    category: 'output',
+    hint: '{character1}, {character2}, {stage}, {index}, {date}, {time}',
   },
   // Video Output
   {

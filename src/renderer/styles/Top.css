@@ -12,15 +12,70 @@
     overflow: visible;
 }
 
-.archive-count {
-    position: absolute;
-    top: 10px;
-    left: 50%;
-    transform: translateX(-50%);
-    font-size: 14px;
-    color: #cfcfcf;
-    letter-spacing: 0.2px;
-    pointer-events: none;
+.top-controls {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.top-control {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: default;
+}
+
+.top-control-label {
+    font-size: 12px;
+    color: #888;
+    white-space: nowrap;
+}
+
+.top-control-input {
+    width: 48px;
+    padding: 4px 6px;
+    font-size: 12px;
+    color: #d0d0d0;
+    background: #252525;
+    border: 1px solid #333;
+    border-radius: 4px;
+    outline: none;
+    text-align: center;
+    -moz-appearance: textfield;
+    appearance: textfield;
+}
+
+.top-control-input::-webkit-inner-spin-button,
+.top-control-input::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+.top-control-input:focus {
+    border-color: #4a9d5b;
+}
+
+.top-gecko-btn {
+    padding: 6px 12px;
+    font-size: 12px;
+    font-weight: 500;
+    color: #c0c0c0;
+    background: #252525;
+    border: 1px solid #333;
+    border-radius: 6px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background 120ms ease, border-color 120ms ease;
+}
+
+.top-gecko-btn:hover {
+    background: #333;
+    border-color: #444;
+    color: #e0e0e0;
+}
+
+.settings-modal--gecko {
+    width: 640px;
 }
 
 .test-mode-pill {
@@ -196,9 +251,9 @@
 
 /* Settings Modal - Container */
 .settings-modal {
-    width: 780px;
+    width: 960px;
     max-width: calc(100vw - 40px);
-    max-height: calc(100vh - 80px);
+    height: 560px;
     background: #1a1a1a;
     border: 1px solid #2a2a2a;
     border-radius: 14px;
@@ -225,7 +280,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 18px 24px;
+    padding: 20px 28px;
     border-bottom: 1px solid #222;
     flex-shrink: 0;
     background: #1c1c1c;
@@ -233,7 +288,7 @@
 
 .settings-title {
     margin: 0;
-    font-size: 16px;
+    font-size: 18px;
     font-weight: 600;
     color: #e8e8e8;
     letter-spacing: 0.3px;
@@ -243,13 +298,14 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 32px;
-    height: 32px;
+    width: 36px;
+    height: 36px;
     border: none;
     border-radius: 8px;
     background: transparent;
     color: #888;
     cursor: pointer;
+    font-size: 18px;
     transition: all 120ms ease;
 }
 
@@ -261,7 +317,7 @@
 /* Settings Modal - Body */
 .settings-body {
     flex: 1;
-    overflow-y: auto;
+    overflow-y: overlay;
     padding: 4px 0;
 }
 
@@ -282,9 +338,46 @@
     background: #444;
 }
 
+/* Settings Layout - Sidebar + Content */
+.settings-layout {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.settings-sidebar {
+    width: 180px;
+    flex-shrink: 0;
+    background: #161616;
+    border-right: 1px solid #222;
+    padding: 14px 0;
+    overflow-y: auto;
+}
+
+.settings-sidebar-item {
+    padding: 10px 22px;
+    font-size: 14px;
+    color: #888;
+    cursor: pointer;
+    transition: all 100ms ease;
+    border-left: 3px solid transparent;
+}
+
+.settings-sidebar-item:hover {
+    color: #bbb;
+    background: #1e1e1e;
+}
+
+.settings-sidebar-item--active {
+    color: #e8e8e8;
+    background: #1e1e1e;
+    border-left-color: #4a9d5b;
+}
+
 /* Settings Section */
 .settings-section {
-    padding: 8px 24px 16px;
+    padding: 10px 28px 20px;
 }
 
 .settings-section + .settings-section {
@@ -292,9 +385,9 @@
 }
 
 .settings-section-title {
-    margin: 0 0 10px 0;
-    padding: 8px 0 0;
-    font-size: 11px;
+    margin: 0 0 12px 0;
+    padding: 10px 0 0;
+    font-size: 12px;
     font-weight: 600;
     color: #555;
     text-transform: uppercase;
@@ -319,7 +412,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 10px 14px;
+    padding: 12px 16px;
     border-radius: 6px;
     background: #212121;
     transition: background 100ms ease;
@@ -338,6 +431,11 @@
     min-width: 0;
 }
 
+.settings-item--path .settings-input {
+    width: 100%;
+    box-sizing: border-box;
+}
+
 .settings-item-info {
     display: flex;
     flex-direction: column;
@@ -348,7 +446,7 @@
 }
 
 .settings-item-label {
-    font-size: 13px;
+    font-size: 14px;
     font-weight: 500;
     color: #c8c8c8;
     cursor: default;
@@ -356,7 +454,7 @@
 }
 
 .settings-item-warning {
-    font-size: 11px;
+    font-size: 12px;
     color: #c49a3a;
     line-height: 1.3;
 }
@@ -369,8 +467,8 @@
 .settings-toggle {
     position: relative;
     display: inline-block;
-    width: 38px;
-    height: 22px;
+    width: 42px;
+    height: 24px;
     cursor: pointer;
 }
 
@@ -384,7 +482,7 @@
     position: absolute;
     inset: 0;
     background: #383838;
-    border-radius: 22px;
+    border-radius: 24px;
     transition: background 200ms ease;
 }
 
@@ -393,8 +491,8 @@
     position: absolute;
     top: 3px;
     left: 3px;
-    width: 16px;
-    height: 16px;
+    width: 18px;
+    height: 18px;
     background: #999;
     border-radius: 50%;
     transition: transform 200ms ease, background 200ms ease;
@@ -405,7 +503,7 @@
 }
 
 .settings-toggle input:checked + .settings-toggle-slider::before {
-    transform: translateX(16px);
+    transform: translateX(18px);
     background: #fff;
 }
 
@@ -416,9 +514,9 @@
 
 /* Text/Number Input */
 .settings-input {
-    width: 120px;
-    padding: 7px 10px;
-    font-size: 13px;
+    width: 130px;
+    padding: 8px 12px;
+    font-size: 14px;
     color: #d0d0d0;
     background: #181818;
     border: 1px solid #333;
@@ -437,7 +535,7 @@
 }
 
 .settings-input--number {
-    width: 72px;
+    width: 80px;
     text-align: right;
     -moz-appearance: textfield;
     appearance: textfield;
@@ -451,9 +549,9 @@
 
 /* Select Dropdown */
 .settings-select {
-    min-width: 140px;
-    padding: 7px 30px 7px 10px;
-    font-size: 13px;
+    min-width: 150px;
+    padding: 8px 34px 8px 12px;
+    font-size: 14px;
     color: #d0d0d0;
     background: #181818 url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 12 12"><path fill="%23666" d="M2 4l4 4 4-4"/></svg>') no-repeat right 10px center;
     border: 1px solid #333;
@@ -490,8 +588,8 @@
 .settings-path-input {
     flex: 1;
     min-width: 0;
-    padding: 7px 10px;
-    font-size: 13px;
+    padding: 8px 12px;
+    font-size: 14px;
     font-family: inherit;
     color: #d0d0d0;
     background: #181818;
@@ -516,8 +614,8 @@
 
 .settings-path-browse {
     flex-shrink: 0;
-    padding: 7px 14px;
-    font-size: 12px;
+    padding: 8px 16px;
+    font-size: 13px;
     font-weight: 500;
     color: #c0c0c0;
     background: #282828;
@@ -538,15 +636,15 @@
 .settings-footer {
     display: flex;
     justify-content: flex-end;
-    padding: 14px 24px;
+    padding: 16px 28px;
     border-top: 1px solid #222;
     flex-shrink: 0;
     background: #1c1c1c;
 }
 
 .settings-done-btn {
-    padding: 8px 28px;
-    font-size: 13px;
+    padding: 10px 32px;
+    font-size: 14px;
     font-weight: 500;
     color: #fff;
     background: #3d8a4e;
@@ -565,8 +663,8 @@
 }
 
 .settings-action-btn {
-    padding: 6px 16px;
-    font-size: 12px;
+    padding: 8px 18px;
+    font-size: 13px;
     font-weight: 500;
     color: #fff;
     background: #2a2a2a;
@@ -586,58 +684,375 @@
     transform: translateY(1px);
 }
 
-/* Code Templates in Settings */
-.settings-template-row {
+.settings-action-btn--danger {
+    border-color: #6a3333;
+    color: #f0b0b0;
+}
+
+.settings-action-btn--danger:hover {
+    background: #3a2222;
+    border-color: #8a4444;
+}
+
+.settings-action-btn--confirm {
+    background: #6a2222;
+    border-color: #a04444;
+    color: #fff;
+}
+
+.settings-action-btn--confirm:hover {
+    background: #7a2828;
+}
+
+/* Item description text */
+.settings-item-desc {
+    font-size: 12px;
+    color: #555;
+    line-height: 1.3;
+}
+
+/* Item hint text (below inputs) */
+.settings-item-hint {
+    font-size: 11px;
+    color: #555;
+    margin-top: 4px;
+    display: block;
+}
+
+/* Danger item */
+.settings-item--danger {
+    border: 1px solid #3a2222;
+}
+
+/* Empty state */
+.settings-empty {
+    font-size: 14px;
+    color: #555;
+    padding: 10px 14px;
+}
+
+/* About section */
+.settings-about {
+    padding: 20px 0;
+    text-align: center;
+}
+
+.settings-about-title {
+    font-size: 26px;
+    font-weight: 700;
+    color: #e8e8e8;
+    letter-spacing: 0.5px;
+    margin-bottom: 4px;
+}
+
+.settings-about-version {
+    font-size: 14px;
+    color: #666;
+    margin-bottom: 16px;
+}
+
+.settings-about-desc {
+    font-size: 14px;
+    color: #999;
+    margin-bottom: 20px;
+}
+
+.settings-about-links {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    font-size: 13px;
+    color: #555;
+}
+
+.settings-about-link {
+    color: #666;
+}
+
+.settings-about-link--clickable {
+    color: #4a9d5b;
+    cursor: pointer;
+    transition: color 120ms ease;
+}
+
+.settings-about-link--clickable:hover {
+    color: #6abf7b;
+    text-decoration: underline;
+}
+
+.settings-about-sep {
+    color: #444;
+}
+
+/* Pattern Editor */
+.pattern-editor {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.pattern-editor-desc {
+    font-size: 13px;
+    color: #888;
+    line-height: 1.6;
+}
+
+.pattern-editor-desc code {
+    font-family: monospace;
+    font-size: 12px;
+    color: #a0d0a8;
+    background: #1a2a1e;
+    padding: 1px 5px;
+    border-radius: 3px;
+}
+
+.pattern-editor-row {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.pattern-variables {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+}
+
+.pattern-variables-label {
+    font-size: 12px;
+    color: #555;
+    margin-right: 4px;
+}
+
+.pattern-var-btn {
+    padding: 4px 10px;
+    font-size: 12px;
+    font-family: monospace;
+    color: #a0d0a8;
+    background: #1a2a1e;
+    border: 1px solid #2a3a2e;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 100ms ease;
+}
+
+.pattern-var-btn:hover {
+    background: #243828;
+    border-color: #4a9d5b;
+    color: #c0f0c8;
+}
+
+.pattern-preview {
+    background: #141414;
+    border: 1px solid #2a2a2a;
+    border-radius: 6px;
+    padding: 12px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.pattern-preview-label {
+    font-size: 11px;
+    color: #555;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.pattern-preview-path {
+    font-family: monospace;
+    font-size: 14px;
+    word-break: break-all;
+}
+
+.pattern-preview-folder {
+    color: #7a7a7a;
+}
+
+.pattern-preview-file {
+    color: #d0d0d0;
+}
+
+.pattern-preview-ext {
+    color: #555;
+}
+
+.pattern-folder-note {
+    font-size: 12px;
+    color: #666;
+    padding: 6px 10px;
+    background: #1a1e22;
+    border-radius: 4px;
+    border-left: 3px solid #4a7a9d;
+}
+
+/* Custom Gecko Codes */
+.gecko-custom-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+}
+
+.gecko-custom-header .settings-section-title {
+    margin: 0;
+    padding: 0;
+}
+
+.gecko-add-btn {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 6px 14px;
+    font-size: 13px;
+    font-weight: 500;
+    color: #a0d0a8;
+    background: #1a2a1e;
+    border: 1px solid #2a3a2e;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 120ms ease;
+}
+
+.gecko-add-btn:hover {
+    background: #243828;
+    border-color: #4a9d5b;
+    color: #c0f0c8;
+}
+
+.gecko-empty {
+    font-size: 13px;
+    color: #555;
+    padding: 14px 16px;
+    background: #1e1e1e;
+    border-radius: 6px;
+    text-align: center;
+}
+
+.gecko-custom-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.gecko-code-item {
+    background: #212121;
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.gecko-code-row {
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 8px 14px;
-    border-radius: 6px;
-    background: #212121;
-    margin-bottom: 3px;
+    padding: 10px 14px;
+    cursor: pointer;
+    transition: background 100ms ease;
 }
 
-.settings-template-row:hover {
-    background: #262626;
+.gecko-code-row:hover {
+    background: #282828;
 }
 
-.settings-template-name {
+.gecko-code-chevron {
+    color: #666;
+    font-size: 14px;
+    display: flex;
+    flex-shrink: 0;
+}
+
+.gecko-code-name {
     flex: 1;
-    min-width: 0;
-    font-size: 13px;
+    font-size: 14px;
+    font-weight: 500;
     color: #c8c8c8;
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
-.settings-template-btn {
+.gecko-code-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
     flex-shrink: 0;
-    padding: 4px 12px;
-    font-size: 11px;
-    font-weight: 500;
-    color: #c0c0c0;
-    background: #2a2a2a;
-    border: 1px solid #3a3a3a;
-    border-radius: 4px;
+}
+
+.gecko-delete-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: #666;
     cursor: pointer;
-    transition: background 120ms ease, border-color 120ms ease;
+    font-size: 14px;
+    transition: all 120ms ease;
 }
 
-.settings-template-btn:hover {
-    background: #383838;
-    border-color: #555;
-    color: #e0e0e0;
-}
-
-.settings-template-btn--delete:hover {
+.gecko-delete-btn:hover {
     background: #3a2222;
-    border-color: #6a3333;
     color: #f0b0b0;
 }
 
-.settings-template-empty {
+.gecko-code-editor {
+    padding: 0 14px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    border-top: 1px solid #2a2a2a;
+}
+
+.gecko-code-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding-top: 10px;
+}
+
+.gecko-code-field-label {
+    font-size: 12px;
+    color: #888;
+    font-weight: 500;
+}
+
+.gecko-code-textarea {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 10px 12px;
     font-size: 13px;
+    font-family: monospace;
+    color: #d0d0d0;
+    background: #181818;
+    border: 1px solid #333;
+    border-radius: 6px;
+    outline: none;
+    resize: vertical;
+    min-height: 80px;
+    line-height: 1.5;
+    transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+
+.gecko-code-textarea::placeholder {
+    color: #4a4a4a;
+}
+
+.gecko-code-textarea:hover {
+    border-color: #444;
+}
+
+.gecko-code-textarea:focus {
+    border-color: #4a9d5b;
+    box-shadow: 0 0 0 2px rgba(74, 157, 91, 0.12);
+}
+
+.gecko-code-hint {
+    font-size: 11px;
     color: #555;
-    padding: 10px 14px;
 }

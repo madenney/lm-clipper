@@ -31,6 +31,7 @@ function DeferredInput({
   className,
   title,
   inputMode,
+  maxLength,
   validate,
   onChange,
 }: {
@@ -40,6 +41,7 @@ function DeferredInput({
   className?: string
   title?: string
   inputMode?: 'numeric' | 'text'
+  maxLength?: number
   validate?: (_raw: string) => boolean
   onChange: (_val: string) => void
 }) {
@@ -66,6 +68,7 @@ function DeferredInput({
       placeholder={placeholder}
       disabled={disabled}
       title={title}
+      maxLength={maxLength}
       onChange={(e) => {
         const raw = e.target.value
         if (validate && !validate(raw)) return
@@ -1780,23 +1783,7 @@ export default function Filters({
                   )
                   break
                 case 'code':
-                  input = (
-                    <button
-                      type="button"
-                      className="filter-button"
-                      style={{ fontSize: 12, padding: '2px 8px' }}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        ipcBridge.openCodeEditor({
-                          filterIndex,
-                          filter,
-                        })
-                      }}
-                    >
-                      Edit Code
-                    </button>
-                  )
-                  break
+                  return null
                 case 'checkbox-disabled':
                   input = (
                     <label className="filter-control-checkbox-wrap">
@@ -2359,6 +2346,13 @@ export default function Filters({
               <div className="filter-main">
                 <div
                   className="filter-title"
+                  style={
+                    filtersConfig
+                      .find((c) => c.id === filter.type)
+                      ?.options?.some((o) => o.type === 'code')
+                      ? { paddingRight: 250 }
+                      : undefined
+                  }
                   title={
                     (filtersConfig.find((c) => c.id === filter.type) as any)
                       ?.tooltip || ''
@@ -2369,6 +2363,7 @@ export default function Filters({
                       className="filter-title-input"
                       value={filter.label}
                       placeholder="Custom Code"
+                      maxLength={24}
                       onChange={(val) => {
                         const filterClone = cloneDeep(filter)
                         filterClone.label = val || 'Custom Code'
@@ -2436,6 +2431,23 @@ export default function Filters({
                     </button>
                   </div>
                 )}
+                {filtersConfig
+                  .find((c) => c.id === filter.type)
+                  ?.options?.some((o) => o.type === 'code') && (
+                  <button
+                    type="button"
+                    className="filter-button"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      ipcBridge.openCodeEditor({
+                        filterIndex: index,
+                        filter,
+                      })
+                    }}
+                  >
+                    Edit Code
+                  </button>
+                )}
                 <button
                   type="button"
                   className={`filter-button${isRunning ? ' filter-button-stop' : ''}`}
@@ -2482,6 +2494,11 @@ export default function Filters({
     <div className="filters">
       <div className="filters-header">
         <div className="filters-title">Filters</div>
+        {archive && (
+          <div className="filters-file-count">
+            {archive.files.toLocaleString()} SLP files
+          </div>
+        )}
       </div>
       {archive ? (
         renderFilters()

@@ -38,8 +38,18 @@ type VideoSignal = {
   activeProcesses: Set<ChildProcess>
 }
 
-const ffmpegPath = getFFMPEGPath()
+let ffmpegPath = getFFMPEGPath()
 logMain('slpToVideo: resolved ffmpeg path', { ffmpegPath })
+
+export function setFFMPEGPathOverride(overridePath: string) {
+  if (overridePath && overridePath.trim()) {
+    ffmpegPath = overridePath.trim()
+    logMain('slpToVideo: ffmpeg path overridden', { ffmpegPath })
+  } else {
+    ffmpegPath = getFFMPEGPath()
+    logMain('slpToVideo: ffmpeg path reset to default', { ffmpegPath })
+  }
+}
 
 const getAppDataPath = () => {
   if (app && typeof app.getPath === 'function') return app.getPath('appData')
@@ -77,14 +87,55 @@ const killDolphinOnEndFrame = (proc: ChildProcessWithoutNullStreams) => {
   })
 }
 
+/**
+ * Resolve a filename pattern using replay metadata.
+ * Supports {character1}, {character2}, {player1}, {player2}, {stage},
+ * {date}, {time}, {index}, {kills}, {damage}, {moves}.
+ * Slashes in the pattern create subdirectories.
+ */
+const resolveFilenamePattern = (
+  pattern: string,
+  replay: ReplayInterface,
+): string => {
+  const m = replay.meta || {}
+  const sanitize = (s: string) =>
+    s.replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').trim()
+
+  const vars: Record<string, string> = {
+    character1: sanitize(m.character1 || 'Unknown'),
+    character2: sanitize(m.character2 || 'Unknown'),
+    player1: sanitize(m.player1 || 'P1'),
+    player2: sanitize(m.player2 || 'P2'),
+    stage: sanitize(m.stage || 'Unknown'),
+    date: m.date || 'unknown-date',
+    time: m.time || '0000',
+    index: pad(replay.index, 4),
+    kills: m.didKill ? 'kill' : 'nokill',
+    damage: m.damage !== undefined ? String(m.damage) : '0',
+    moves: m.moves !== undefined ? String(m.moves) : '0',
+  }
+
+  return pattern.replace(/\{(\w+)\}/g, (match, key) => vars[key] ?? match)
+}
+
 const processOneReplay = async (
   replay: ReplayInterface,
   config: ConfigInterface & { numProcesses: number; gameMusicOn: boolean },
   signal: VideoSignal,
 ): Promise<boolean> => {
-  const fileBasename = pad(replay.index, 4)
+  const outputPattern = config.outputFilenamePattern || '{index}'
+  const resolvedName = resolveFilenamePattern(outputPattern, replay)
+  // resolvedName may contain path separators for folder structure
+  const outputDir = path.resolve(config.outputPath, path.dirname(resolvedName))
+  const fileBasename = path.basename(resolvedName)
+
+  // Ensure output subdirectories exist
+  if (!fs.existsSync(outputDir)) {
+    fs.mkdirSync(outputDir, { recursive: true })
+  }
+
   const basePath = (suffix: string) =>
-    path.resolve(config.outputPath, `${fileBasename}${suffix}`)
+    path.resolve(outputDir, `${fileBasename}${suffix}`)
 
   // 1. Write JSON config for this replay
   // Check file exists before trying to parse
@@ -135,7 +186,7 @@ const processOneReplay = async (
     basePath('.json'),
     '-o',
     `${fileBasename}-unmerged`,
-    `--output-directory=${config.outputPath}`,
+    `--output-directory=${outputDir}`,
     '-b',
     '-e',
     config.ssbmIsoPath,
@@ -471,7 +522,25 @@ const configureDolphin = async (
   }
 
   // Game settings
-  let newSettings: string[] = ['[Gecko]', '[Gecko_Enabled]']
+  // Custom gecko codes go in the [Gecko] section as definitions
+  const geckoDefinitions: string[] = []
+  const customGeckoCodes = config.customGeckoCodes || []
+  for (const gc of customGeckoCodes) {
+    if (gc.name && gc.code) {
+      geckoDefinitions.push(`$${gc.name}`)
+      // Each line of the code block is a hex line
+      for (const line of gc.code.split('\n')) {
+        const trimmed = line.trim()
+        if (trimmed) geckoDefinitions.push(trimmed)
+      }
+    }
+  }
+
+  let newSettings: string[] = ['[Gecko]']
+  // Write custom code definitions
+  newSettings.push(...geckoDefinitions)
+
+  newSettings.push('[Gecko_Enabled]')
   if (!config.gameMusicOn) newSettings.push('$Optional: Game Music OFF')
   if (config.hideHud) newSettings.push('$Optional: Hide HUD')
   if (config.hideTags) newSettings.push('$Optional: Hide Tags')
@@ -485,9 +554,21 @@ const configureDolphin = async (
     newSettings.push('$Optional: Prevent Character Crowd Chants')
   if (config.disableMagnifyingGlass)
     newSettings.push('$Optional: Disable Magnifying-glass HUD')
+  // Enable custom gecko codes
+  for (const gc of customGeckoCodes) {
+    if (gc.name && gc.code && gc.enabled) {
+      newSettings.push(`$${gc.name}`)
+    }
+  }
 
   newSettings.push('[Gecko_Disabled]')
   if (config.hideNames) newSettings.push('$Optional: Show Player Names')
+  // Disabled custom gecko codes
+  for (const gc of customGeckoCodes) {
+    if (gc.name && gc.code && !gc.enabled) {
+      newSettings.push(`$${gc.name}`)
+    }
+  }
 
   await fsPromises.writeFile(gameSettingsPath, newSettings.join('\n'))
 

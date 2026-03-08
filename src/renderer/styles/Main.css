@@ -134,15 +134,105 @@
   z-index: 2;
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: space-between;
   padding: 0 16px;
   box-sizing: border-box;
+}
+
+.footer-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.footer-setting {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.footer-setting-label {
+  font-size: 10px;
+  color: #666;
+  white-space: nowrap;
+}
+
+.footer-select {
+  padding: 3px 4px;
+  font-size: 11px;
+  color: #c0c0c0;
+  background: #252525;
+  border: 1px solid #333;
+  border-radius: 3px;
+  outline: none;
+  cursor: pointer;
+  max-width: 140px;
+}
+
+.footer-select:focus {
+  border-color: #4a9d5b;
+}
+
+.footer-select option {
+  background: #1a1a1a;
+  color: #c0c0c0;
+}
+
+.footer-input {
+  width: 40px;
+  padding: 3px 4px;
+  font-size: 11px;
+  color: #c0c0c0;
+  background: #252525;
+  border: 1px solid #333;
+  border-radius: 3px;
+  outline: none;
+  text-align: center;
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+.footer-input::-webkit-inner-spin-button,
+.footer-input::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.footer-input:focus {
+  border-color: #4a9d5b;
+}
+
+.footer-input--wide {
+  width: 56px;
+}
+
+.footer-toggle {
+  cursor: pointer;
+}
+
+.footer-toggle input[type="checkbox"] {
+  width: 13px;
+  height: 13px;
+  accent-color: #4a9d5b;
+  cursor: pointer;
+}
+
+.footer-sep {
+  width: 1px;
+  height: 20px;
+  background: #333;
+  flex-shrink: 0;
 }
 
 .footer-right {
   display: flex;
   align-items: center;
   gap: 16px;
+  flex-shrink: 0;
 }
 
 .footer-selection {
