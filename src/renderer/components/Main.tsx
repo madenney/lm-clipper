@@ -414,9 +414,8 @@ export default function Main({
     ipcBridge.updateConfig({ key, value })
   }
 
-  const resolutionOptions = videoConfig.find(
-    (c: any) => c.id === 'resolution',
-  )?.options as { value: number; label: string }[] | undefined
+  const resolutionOptions = videoConfig.find((c: any) => c.id === 'resolution')
+    ?.options as { value: number; label: string }[] | undefined
 
   const playbackResOptions = videoConfig.find(
     (c: any) => c.id === 'playbackResolution',
@@ -562,10 +561,15 @@ export default function Main({
               type="text"
               className="footer-input footer-input--wide"
               value={config.bitrateKbps}
-              onChange={(e) => handleConfigChange('bitrateKbps', e.target.value)}
+              onChange={(e) =>
+                handleConfigChange('bitrateKbps', e.target.value)
+              }
             />
           </div>
-          <div className="footer-setting" title="Extra frames before clip start">
+          <div
+            className="footer-setting"
+            title="Extra frames before clip start"
+          >
             <span className="footer-setting-label">+Start</span>
             <input
               type="number"
@@ -594,7 +598,10 @@ export default function Main({
             />
           </div>
           <div className="footer-sep" />
-          <label className="footer-setting footer-toggle" title="Concatenate clips into one video">
+          <label
+            className="footer-setting footer-toggle"
+            title="Concatenate clips into one video"
+          >
             <span className="footer-setting-label">Concat</span>
             <input
               type="checkbox"
@@ -604,7 +611,10 @@ export default function Main({
               }
             />
           </label>
-          <label className="footer-setting footer-toggle" title="Convert AVI output to MP4">
+          <label
+            className="footer-setting footer-toggle"
+            title="Convert AVI output to MP4"
+          >
             <span className="footer-setting-label">MP4</span>
             <input
               type="checkbox"
@@ -615,7 +625,10 @@ export default function Main({
             />
           </label>
           <div className="footer-sep" />
-          <div className="footer-setting" title="Number of Dolphin instances for recording">
+          <div
+            className="footer-setting"
+            title="Number of Dolphin instances for recording"
+          >
             <span className="footer-setting-label">Inst</span>
             <input
               type="number"
@@ -623,10 +636,7 @@ export default function Main({
               value={config.numCPUs}
               min={1}
               onChange={(e) =>
-                handleConfigChange(
-                  'numCPUs',
-                  parseInt(e.target.value, 10) || 1,
-                )
+                handleConfigChange('numCPUs', parseInt(e.target.value, 10) || 1)
               }
             />
           </div>
@@ -638,10 +648,7 @@ export default function Main({
               value={config.slice}
               min={1}
               onChange={(e) =>
-                handleConfigChange(
-                  'slice',
-                  parseInt(e.target.value, 10) || 1,
-                )
+                handleConfigChange('slice', parseInt(e.target.value, 10) || 1)
               }
             />
           </div>

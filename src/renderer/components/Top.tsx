@@ -1,9 +1,10 @@
+/* eslint-disable jsx-a11y/no-noninteractive-element-interactions */
 /* eslint-disable jsx-a11y/no-static-element-interactions */
 /* eslint-disable jsx-a11y/click-events-have-key-events */
 import { useEffect, useState, Dispatch, SetStateAction } from 'react'
 import { IoSettingsSharp } from 'react-icons/io5'
 import { FiPlus, FiTrash2, FiChevronDown, FiChevronRight } from 'react-icons/fi'
-import { videoConfig, settingsCategories } from 'constants/config'
+import { videoConfig } from 'constants/config'
 
 import '../styles/Top.css'
 import {
@@ -41,7 +42,11 @@ const settingsSections = [
 
 type SettingsSection = (typeof settingsSections)[number]['key']
 
-export default function Top({ archive, config, setConfig }: TopProps) {
+export default function Top({
+  archive: _archive,
+  config,
+  setConfig,
+}: TopProps) {
   const [configModalOpen, setConfigModalOpen] = useState(false)
   const [geckoModalOpen, setGeckoModalOpen] = useState(false)
   const [activeSection, setActiveSection] = useState<SettingsSection>('paths')
@@ -182,9 +187,7 @@ export default function Top({ archive, config, setConfig }: TopProps) {
               value={config[c.id]}
               onChange={(e) => handleChange(c.id, e.target.value)}
             />
-            {c.hint && (
-              <span className="settings-item-hint">{c.hint}</span>
-            )}
+            {c.hint && <span className="settings-item-hint">{c.hint}</span>}
           </>
         )
       case 'int':
@@ -268,7 +271,10 @@ export default function Top({ archive, config, setConfig }: TopProps) {
     for (const v of patternVariables) {
       exampleVars[v.key] = v.example
     }
-    return pattern.replace(/\{(\w+)\}/g, (match, key) => exampleVars[key] ?? match)
+    return pattern.replace(
+      /\{(\w+)\}/g,
+      (match, key) => exampleVars[key] ?? match,
+    )
   }
 
   function renderOutputSection() {
@@ -276,17 +282,20 @@ export default function Top({ archive, config, setConfig }: TopProps) {
     const preview = getPatternPreview(pattern)
     const hasSlash = pattern.includes('/')
     const previewParts = hasSlash
-      ? { folder: preview.slice(0, preview.lastIndexOf('/')), file: preview.slice(preview.lastIndexOf('/') + 1) }
+      ? {
+          folder: preview.slice(0, preview.lastIndexOf('/')),
+          file: preview.slice(preview.lastIndexOf('/') + 1),
+        }
       : { folder: null, file: preview }
 
     return (
       <div className="pattern-editor">
         <div className="pattern-editor-desc">
           Control how recorded clips are named and organized. Use variables
-          below to build dynamic filenames. Add <code>/</code> to create
-          folder structures — e.g.{' '}
-          <code>{'{stage}/{character1}_vs_{character2}_{index}'}</code>{' '}
-          will sort clips into folders by stage.
+          below to build dynamic filenames. Add <code>/</code> to create folder
+          structures — e.g.{' '}
+          <code>{'{stage}/{character1}_vs_{character2}_{index}'}</code> will
+          sort clips into folders by stage.
         </div>
 
         <div className="pattern-editor-row">
@@ -328,9 +337,7 @@ export default function Top({ archive, config, setConfig }: TopProps) {
                 {previewParts.folder}/
               </span>
             )}
-            <span className="pattern-preview-file">
-              {previewParts.file}
-            </span>
+            <span className="pattern-preview-file">{previewParts.file}</span>
             <span className="pattern-preview-ext">.mp4</span>
           </div>
         </div>
@@ -365,9 +372,7 @@ export default function Top({ archive, config, setConfig }: TopProps) {
                       {c.label}
                     </label>
                   </div>
-                  <div className="settings-item-control">
-                    {renderInput(c)}
-                  </div>
+                  <div className="settings-item-control">{renderInput(c)}</div>
                 </div>
               ))}
             </div>
@@ -384,8 +389,8 @@ export default function Top({ archive, config, setConfig }: TopProps) {
             </div>
             {customCodes.length === 0 ? (
               <div className="gecko-empty">
-                No custom codes added. Click "Add Code" to add your own gecko
-                codes.
+                No custom codes added. Click &ldquo;Add Code&rdquo; to add your
+                own gecko codes.
               </div>
             ) : (
               <div className="gecko-custom-list">
@@ -502,7 +507,9 @@ export default function Top({ archive, config, setConfig }: TopProps) {
             c.category === categoryKey && !hiddenFromSettings.has(c.id),
         )
         if (items.length === 0) {
-          return <div className="settings-empty">No settings in this section.</div>
+          return (
+            <div className="settings-empty">No settings in this section.</div>
+          )
         }
         const isFullWidth = items.every(
           (c: any) =>
@@ -529,14 +536,10 @@ export default function Top({ archive, config, setConfig }: TopProps) {
                       {c.label}
                     </label>
                     {c.warning && config[c.id] && (
-                      <span className="settings-item-warning">
-                        {c.warning}
-                      </span>
+                      <span className="settings-item-warning">{c.warning}</span>
                     )}
                   </div>
-                  <div className="settings-item-control">
-                    {renderInput(c)}
-                  </div>
+                  <div className="settings-item-control">{renderInput(c)}</div>
                 </div>
               )
             })}
@@ -621,7 +624,9 @@ export default function Top({ archive, config, setConfig }: TopProps) {
             <div className="settings-about-links">
               <span
                 className="settings-about-link settings-about-link--clickable"
-                onClick={() => window.open('https://github.com/madenney/lm-clipper')}
+                onClick={() =>
+                  window.open('https://github.com/madenney/lm-clipper')
+                }
               >
                 GitHub
               </span>
@@ -796,8 +801,8 @@ export default function Top({ archive, config, setConfig }: TopProps) {
               </div>
               {customCodes.length === 0 ? (
                 <div className="gecko-empty">
-                  No custom codes added. Click "Add Code" to add your own gecko
-                  codes.
+                  No custom codes added. Click &ldquo;Add Code&rdquo; to add
+                  your own gecko codes.
                 </div>
               ) : (
                 <div className="gecko-custom-list">
@@ -893,8 +898,8 @@ export default function Top({ archive, config, setConfig }: TopProps) {
                                 spellCheck={false}
                               />
                               <span className="gecko-code-hint">
-                                Paste gecko code hex lines here. One
-                                instruction per line.
+                                Paste gecko code hex lines here. One instruction
+                                per line.
                               </span>
                             </div>
                           </div>
@@ -925,7 +930,10 @@ export default function Top({ archive, config, setConfig }: TopProps) {
       {renderConfigModal()}
       {renderGeckoModal()}
       <div className="top-controls">
-        <label className="top-control" title="Worker threads for filter processing">
+        <label
+          className="top-control"
+          title="Worker threads for filter processing"
+        >
           <span className="top-control-label">Threads</span>
           <input
             type="number"
@@ -933,7 +941,10 @@ export default function Top({ archive, config, setConfig }: TopProps) {
             value={config.numFilterThreads}
             min={1}
             onChange={(e) =>
-              handleChange('numFilterThreads', parseInt(e.target.value, 10) || 1)
+              handleChange(
+                'numFilterThreads',
+                parseInt(e.target.value, 10) || 1,
+              )
             }
           />
         </label>

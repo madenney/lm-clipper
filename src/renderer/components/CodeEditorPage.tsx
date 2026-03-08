@@ -1837,7 +1837,14 @@ export default function CodeEditorPage() {
             }}
           >
             <span style={{ color: '#a6adc8', fontWeight: 500 }}>Console</span>
-            <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 4 }}>
+            <div
+              style={{
+                marginLeft: 'auto',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4,
+              }}
+            >
               <button
                 type="button"
                 title="Copy console output"
@@ -1893,11 +1900,19 @@ export default function CodeEditorPage() {
             }}
           >
             {/* Placeholder when empty */}
-            {testOutput.logs.length === 0 && !testOutput.inputClips && !testOutput.error && (
-              <div style={{ color: '#585b70', fontStyle: 'italic', padding: '8px 0' }}>
-                Run a test to see output here
-              </div>
-            )}
+            {testOutput.logs.length === 0 &&
+              !testOutput.inputClips &&
+              !testOutput.error && (
+                <div
+                  style={{
+                    color: '#585b70',
+                    fontStyle: 'italic',
+                    padding: '8px 0',
+                  }}
+                >
+                  Run a test to see output here
+                </div>
+              )}
             {/* Console log lines */}
             {testOutput.logs.map((line, i) => (
               <div

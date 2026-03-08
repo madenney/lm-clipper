@@ -29,7 +29,10 @@ import {
 } from '../constants/types'
 import Archive from '../models/Archive'
 import Filter from '../models/Filter'
-import slpToVideo, { VideoJobController, setFFMPEGPathOverride } from './slpToVideo'
+import slpToVideo, {
+  VideoJobController,
+  setFFMPEGPathOverride,
+} from './slpToVideo'
 import { resolveHtmlPath } from './util'
 import { getMetaData, createDB, getTableCount, deleteFilterRun } from './db'
 import { closeDb, getDb } from './dbConnection'
@@ -2494,8 +2497,7 @@ export default class Controller {
               p1?.displayName || p1?.connectCode || p1?.nametag || undefined,
             player2:
               p2?.displayName || p2?.connectCode || p2?.nametag || undefined,
-            stage:
-              stageInfo?.shortName || stageInfo?.name || undefined,
+            stage: stageInfo?.shortName || stageInfo?.name || undefined,
             date: startedAt
               ? `${startedAt.getFullYear()}-${String(startedAt.getMonth() + 1).padStart(2, '0')}-${String(startedAt.getDate()).padStart(2, '0')}`
               : undefined,
@@ -2504,7 +2506,9 @@ export default class Controller {
               : undefined,
             didKill: combo?.didKill,
             damage:
-              combo && typeof combo.startPercent === 'number' && typeof combo.endPercent === 'number'
+              combo &&
+              typeof combo.startPercent === 'number' &&
+              typeof combo.endPercent === 'number'
                 ? Math.round(combo.endPercent - combo.startPercent)
                 : undefined,
             moves: combo?.moves?.length,
@@ -3019,7 +3023,14 @@ export default class Controller {
       event.reply('appVersion', app.getVersion())
     })
     ipcMain.on('resetConfig', (event: IpcMainEvent) => {
-      const preserveKeys = ['recentProjects', 'lastArchivePath', 'ssbmIsoPath', 'dolphinPath', 'outputPath', 'defaultProjectDirectory']
+      const preserveKeys = [
+        'recentProjects',
+        'lastArchivePath',
+        'ssbmIsoPath',
+        'dolphinPath',
+        'outputPath',
+        'defaultProjectDirectory',
+      ]
       const preserved: Record<string, any> = {}
       for (const key of preserveKeys) {
         if (this.config[key] !== undefined) preserved[key] = this.config[key]
@@ -3029,7 +3040,10 @@ export default class Controller {
       event.reply('config', this.config)
     })
     ipcMain.on('openExternal', (_event: IpcMainEvent, url: string) => {
-      if (typeof url === 'string' && (url.startsWith('https://') || url.startsWith('http://'))) {
+      if (
+        typeof url === 'string' &&
+        (url.startsWith('https://') || url.startsWith('http://'))
+      ) {
         shell.openExternal(url)
       }
     })
