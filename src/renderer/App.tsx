@@ -46,7 +46,7 @@ export default function App() {
         ipcBridge.openExistingArchive((newArchive) => {
           if (!newArchive) return
           if (newArchive.error) {
-            console.log('Error: ', newArchive.error)
+            console.error('Error: ', newArchive.error)
             return
           }
           setArchive(newArchive)
@@ -59,7 +59,7 @@ export default function App() {
       () => {
         ipcBridge.importSlpFiles((newArchive) => {
           if (newArchive?.error) {
-            console.log('Error importing files: ', newArchive.error)
+            console.error('Error importing files: ', newArchive.error)
             return
           }
           setArchive(newArchive)
@@ -72,7 +72,7 @@ export default function App() {
       () => {
         ipcBridge.newProject((newArchive) => {
           if (!newArchive || newArchive.error) {
-            console.log('Error creating new project:', newArchive?.error)
+            console.error('Error creating new project:', newArchive?.error)
             return
           }
           setArchive(newArchive)
@@ -97,7 +97,7 @@ export default function App() {
       (projectPath: string) => {
         ipcBridge.openRecentProject(projectPath, (result) => {
           if (!result || result.error) {
-            console.log('Error opening recent project:', result?.error)
+            console.error('Error opening recent project:', result?.error)
             return
           }
           setArchive(result)
@@ -111,7 +111,7 @@ export default function App() {
         ipcBridge.saveAsArchive((result) => {
           if (!result) return
           if (result.error) {
-            console.log('Error saving project as:', result.error)
+            console.error('Error saving project as:', result.error)
             return
           }
           setArchive(result)

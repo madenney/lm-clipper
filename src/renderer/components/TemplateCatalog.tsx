@@ -8,12 +8,14 @@ interface TemplateCatalogProps {
   templates: SavedCustomFilter[]
   onSelect: (_template: SavedCustomFilter) => void
   onClose: () => void
+  hasParser: boolean
 }
 
 export default function TemplateCatalog({
   templates,
   onSelect,
   onClose,
+  hasParser,
 }: TemplateCatalogProps) {
   const [search, setSearch] = useState('')
   const [activeCategory, setActiveCategory] = useState('All')
@@ -115,38 +117,49 @@ export default function TemplateCatalog({
                   : 'No templates in this category.'}
               </div>
             )}
-            {filtered.map((t, i) => (
-              <div
-                key={`${t.name}-${i}`}
-                className="tc-item"
-                onClick={() => onSelect(t)}
-              >
-                <div className="tc-item-top">
-                  <span className="tc-item-name">{t.name}</span>
-                  {t.category && t.builtIn && (
-                    <span className="tc-item-badge">{t.category}</span>
+            {filtered.map((t, i) => {
+              const disabled = t.requiresParser && !hasParser
+              return (
+                <div
+                  key={`${t.name}-${i}`}
+                  className={`tc-item${disabled ? ' tc-item-disabled' : ''}`}
+                  onClick={() => !disabled && onSelect(t)}
+                  title={
+                    disabled ? 'Add a Combo Parser filter first' : undefined
+                  }
+                >
+                  <div className="tc-item-top">
+                    <span className="tc-item-name">{t.name}</span>
+                    {disabled && (
+                      <span className="tc-item-badge tc-item-badge-parser">
+                        Needs Parser
+                      </span>
+                    )}
+                    {t.category && t.builtIn && (
+                      <span className="tc-item-badge">{t.category}</span>
+                    )}
+                    {!t.builtIn && (
+                      <span className="tc-item-badge tc-item-badge-user">
+                        My Template
+                      </span>
+                    )}
+                  </div>
+                  {t.description && (
+                    <div className="tc-item-desc">{t.description}</div>
                   )}
-                  {!t.builtIn && (
-                    <span className="tc-item-badge tc-item-badge-user">
-                      My Template
-                    </span>
+                  {t.customParams && t.customParams.length > 0 && (
+                    <div className="tc-item-params">
+                      {t.customParams.map((p) => (
+                        <span key={p.name} className="tc-item-param">
+                          {p.name}
+                          {p.value ? `=${p.value}` : ''}
+                        </span>
+                      ))}
+                    </div>
                   )}
                 </div>
-                {t.description && (
-                  <div className="tc-item-desc">{t.description}</div>
-                )}
-                {t.customParams && t.customParams.length > 0 && (
-                  <div className="tc-item-params">
-                    {t.customParams.map((p) => (
-                      <span key={p.name} className="tc-item-param">
-                        {p.name}
-                        {p.value ? `=${p.value}` : ''}
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ))}
+              )
+            })}
           </div>
         </div>
       </div>

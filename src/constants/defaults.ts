@@ -36,6 +36,7 @@ export const config = {
   ffmpegPath: '',
   customGeckoCodes: [] as { name: string; code: string; enabled: boolean }[],
   detectDuplicatesOnImport: false,
+  includeDefaultFilters: true,
   savedCustomFilters: [
     // ── Sampling ──
     {
@@ -65,6 +66,7 @@ return clips.filter(clip => {
 })`,
       customParams: [{ name: 'maxPerPlayer', type: 'int', value: '5' }],
       builtIn: true,
+      requiresParser: true,
     },
     {
       name: 'Top N by Damage',
@@ -79,6 +81,7 @@ withDmg.sort((a, b) => b.dmg - a.dmg)
 return withDmg.slice(0, params.count).map(x => x.clip)`,
       customParams: [{ name: 'count', type: 'int', value: '100' }],
       builtIn: true,
+      requiresParser: true,
     },
     {
       name: 'Top N by Hits',
@@ -93,6 +96,7 @@ const sorted = [...clips].sort((a, b) => {
 return sorted.slice(0, params.count)`,
       customParams: [{ name: 'count', type: 'int', value: '100' }],
       builtIn: true,
+      requiresParser: true,
     },
     {
       name: 'One Per Game',
@@ -121,6 +125,7 @@ return clips.filter(clip => {
 })`,
       customParams: [{ name: 'maxPerMatchup', type: 'int', value: '10' }],
       builtIn: true,
+      requiresParser: true,
     },
 
     // ── Combos ──
@@ -139,6 +144,7 @@ return clips.filter(clip => {
         { name: 'maxDamage', type: 'int', value: '0' },
       ],
       builtIn: true,
+      requiresParser: true,
     },
     {
       name: 'Contains Move',
@@ -155,6 +161,7 @@ return clips.filter(clip => {
 })`,
       customParams: [{ name: 'moveIds', type: 'array', value: '17' }],
       builtIn: true,
+      requiresParser: true,
     },
     {
       name: 'Exclude Move',
@@ -168,6 +175,7 @@ return clips.filter(clip => {
 })`,
       customParams: [{ name: 'moveIds', type: 'array', value: '52' }],
       builtIn: true,
+      requiresParser: true,
     },
     {
       name: 'Starts With Move',
@@ -181,6 +189,7 @@ return clips.filter(clip => {
 })`,
       customParams: [{ name: 'moveIds', type: 'array', value: '50' }],
       builtIn: true,
+      requiresParser: true,
     },
     {
       name: 'Ends With Move',
@@ -195,6 +204,7 @@ return clips.filter(clip => {
 })`,
       customParams: [{ name: 'moveIds', type: 'array', value: '14' }],
       builtIn: true,
+      requiresParser: true,
     },
     {
       name: 'Move Sequence',
@@ -216,6 +226,7 @@ return clips.filter(clip => {
 })`,
       customParams: [{ name: 'sequence', type: 'array', value: '50,17' }],
       builtIn: true,
+      requiresParser: true,
     },
     {
       name: 'No Pummels',
@@ -227,6 +238,7 @@ return clips.filter(clip => {
   return !clip.combo.moves.some(m => m.moveId === 52)
 })`,
       builtIn: true,
+      requiresParser: true,
     },
     {
       name: 'No Grabs',
@@ -239,6 +251,7 @@ return clips.filter(clip => {
   return !clip.combo.moves.some(m => grabMoves.has(m.moveId))
 })`,
       builtIn: true,
+      requiresParser: true,
     },
     {
       name: 'Unique Moves Only',
@@ -252,6 +265,7 @@ return clips.filter(clip => {
   return new Set(ids).size === ids.length
 })`,
       builtIn: true,
+      requiresParser: true,
     },
     {
       name: 'Min Unique Moves',
@@ -266,6 +280,7 @@ return clips.filter(clip => {
 })`,
       customParams: [{ name: 'minUnique', type: 'int', value: '4' }],
       builtIn: true,
+      requiresParser: true,
     },
     {
       name: 'High DPS',
@@ -283,6 +298,7 @@ return clips.filter(clip => {
 })`,
       customParams: [{ name: 'minDPS', type: 'int', value: '30' }],
       builtIn: true,
+      requiresParser: true,
     },
     {
       name: 'Short Combos',
@@ -295,6 +311,7 @@ return clips.filter(clip => {
 })`,
       customParams: [{ name: 'maxFrames', type: 'int', value: '120' }],
       builtIn: true,
+      requiresParser: true,
     },
     {
       name: 'Long Combos',
@@ -307,6 +324,7 @@ return clips.filter(clip => {
 })`,
       customParams: [{ name: 'minFrames', type: 'int', value: '180' }],
       builtIn: true,
+      requiresParser: true,
     },
 
     // ── Kills ──
@@ -322,6 +340,7 @@ return clips.filter(clip => {
 })`,
       customParams: [{ name: 'maxStartPercent', type: 'int', value: '40' }],
       builtIn: true,
+      requiresParser: true,
     },
     {
       name: 'Late Kills',
@@ -335,6 +354,7 @@ return clips.filter(clip => {
 })`,
       customParams: [{ name: 'minStartPercent', type: 'int', value: '120' }],
       builtIn: true,
+      requiresParser: true,
     },
     {
       name: 'Single-Hit Kills',
@@ -346,6 +366,7 @@ return clips.filter(clip => {
   return clip.combo.moves?.length === 1
 })`,
       builtIn: true,
+      requiresParser: true,
     },
     {
       name: 'Kill Confirms',
@@ -359,6 +380,7 @@ return clips.filter(clip => {
 })`,
       customParams: [{ name: 'maxHits', type: 'int', value: '3' }],
       builtIn: true,
+      requiresParser: true,
     },
 
     // ── Utility ──
@@ -377,6 +399,7 @@ return clips.filter(clip => {
         { name: 'maxPercent', type: 'int', value: '50' },
       ],
       builtIn: true,
+      requiresParser: true,
     },
     {
       name: 'Clip Duration Range',
@@ -405,6 +428,7 @@ return clips.filter(clip => {
   return clip.comboer.characterId !== clip.comboee.characterId
 })`,
       builtIn: true,
+      requiresParser: true,
     },
     {
       name: 'Dittos Only',
@@ -416,6 +440,7 @@ return clips.filter(clip => {
   return clip.comboer.characterId === clip.comboee.characterId
 })`,
       builtIn: true,
+      requiresParser: true,
     },
     {
       name: 'Date Range',
@@ -449,6 +474,7 @@ return clips.filter(clip => {
 })`,
       customParams: [{ name: 'playerNames', type: 'array', value: '' }],
       builtIn: true,
+      requiresParser: true,
     },
     {
       name: 'Merge Overlapping Clips',
@@ -519,6 +545,7 @@ return clips.map(clip => {
 })`,
       outputFields: [{ name: 'dps', type: 'number' }],
       builtIn: true,
+      requiresParser: true,
     },
     {
       name: 'Group & Rank',
@@ -543,6 +570,7 @@ for (const key of Object.keys(groups)) {
 return result`,
       customParams: [{ name: 'topN', type: 'int', value: '5' }],
       builtIn: true,
+      requiresParser: true,
     },
     {
       name: 'Consecutive Aerials',
@@ -563,6 +591,7 @@ return clips.filter(clip => {
 })`,
       customParams: [{ name: 'minConsecutive', type: 'int', value: '3' }],
       builtIn: true,
+      requiresParser: true,
     },
     {
       name: 'All Aerials',
@@ -576,6 +605,7 @@ return clips.filter(clip => {
   return moves.every(m => aerials.has(m.moveId))
 })`,
       builtIn: true,
+      requiresParser: true,
     },
     {
       name: 'Spike Finisher',
@@ -588,6 +618,7 @@ return clips.filter(clip => {
   return moves[moves.length - 1].moveId === 17
 })`,
       builtIn: true,
+      requiresParser: true,
     },
     {
       name: 'Smash Finisher',
@@ -601,6 +632,7 @@ return clips.filter(clip => {
   return smashes.has(moves[moves.length - 1].moveId)
 })`,
       builtIn: true,
+      requiresParser: true,
     },
     {
       name: 'Reverse 3-Stock',
@@ -679,6 +711,48 @@ export const archive = {
         char2: '',
         player1: '',
         player2: '',
+      },
+    },
+    {
+      id: 'filter_1',
+      label: 'Combo Parser',
+      type: 'slpParser',
+      isProcessed: false,
+      results: 0,
+      params: {
+        minHits: '2',
+        maxHits: '',
+        maxFiles: '',
+        comboTimeout: '',
+        comboerChar: [],
+        comboeeChar: [],
+        comboerTag: [],
+        comboerCC: [],
+        comboeeTag: [],
+        comboeeCC: [],
+        didKill: false,
+      },
+    },
+    {
+      id: 'filter_2',
+      label: 'Combo Filter',
+      type: 'comboFilter',
+      isProcessed: false,
+      results: 0,
+      params: {
+        minHits: '3',
+        maxHits: '',
+        minDamage: '',
+        comboerChar: [],
+        comboerTag: [],
+        comboerCC: [],
+        comboeeChar: [],
+        comboeeTag: [],
+        comboeeCC: [],
+        comboStage: [],
+        didKill: true,
+        countPummels: false,
+        nthMoves: [],
       },
     },
   ],

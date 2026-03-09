@@ -5,6 +5,15 @@ import Database from 'better-sqlite3'
 import methods from './methods'
 import { getSortOrderExpr } from './methods/sort'
 
+const METHODS_WITH_EMITTER = new Set([
+  'comboFilter',
+  'custom',
+  'edgeguard',
+  'zeroToDeaths',
+  'files',
+  'actionStateFilter',
+])
+
 function postMessage(message: WorkerMessage) {
   parentPort?.postMessage(message)
 }
@@ -222,7 +231,7 @@ function run() {
 
         let results: any[] = []
         try {
-          if (method.length >= 3) {
+          if (METHODS_WITH_EMITTER.has(type)) {
             const res = method(chunk, params, chunkEmitter)
             if (Array.isArray(res)) {
               results = res
@@ -274,7 +283,7 @@ function run() {
 try {
   run()
 } catch (error: any) {
-  console.log('Worker failed:', error)
+  console.error('Worker failed:', error)
   const type = workerData?.type || 'unknown'
   postMessage({
     type: 'error',
@@ -325,7 +334,7 @@ function parseRows(tableId: string, rows: any[]) {
         obj._sourceId = row.id
         results.push(obj)
       } catch (error) {
-        console.log('Error parsing row JSON:', error)
+        console.error('Error parsing row JSON:', error)
       }
     })
   }

@@ -41,6 +41,21 @@
   font-size: 12px;
 }
 
+.tray-select-all-btn {
+  border: 1px solid #686868;
+  border-radius: 6px;
+  background-color: #2b2b2b;
+  color: #f0dede;
+  font-size: 12px;
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: background-color 100ms ease;
+}
+
+.tray-select-all-btn:hover {
+  background-color: #383838;
+}
+
 .tray-zoom {
   display: flex;
   align-items: center;

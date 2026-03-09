@@ -11,11 +11,9 @@ import edgeguard from './edgeguard'
 import deduplicate from './deduplicate'
 import zeroToDeaths from './zerotoDeaths'
 
-type Methods = {
-  [key: string]: Function
-}
+type FilterMethod = (..._args: any[]) => any
 
-const methods: Methods = {
+const methods: Record<string, FilterMethod> = {
   files,
   slpParser,
   comboFilter,

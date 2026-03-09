@@ -46,6 +46,7 @@ export interface ConfigInterface {
   ffmpegPath: string
   customGeckoCodes: CustomGeckoCode[]
   detectDuplicatesOnImport: boolean
+  includeDefaultFilters: boolean
   savedCustomFilters: SavedCustomFilter[]
   testMode?: boolean
   [key: string]: any
@@ -168,6 +169,7 @@ export interface SavedCustomFilter {
   builtIn?: boolean
   category?: string
   description?: string
+  requiresParser?: boolean
 }
 
 export interface ShallowArchiveInterface {

@@ -30,13 +30,11 @@ import { debugLog } from '../../debugLog'
 type TrayProps = {
   archive: ShallowArchiveInterface | null
   activeFilterId: string
-  isImporting: boolean
   selectedIds: Set<string>
   setSelectedIds: React.Dispatch<React.SetStateAction<Set<string>>>
   lastSelectedIndex: number | null
   setLastSelectedIndex: React.Dispatch<React.SetStateAction<number | null>>
   setSelectionDuration: React.Dispatch<React.SetStateAction<number | null>>
-  setIsCalculatingDuration: React.Dispatch<React.SetStateAction<boolean>>
   addStartFrames: number
   addEndFrames: number
   onClipRecord?: (_clipId: string) => void
@@ -57,13 +55,11 @@ const FETCH_DEBOUNCE_MS = 150
 export function Tray({
   archive,
   activeFilterId,
-  isImporting: _isImporting,
   selectedIds,
   setSelectedIds,
   lastSelectedIndex,
   setLastSelectedIndex,
   setSelectionDuration,
-  setIsCalculatingDuration: _setIsCalculatingDuration,
   addStartFrames,
   addEndFrames,
   onClipRecord,
@@ -673,9 +669,29 @@ export function Tray({
             Showing {showCount.toLocaleString()} /{' '}
             {displayTotal.toLocaleString()} {isClips ? 'clips' : 'games'}
           </span>
-          {/* <span className="tray-mode">
-            Mode: {modeLabel} ({clipSize}px)
-          </span> */}
+          {lightData.length > 0 && (
+            <button
+              type="button"
+              className="tray-select-all-btn"
+              onClick={() => {
+                const allIds = new Set(lightData.map((item) => item.id))
+                const allSelected =
+                  allIds.size > 0 &&
+                  [...allIds].every((id) => selectedIds.has(id))
+                if (allSelected) {
+                  setSelectedIds(new Set())
+                  setLastSelectedIndex(null)
+                } else {
+                  setSelectedIds(allIds)
+                }
+              }}
+            >
+              {lightData.length > 0 &&
+              [...lightData].every((item) => selectedIds.has(item.id))
+                ? 'Deselect All'
+                : 'Select All'}
+            </button>
+          )}
         </div>
         <div className="tray-zoom">
           {totalDataPages > 1 && (

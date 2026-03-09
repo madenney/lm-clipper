@@ -23,6 +23,7 @@ const LONG_RUNNING_CHANNELS = new Set([
   'runFilters',
   'resumeFilter',
   'generateVideo',
+  'recordClip',
   'addFilesManual',
   'addDroppedFiles',
 ])
@@ -147,9 +148,6 @@ export default {
   },
   addFilter(type: string, handler?: ResponseHandler<any>) {
     return request('addFilter', type, 'addFilter', handler)
-  },
-  saveArchive(handler?: ResponseHandler<any>) {
-    return request('saveArchive', null, 'saveArchive', handler)
   },
   removeFilter(id: string, handler?: ResponseHandler<any>) {
     return request('removeFilter', id, 'removeFilter', handler)

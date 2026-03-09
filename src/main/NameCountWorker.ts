@@ -21,6 +21,14 @@ const db = new Database(dbPath, { readonly: true })
 db.pragma('journal_mode = WAL')
 db.pragma('busy_timeout = 5000')
 
+process.on('exit', () => {
+  try {
+    db.close()
+  } catch (_) {
+    // empty
+  }
+})
+
 parentPort.on('message', (message: NameCountRequest) => {
   try {
     if (message.type === 'getNames') {

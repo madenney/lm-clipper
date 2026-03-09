@@ -1,4 +1,10 @@
-import { useState, useEffect, useRef, type MutableRefObject } from 'react'
+import {
+  useState,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  type MutableRefObject,
+} from 'react'
 
 export type TraySizeResult = {
   trayWidth: number
@@ -18,9 +24,13 @@ export const useTraySize = (
   const [trayHeight, setTrayHeight] = useState(0)
   const [resultsTop, setResultsTop] = useState(0)
   const traySizeRef = useRef({ width: 0, height: 0 })
-  traySizeRef.current = { width: trayWidth, height: trayHeight }
   const resultsTopRef = useRef(0)
-  resultsTopRef.current = resultsTop
+  useLayoutEffect(() => {
+    traySizeRef.current = { width: trayWidth, height: trayHeight }
+  }, [trayWidth, trayHeight])
+  useLayoutEffect(() => {
+    resultsTopRef.current = resultsTop
+  }, [resultsTop])
 
   const refreshResultsTop = () => {
     setResultsTop(resultsRef.current?.offsetTop ?? 0)

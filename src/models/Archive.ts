@@ -105,7 +105,7 @@ export default class Archive {
           await insertFiles(dbPath, batch)
           pendingNewItemCount += batch.length
         } catch (error) {
-          console.log('Error inserting batch:', error)
+          console.error('Error inserting batch:', error)
         }
       })
     }
@@ -147,7 +147,7 @@ export default class Archive {
             return
           }
         } catch (error) {
-          console.log('Error checking duplicate:', error)
+          console.error('Error checking duplicate:', error)
         }
       }
 
@@ -156,7 +156,7 @@ export default class Archive {
         fileJSON = await workerPool.process(path)
       } catch (error) {
         if (!terminated) {
-          console.log('Error processing file:', error)
+          console.error('Error processing file:', error)
           failed += 1
           processed += 1
           emitProgress()
@@ -384,7 +384,7 @@ export default class Archive {
               stage: Number.isNaN(rawStage) ? 0 : rawStage,
             })
           } catch (error) {
-            console.log('Error parsing filter row:', error)
+            console.error('Error parsing filter row:', error)
           }
         } else {
           try {
@@ -392,7 +392,7 @@ export default class Archive {
             obj.id = row.id
             items.push(obj)
           } catch (error) {
-            console.log('Error parsing filter row:', error)
+            console.error('Error parsing filter row:', error)
           }
         }
       })
@@ -502,6 +502,9 @@ class ImportWorkerPool {
     this.schedule()
   }
 
+  private workerErrorCount = 0
+  private readonly MAX_WORKER_RETRIES = 10
+
   private handleWorkerError(worker: Worker, error: Error) {
     if (this.terminated) return
     const activeId = this.activeByWorker.get(worker)
@@ -513,7 +516,10 @@ class ImportWorkerPool {
     this.activeByWorker.delete(worker)
     this.idle = this.idle.filter((item) => item !== worker)
     this.workers = this.workers.filter((item) => item !== worker)
-    this.addWorker()
+    this.workerErrorCount++
+    if (this.workerErrorCount < this.MAX_WORKER_RETRIES) {
+      this.addWorker()
+    }
     this.schedule()
   }
 

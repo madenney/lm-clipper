@@ -187,7 +187,7 @@ export default class Filter {
           })
 
           worker.on('error', (error) => {
-            console.log('Worker error:', error)
+            console.error('Worker error:', error)
             resolve()
           })
 

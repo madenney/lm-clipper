@@ -291,7 +291,7 @@ export default function Filters({
 
     ipcBridge.runFilter(filter.id, (response) => {
       if (!response || response?.error) {
-        console.log('Error: ', response.error)
+        console.error('Error: ', response.error)
         setFilterMsgs((prev) => ({
           ...prev,
           [filter.id]: response?.error || 'Error running filter',
@@ -339,7 +339,7 @@ export default function Filters({
 
     ipcBridge.resumeFilter(filter.id, (response) => {
       if (!response || response?.error) {
-        console.log('Error: ', response.error)
+        console.error('Error: ', response.error)
         setFilterMsgs((prev) => ({
           ...prev,
           [filter.id]: response?.error || 'Error resuming filter',
@@ -377,7 +377,7 @@ export default function Filters({
   function dismissResume(filter: ShallowFilterInterface) {
     ipcBridge.dismissFilterResume(filter.id, (response) => {
       if (!response || response?.error) {
-        console.log('dismissFilterResume error:', response?.error)
+        console.error('dismissFilterResume error:', response?.error)
         return
       }
       setArchive(response)
@@ -400,7 +400,7 @@ export default function Filters({
     const nextType = e.target.value
     ipcBridge.addFilter(nextType, (response) => {
       if (!response || response?.error) {
-        console.log('addFilter response error:', response.error)
+        console.error('addFilter response error:', response.error)
         return
       }
       // Auto-expand the newly added filter
@@ -431,7 +431,7 @@ export default function Filters({
     saveTimer.current = setTimeout(() => {
       ipcBridge.updateFilter({ filterIndex, newFilter }, (response) => {
         if (!response || response?.error) {
-          console.log('updateFilter response error:', response?.error)
+          console.error('updateFilter response error:', response?.error)
           return
         }
         setArchive(response)
@@ -468,7 +468,7 @@ export default function Filters({
     }
     ipcBridge.removeFilter(filter.id, (response) => {
       if (!response || response?.error) {
-        console.log('removeFilter response error:', response.error)
+        console.error('removeFilter response error:', response.error)
         return
       }
       setArchive(response)
@@ -518,7 +518,7 @@ export default function Filters({
     }
     ipcBridge.reorderFilter({ fromIndex: from, toIndex: to }, (response) => {
       if (!response || response?.error) {
-        console.log('reorderFilter error:', response?.error)
+        console.error('reorderFilter error:', response?.error)
       } else {
         setArchive(response)
       }
@@ -1412,12 +1412,15 @@ export default function Filters({
     filterIndex: number,
   ) {
     const filterConfig = filtersConfig.find((entry) => entry.id === filter.type)
-    if (
-      !filterConfig ||
-      !filterConfig.options ||
-      filterConfig.options.length === 0
-    )
-      return null
+    if (!filterConfig) return null
+    if (!filterConfig.options || filterConfig.options.length === 0)
+      return (
+        <div className="filter-controls">
+          <span className="filter-no-options">
+            No settings — this filter runs automatically.
+          </span>
+        </div>
+      )
 
     const hasParser = archive?.filters
       .slice(0, filterIndex)
@@ -2625,6 +2628,9 @@ export default function Filters({
       {catalogOpen && (
         <TemplateCatalog
           templates={config.savedCustomFilters || []}
+          hasParser={
+            archive?.filters.some((f) => f.type === 'slpParser') ?? false
+          }
           onClose={() => setCatalogOpen(false)}
           onSelect={(tmpl: SavedCustomFilter) => {
             setCatalogOpen(false)

@@ -3,7 +3,6 @@
 /* eslint-disable jsx-a11y/click-events-have-key-events */
 import { useEffect, useState, Dispatch, SetStateAction } from 'react'
 import { IoSettingsSharp } from 'react-icons/io5'
-import { FiPlus, FiTrash2, FiChevronDown, FiChevronRight } from 'react-icons/fi'
 import { videoConfig } from 'constants/config'
 
 import '../styles/Top.css'
@@ -13,6 +12,7 @@ import {
   CustomGeckoCode,
 } from '../../constants/types'
 import ipcBridge from '../ipcBridge'
+import GeckoCodeList from './GeckoCodeList'
 
 type TopProps = {
   archive: ShallowArchiveInterface | null
@@ -208,7 +208,7 @@ export default function Top({
             className="settings-select"
             onChange={(e) => handleChange(c.id, parseInt(e.target.value, 10))}
           >
-            {c.options.map((o: { value: number; label: string }) => (
+            {c.options?.map((o: { value: number; label: string }) => (
               <option key={o.value} value={o.value}>
                 {o.label}
               </option>
@@ -376,123 +376,17 @@ export default function Top({
                 </div>
               ))}
             </div>
-            <div className="gecko-custom-header" style={{ marginTop: 16 }}>
-              <h3 className="settings-section-title">Custom Codes</h3>
-              <button
-                type="button"
-                className="gecko-add-btn"
-                onClick={handleAddGeckoCode}
-                title="Add a custom gecko code"
-              >
-                <FiPlus /> Add Code
-              </button>
+            <div style={{ marginTop: 16 }}>
+              {/* eslint-disable-next-line react/jsx-no-bind */}
+              <GeckoCodeList
+                customCodes={customCodes}
+                expandedGeckoIdx={expandedGeckoIdx}
+                onExpandToggle={setExpandedGeckoIdx}
+                onAdd={handleAddGeckoCode}
+                onUpdate={handleUpdateGeckoCode}
+                onRemove={handleRemoveGeckoCode}
+              />
             </div>
-            {customCodes.length === 0 ? (
-              <div className="gecko-empty">
-                No custom codes added. Click &ldquo;Add Code&rdquo; to add your
-                own gecko codes.
-              </div>
-            ) : (
-              <div className="gecko-custom-list">
-                {customCodes.map((gc, idx) => {
-                  const isExpanded = expandedGeckoIdx === idx
-                  return (
-                    <div className="gecko-code-item" key={idx}>
-                      <div
-                        className="gecko-code-row"
-                        onClick={() =>
-                          setExpandedGeckoIdx(isExpanded ? null : idx)
-                        }
-                      >
-                        <span className="gecko-code-chevron">
-                          {isExpanded ? <FiChevronDown /> : <FiChevronRight />}
-                        </span>
-                        <span className="gecko-code-name">
-                          {gc.name || 'Untitled Code'}
-                        </span>
-                        <div className="gecko-code-actions">
-                          <label
-                            className="settings-toggle"
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            <input
-                              type="checkbox"
-                              checked={gc.enabled}
-                              onChange={(e) =>
-                                handleUpdateGeckoCode(
-                                  idx,
-                                  'enabled',
-                                  e.target.checked,
-                                )
-                              }
-                            />
-                            <span className="settings-toggle-slider" />
-                          </label>
-                          <button
-                            type="button"
-                            className="gecko-delete-btn"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              handleRemoveGeckoCode(idx)
-                            }}
-                            title="Remove this code"
-                          >
-                            <FiTrash2 />
-                          </button>
-                        </div>
-                      </div>
-                      {isExpanded && (
-                        <div className="gecko-code-editor">
-                          <div className="gecko-code-field">
-                            <label className="gecko-code-field-label">
-                              Name
-                            </label>
-                            <input
-                              type="text"
-                              className="settings-path-input"
-                              value={gc.name}
-                              onChange={(e) =>
-                                handleUpdateGeckoCode(
-                                  idx,
-                                  'name',
-                                  e.target.value,
-                                )
-                              }
-                              placeholder="My Custom Code"
-                            />
-                          </div>
-                          <div className="gecko-code-field">
-                            <label className="gecko-code-field-label">
-                              Hex Code
-                            </label>
-                            <textarea
-                              className="gecko-code-textarea"
-                              value={gc.code}
-                              onChange={(e) =>
-                                handleUpdateGeckoCode(
-                                  idx,
-                                  'code',
-                                  e.target.value,
-                                )
-                              }
-                              placeholder={
-                                '04462984 38600001\n044629A8 38600001'
-                              }
-                              rows={5}
-                              spellCheck={false}
-                            />
-                            <span className="gecko-code-hint">
-                              Paste gecko code hex lines here. One instruction
-                              per line.
-                            </span>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
-            )}
           </>
         )
       }
@@ -788,127 +682,16 @@ export default function Top({
               </div>
             </div>
             <div className="settings-section">
-              <div className="gecko-custom-header">
-                <h3 className="settings-section-title">Custom Codes</h3>
-                <button
-                  type="button"
-                  className="gecko-add-btn"
-                  onClick={handleAddGeckoCode}
-                  title="Add a custom gecko code"
-                >
-                  <FiPlus /> Add Code
-                </button>
-              </div>
-              {customCodes.length === 0 ? (
-                <div className="gecko-empty">
-                  No custom codes added. Click &ldquo;Add Code&rdquo; to add
-                  your own gecko codes.
-                </div>
-              ) : (
-                <div className="gecko-custom-list">
-                  {customCodes.map((gc, idx) => {
-                    const isExpanded = expandedGeckoIdx === idx
-                    return (
-                      <div className="gecko-code-item" key={idx}>
-                        <div
-                          className="gecko-code-row"
-                          onClick={() =>
-                            setExpandedGeckoIdx(isExpanded ? null : idx)
-                          }
-                        >
-                          <span className="gecko-code-chevron">
-                            {isExpanded ? (
-                              <FiChevronDown />
-                            ) : (
-                              <FiChevronRight />
-                            )}
-                          </span>
-                          <span className="gecko-code-name">
-                            {gc.name || 'Untitled Code'}
-                          </span>
-                          <div className="gecko-code-actions">
-                            <label
-                              className="settings-toggle"
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              <input
-                                type="checkbox"
-                                checked={gc.enabled}
-                                onChange={(e) =>
-                                  handleUpdateGeckoCode(
-                                    idx,
-                                    'enabled',
-                                    e.target.checked,
-                                  )
-                                }
-                              />
-                              <span className="settings-toggle-slider" />
-                            </label>
-                            <button
-                              type="button"
-                              className="gecko-delete-btn"
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                handleRemoveGeckoCode(idx)
-                              }}
-                              title="Remove this code"
-                            >
-                              <FiTrash2 />
-                            </button>
-                          </div>
-                        </div>
-                        {isExpanded && (
-                          <div className="gecko-code-editor">
-                            <div className="gecko-code-field">
-                              <label className="gecko-code-field-label">
-                                Name
-                              </label>
-                              <input
-                                type="text"
-                                className="settings-path-input"
-                                value={gc.name}
-                                onChange={(e) =>
-                                  handleUpdateGeckoCode(
-                                    idx,
-                                    'name',
-                                    e.target.value,
-                                  )
-                                }
-                                placeholder="My Custom Code"
-                              />
-                            </div>
-                            <div className="gecko-code-field">
-                              <label className="gecko-code-field-label">
-                                Hex Code
-                              </label>
-                              <textarea
-                                className="gecko-code-textarea"
-                                value={gc.code}
-                                onChange={(e) =>
-                                  handleUpdateGeckoCode(
-                                    idx,
-                                    'code',
-                                    e.target.value,
-                                  )
-                                }
-                                placeholder={
-                                  '04462984 38600001\n044629A8 38600001'
-                                }
-                                rows={5}
-                                spellCheck={false}
-                              />
-                              <span className="gecko-code-hint">
-                                Paste gecko code hex lines here. One instruction
-                                per line.
-                              </span>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
+              {/* eslint-disable react/jsx-no-bind */}
+              <GeckoCodeList
+                customCodes={customCodes}
+                expandedGeckoIdx={expandedGeckoIdx}
+                onExpandToggle={setExpandedGeckoIdx}
+                onAdd={handleAddGeckoCode}
+                onUpdate={handleUpdateGeckoCode}
+                onRemove={handleRemoveGeckoCode}
+              />
+              {/* eslint-enable react/jsx-no-bind */}
             </div>
           </div>
           <div className="settings-footer">
