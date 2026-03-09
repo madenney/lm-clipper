@@ -194,6 +194,20 @@
   color: #8ecf8e;
 }
 
+.tc-item-badge-parser {
+  background: rgba(200, 150, 50, 0.18);
+  color: #c8a050;
+}
+
+.tc-item-disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.tc-item-disabled:hover {
+  background: none;
+}
+
 .tc-item-desc {
   font-size: 12px;
   color: #7a7f8a;

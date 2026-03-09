@@ -50,7 +50,7 @@ export default (prevResults: any[], params: any, eventEmitter: any) => {
     try {
       frames = game.getFrames()
     } catch (e) {
-      console.log('Broken file:', path)
+      console.warn('Broken file:', path)
       return false
     }
 

@@ -1,6 +1,7 @@
 /* eslint-disable eqeqeq */
 import { SlippiGame } from '@slippi/slippi-js'
 import rectangles from '../../constants/rectangles'
+import matchesAny from './matchesAny'
 
 const damageStates = [
   0x4b, 0x4c, 0x4d, 0x4e, 0x4f, 0x50, 0x51, 0x52, 0x53, 0x54, 0x55, 0x56, 0x57,
@@ -125,12 +126,6 @@ function detectEdgeguard(
   return null
 }
 
-const matchesAny = (value: any, param: any) => {
-  if (!param || (Array.isArray(param) && param.length === 0)) return true
-  const arr = Array.isArray(param) ? param : [param]
-  return arr.some((v: any) => String(v) === String(value))
-}
-
 export default (prevResults: any[], params: any, _eventEmitter: any) => {
   const results: any[] = []
   const {
@@ -160,7 +155,6 @@ export default (prevResults: any[], params: any, _eventEmitter: any) => {
       stats = game.getStats()
       frames = game.getFrames()
     } catch (e) {
-      console.log('Error -', path)
       continue
     }
 

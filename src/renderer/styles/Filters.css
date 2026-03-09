@@ -160,6 +160,13 @@
   padding-top: 0;
 }
 
+.filter-no-options {
+  color: #777;
+  font-style: italic;
+  font-size: 12px;
+  padding: 4px 0;
+}
+
 .filter-controls-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));

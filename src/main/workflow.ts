@@ -7,6 +7,7 @@ import { createDB, getMetaData } from './db'
 import { filtersConfig } from '../constants/config'
 import slpToVideo from './slpToVideo'
 import { shuffleArray } from '../lib'
+import { createOutputDirectory } from './util'
 import type {
   ClipInterface,
   ConfigInterface,
@@ -153,14 +154,7 @@ export async function runWorkflow(
     return
   }
 
-  let outputDirectoryName = 'output'
-  let count = 1
-  while (fs.existsSync(path.resolve(config.outputPath, outputDirectoryName))) {
-    outputDirectoryName = `output_${count}`
-    count += 1
-  }
-  const outputDirectory = path.resolve(config.outputPath, outputDirectoryName)
-  fs.mkdirSync(outputDirectory)
+  const outputDirectory = createOutputDirectory(config.outputPath)
 
   const lastProcessedFilter = updatedMeta.filters
     .slice()

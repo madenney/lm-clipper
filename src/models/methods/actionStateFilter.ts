@@ -55,7 +55,7 @@ export default (prevResults, params, eventEmitter) => {
         frames = game.getFrames()
         lastFrame = game.getMetadata().lastFrame
       } catch (e) {
-        return console.log('Broken file:', path)
+        return false
       }
       const _startFrom = parseInt(startFrom, 10)
       const _searchRange = parseInt(searchRange, 10)

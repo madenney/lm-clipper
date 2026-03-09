@@ -21,7 +21,7 @@ export default (prevResults, params, eventEmitter) => {
     try {
       frames = game.getFrames()
     } catch (e) {
-      console.log('Broken file:', path)
+      console.warn('Broken file:', path)
       return clip
     }
 

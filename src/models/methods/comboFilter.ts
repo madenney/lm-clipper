@@ -1,11 +1,6 @@
 /* eslint-disable eqeqeq */
 import { ClipInterface, EventEmitterInterface } from 'constants/types'
-
-const matchesAny = (value: any, param: any) => {
-  if (!param || (Array.isArray(param) && param.length === 0)) return true
-  const arr = Array.isArray(param) ? param : [param]
-  return arr.some((v: any) => v == value)
-}
+import matchesAny from './matchesAny'
 
 export default (
   prevResults: ClipInterface[],

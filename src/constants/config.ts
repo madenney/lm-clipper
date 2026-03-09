@@ -823,6 +823,13 @@ export const videoConfig = [
     warning: 'Can significantly slow down imports with large file counts',
   },
   {
+    label: 'Include Default Filters (Parser + Combo Filter)',
+    default: true,
+    id: 'includeDefaultFilters',
+    type: 'checkbox',
+    category: 'general',
+  },
+  {
     label: 'Warn on Parser Delete',
     default: true,
     id: 'warnOnParserDelete',

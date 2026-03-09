@@ -14,7 +14,11 @@ export function dbExists(path: string) {
   }
 }
 
-export function createDB(path: string, name: string) {
+export function createDB(
+  path: string,
+  name: string,
+  includeDefaultFilters = true,
+) {
   const db = getDb(path)
 
   db.exec(`
@@ -29,8 +33,13 @@ export function createDB(path: string, name: string) {
   // If an old-schema DB already exists at this path, migrate it
   migrateMetadataIfNeeded(db)
 
+  const filters = includeDefaultFilters
+    ? defaultArchive.filters
+    : defaultArchive.filters.filter((f) => f.type === 'files')
+
   const metadata = {
     ...defaultArchive,
+    filters,
     path,
     name,
     createdAt: Date.now(),

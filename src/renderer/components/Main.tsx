@@ -1,5 +1,6 @@
 import { useState, Dispatch, SetStateAction, useEffect, useRef } from 'react'
 import { FaFolder, FaPlay, FaCircle } from 'react-icons/fa'
+import { FiTerminal } from 'react-icons/fi'
 import ipcBridge from 'renderer/ipcBridge'
 import { videoConfig } from 'constants/config'
 import {
@@ -156,15 +157,20 @@ export default function Main({
   const [selectionDuration, setSelectionDuration] = useState<number | null>(
     null,
   )
-  const [isCalculatingDuration, setIsCalculatingDuration] = useState(false)
+  const [isCalculatingDuration, _setIsCalculatingDuration] = useState(false)
 
   // Video generation state
   const [isGenerating, setIsGenerating] = useState(false)
   const [videoMsg, setVideoMsg] = useState('')
-  const [videoOutputPath, setVideoOutputPath] = useState('')
+  const [videoOutputPaths, setVideoOutputPaths] = useState<string[]>([])
+  const [videoLog, setVideoLog] = useState<string[]>([])
+  const [consoleOpen, setConsoleOpen] = useState(false)
+  const [consoleHeight, setConsoleHeight] = useState(200)
+  const consoleEndRef = useRef<HTMLDivElement>(null)
+  const consoleDragRef = useRef<{ startY: number; startH: number } | null>(null)
 
   // Import state - track whether files are being imported
-  const [isImporting, setIsImporting] = useState(false)
+  const [_isImporting, setIsImporting] = useState(false)
 
   useEffect(() => {
     const applyStatus = (status: any) => {
@@ -204,18 +210,54 @@ export default function Main({
       'videoMsg',
       (msg: string) => {
         setVideoMsg(msg)
+        if (msg) {
+          setVideoLog((prev) => [...prev, msg])
+        }
       },
     )
     const removeOutputPath = window.electron.ipcRenderer.on(
       'videoOutputPath',
       (p: string) => {
-        setVideoOutputPath(p)
+        if (p) {
+          setVideoOutputPaths((prev) =>
+            prev.includes(p) ? prev : [...prev, p],
+          )
+        }
       },
     )
     return () => {
       removeFinished()
       removeMsg()
       removeOutputPath()
+    }
+  }, [])
+
+  // Auto-scroll console to bottom
+  useEffect(() => {
+    consoleEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [videoLog])
+
+  // Console resize drag
+  useEffect(() => {
+    const onMouseMove = (e: MouseEvent) => {
+      if (!consoleDragRef.current) return
+      const delta = consoleDragRef.current.startY - e.clientY
+      const newH = Math.min(
+        Math.max(80, consoleDragRef.current.startH + delta),
+        500,
+      )
+      setConsoleHeight(newH)
+    }
+    const onMouseUp = () => {
+      consoleDragRef.current = null
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+    window.addEventListener('mousemove', onMouseMove)
+    window.addEventListener('mouseup', onMouseUp)
+    return () => {
+      window.removeEventListener('mousemove', onMouseMove)
+      window.removeEventListener('mouseup', onMouseUp)
     }
   }, [])
 
@@ -309,7 +351,7 @@ export default function Main({
       if (paths.length === 0) return
       ipcBridge.importDroppedSlpFiles(paths, (newArchive) => {
         if (!newArchive || newArchive?.error) {
-          console.log('Error importing dropped files: ', newArchive?.error)
+          console.error('Error importing dropped files: ', newArchive?.error)
           return
         }
         setArchive(newArchive)
@@ -429,6 +471,7 @@ export default function Main({
   }
 
   function generateVideo() {
+    setVideoLog([])
     setIsGenerating(true)
     ipcBridge.generateVideo({
       filterId: activeFilterId,
@@ -437,6 +480,7 @@ export default function Main({
   }
 
   function handleClipRecord(clipId: string) {
+    setVideoLog([])
     setIsGenerating(true)
     ipcBridge.generateVideo({
       filterId: activeFilterId,
@@ -505,56 +549,29 @@ export default function Main({
         <Tray
           archive={archive}
           activeFilterId={activeFilterId}
-          isImporting={isImporting}
           selectedIds={selectedIds}
           setSelectedIds={setSelectedIds}
           lastSelectedIndex={lastSelectedIndex}
           setLastSelectedIndex={setLastSelectedIndex}
           setSelectionDuration={setSelectionDuration}
-          setIsCalculatingDuration={setIsCalculatingDuration}
           addStartFrames={config.addStartFrames || 0}
           addEndFrames={config.addEndFrames || 0}
           onClipRecord={handleClipRecord} // eslint-disable-line react/jsx-no-bind
         />
       </div>
       <div className="footer">
-        <div className="footer-left">
-          <div className="footer-setting" title="Recording resolution">
-            <span className="footer-setting-label">Rec</span>
-            <select
-              className="footer-select"
-              value={config.resolution}
-              onChange={(e) =>
-                handleConfigChange('resolution', parseInt(e.target.value, 10))
-              }
-            >
-              {resolutionOptions?.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="footer-setting" title="Playback resolution">
-            <span className="footer-setting-label">Play</span>
-            <select
-              className="footer-select"
-              value={config.playbackResolution}
-              onChange={(e) =>
-                handleConfigChange(
-                  'playbackResolution',
-                  parseInt(e.target.value, 10),
-                )
-              }
-            >
-              {playbackResOptions?.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="footer-sep" />
+        <button
+          type="button"
+          className={`footer-console-btn${consoleOpen ? ' footer-console-btn--active' : ''}`}
+          onClick={() => setConsoleOpen((v) => !v)}
+          title="Toggle recording console"
+        >
+          <FiTerminal />
+          {videoLog.length > 0 && (
+            <span className="footer-console-badge">{videoLog.length}</span>
+          )}
+        </button>
+        <div className="footer-section">
           <div className="footer-setting" title="Bitrate (kbps)">
             <span className="footer-setting-label">Bitrate</span>
             <input
@@ -653,6 +670,43 @@ export default function Main({
             />
           </div>
         </div>
+        <div className="footer-section">
+          <div className="footer-setting" title="Playback resolution">
+            <span className="footer-setting-label">Play</span>
+            <select
+              className="footer-select"
+              value={config.playbackResolution}
+              onChange={(e) =>
+                handleConfigChange(
+                  'playbackResolution',
+                  parseInt(e.target.value, 10),
+                )
+              }
+            >
+              {playbackResOptions?.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="footer-setting" title="Recording resolution">
+            <span className="footer-setting-label">Rec</span>
+            <select
+              className="footer-select"
+              value={config.resolution}
+              onChange={(e) =>
+                handleConfigChange('resolution', parseInt(e.target.value, 10))
+              }
+            >
+              {resolutionOptions?.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
         <div className="footer-right">
           {!isGenerating && selectedIds.size > 0 ? (
             <div className="footer-selection">
@@ -673,36 +727,6 @@ export default function Main({
           ) : !isGenerating ? (
             <span className="footer-no-selection">No clips selected</span>
           ) : null}
-          {videoOutputPath && (
-            <>
-              <div
-                className="footer-output"
-                onClick={() =>
-                  window.electron.ipcRenderer.sendMessage(
-                    'openFolder',
-                    videoOutputPath,
-                  )
-                }
-                title={videoOutputPath}
-              >
-                <span className="footer-output-text">{videoOutputPath}</span>
-                <FaFolder className="footer-output-folder" />
-              </div>
-              {!isGenerating && (
-                <button
-                  type="button"
-                  className="footer-output-dismiss"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    setVideoOutputPath('')
-                  }}
-                >
-                  ✕
-                </button>
-              )}
-              {isGenerating && <span className="footer-gen-sep" />}
-            </>
-          )}
           {isGenerating && (
             <div className="footer-generating">
               <span className="footer-gen-spinner" />
@@ -723,13 +747,19 @@ export default function Main({
           )}
           {isGenerating ? (
             <>
-              <button type="button" className="stop-button" onClick={stopVideo}>
+              <button
+                type="button"
+                className="stop-button"
+                onClick={stopVideo}
+                title="Stop after the current clip finishes — keeps all completed clips"
+              >
                 Stop
               </button>
               <button
                 type="button"
                 className="cancel-button"
                 onClick={cancelVideo}
+                title="Cancel immediately — kills active Dolphin processes and discards in-progress clips"
               >
                 Cancel
               </button>
@@ -755,6 +785,86 @@ export default function Main({
             </div>
           )}
         </div>
+        {videoOutputPaths.length > 0 && (
+          <div className="footer-output-bar">
+            {videoOutputPaths.map((p) => (
+              <div key={p} className="footer-output-tab">
+                <div
+                  className="footer-output"
+                  onClick={() =>
+                    window.electron.ipcRenderer.sendMessage('openFolder', p)
+                  }
+                  title={p}
+                >
+                  <span className="footer-output-text">{p}</span>
+                  <FaFolder className="footer-output-folder" />
+                </div>
+                <button
+                  type="button"
+                  className="footer-output-dismiss"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setVideoOutputPaths((prev) => prev.filter((x) => x !== p))
+                  }}
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        {consoleOpen && (
+          <div className="footer-console" style={{ height: consoleHeight }}>
+            {/* eslint-disable-next-line jsx-a11y/no-static-element-interactions */}
+            <div
+              className="footer-console-drag"
+              onMouseDown={(e) => {
+                consoleDragRef.current = {
+                  startY: e.clientY,
+                  startH: consoleHeight,
+                }
+                document.body.style.cursor = 'ns-resize'
+                document.body.style.userSelect = 'none'
+              }}
+            />
+            <div className="footer-console-header">
+              <span className="footer-console-title">Recording Console</span>
+              <div className="footer-console-actions">
+                <button
+                  type="button"
+                  className="footer-console-clear"
+                  onClick={() => setVideoLog([])}
+                >
+                  Clear
+                </button>
+                <button
+                  type="button"
+                  className="footer-console-close"
+                  onClick={() => setConsoleOpen(false)}
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+            <div className="footer-console-body">
+              {videoLog.length === 0 ? (
+                <div className="footer-console-empty">
+                  No recording activity yet.
+                </div>
+              ) : (
+                videoLog.map((msg, i) => (
+                  <div
+                    key={i} // eslint-disable-line react/no-array-index-key
+                    className={`footer-console-line${msg.startsWith('Error') ? ' footer-console-line--error' : ''}`}
+                  >
+                    {msg}
+                  </div>
+                ))
+              )}
+              <div ref={consoleEndRef} />
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )

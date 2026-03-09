@@ -115,9 +115,13 @@ export const useTrayZoom = (params: UseTrayZoomParams) => {
   const displayZoom = zoomSize
 
   const maxZoomRef = useRef(maxZoom)
-  maxZoomRef.current = maxZoom
   const effectiveMinZoomRef = useRef(effectiveMinZoom)
-  effectiveMinZoomRef.current = effectiveMinZoom
+  useEffect(() => {
+    maxZoomRef.current = maxZoom
+  }, [maxZoom])
+  useEffect(() => {
+    effectiveMinZoomRef.current = effectiveMinZoom
+  }, [effectiveMinZoom])
   const displayZoomRef = useRef(displayZoom)
   useEffect(() => {
     displayZoomRef.current = displayZoom
