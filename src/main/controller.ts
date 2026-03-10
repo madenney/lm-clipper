@@ -34,7 +34,16 @@ import slpToVideo, {
   setFFMPEGPathOverride,
 } from './slpToVideo'
 import { resolveHtmlPath, updateEfbScale, createOutputDirectory } from './util'
-import { getMetaData, createDB, getTableCount, deleteFilterRun, deleteFiles, deleteRowsBySourceId, deleteRowsByFilePaths, getFilePathsByIds, deleteRows } from './db'
+import {
+  getMetaData,
+  createDB,
+  getTableCount,
+  deleteFilterRun,
+  deleteFiles,
+  deleteRowsByFilePaths,
+  getFilePathsByIds,
+  deleteRows,
+} from './db'
 import { closeDb, getDb } from './dbConnection'
 import { appendPerfEvents } from './perfLogger'
 import { logMain, logRenderer, getLogPath } from './logger'
@@ -1147,9 +1156,7 @@ export default class Controller {
       })
     }
     try {
-      const filter = this.archive.filters.find(
-        (f) => f.id === payload.filterId,
-      )
+      const filter = this.archive.filters.find((f) => f.id === payload.filterId)
 
       // If this is the game filter, also delete from the files table + cascade
       if (filter?.type === 'files') {

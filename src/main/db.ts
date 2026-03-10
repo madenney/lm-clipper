@@ -480,10 +480,7 @@ export function deleteFilterRun(path: string, filterId: string) {
   db.prepare('DELETE FROM filter_runs WHERE filter_id = ?').run(filterId)
 }
 
-export function getFilePathsByIds(
-  path: string,
-  fileIds: number[],
-): string[] {
+export function getFilePathsByIds(path: string, fileIds: number[]): string[] {
   if (fileIds.length === 0) return []
   const db = getDb(path)
   const placeholders = fileIds.map(() => '?').join(',')
