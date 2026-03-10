@@ -480,6 +480,67 @@ export function deleteFilterRun(path: string, filterId: string) {
   db.prepare('DELETE FROM filter_runs WHERE filter_id = ?').run(filterId)
 }
 
+export function getFilePathsByIds(
+  path: string,
+  fileIds: number[],
+): string[] {
+  if (fileIds.length === 0) return []
+  const db = getDb(path)
+  const placeholders = fileIds.map(() => '?').join(',')
+  const rows = db
+    .prepare(`SELECT path FROM files WHERE id IN (${placeholders})`)
+    .all(...fileIds) as { path: string }[]
+  return rows.map((r) => r.path)
+}
+
+export function deleteFiles(path: string, fileIds: number[]) {
+  if (fileIds.length === 0) return
+  const db = getDb(path)
+  const placeholders = fileIds.map(() => '?').join(',')
+  db.prepare(`DELETE FROM files WHERE id IN (${placeholders})`).run(...fileIds)
+}
+
+export function deleteRowsBySourceId(
+  path: string,
+  tableId: string,
+  sourceIds: number[],
+) {
+  if (sourceIds.length === 0) return 0
+  const db = getDb(path)
+  const placeholders = sourceIds.map(() => '?').join(',')
+  const result = db
+    .prepare(
+      `DELETE FROM "${tableId}" WHERE CAST(JSON_EXTRACT(JSON, '$._sourceId') AS INTEGER) IN (${placeholders})`,
+    )
+    .run(...sourceIds)
+  return result.changes
+}
+
+export function deleteRowsByFilePaths(
+  path: string,
+  tableId: string,
+  filePaths: string[],
+) {
+  if (filePaths.length === 0) return 0
+  const db = getDb(path)
+  const placeholders = filePaths.map(() => '?').join(',')
+  const result = db
+    .prepare(
+      `DELETE FROM "${tableId}" WHERE JSON_EXTRACT(JSON, '$.path') IN (${placeholders})`,
+    )
+    .run(...filePaths)
+  return result.changes
+}
+
+export function deleteRows(path: string, tableId: string, rowIds: number[]) {
+  if (rowIds.length === 0) return
+  const db = getDb(path)
+  const placeholders = rowIds.map(() => '?').join(',')
+  db.prepare(`DELETE FROM "${tableId}" WHERE id IN (${placeholders})`).run(
+    ...rowIds,
+  )
+}
+
 export function getProcessedSourceIds(path: string, tableId: string): number[] {
   const db = getDb(path)
   try {

@@ -34,7 +34,7 @@ import slpToVideo, {
   setFFMPEGPathOverride,
 } from './slpToVideo'
 import { resolveHtmlPath, updateEfbScale, createOutputDirectory } from './util'
-import { getMetaData, createDB, getTableCount, deleteFilterRun } from './db'
+import { getMetaData, createDB, getTableCount, deleteFilterRun, deleteFiles, deleteRowsBySourceId, deleteRowsByFilePaths, getFilePathsByIds, deleteRows } from './db'
 import { closeDb, getDb } from './dbConnection'
 import { appendPerfEvents } from './perfLogger'
 import { logMain, logRenderer, getLogPath } from './logger'
@@ -1091,6 +1091,116 @@ export default class Controller {
     const metadata = await this.archive.shallowCopy()
     console.log(`[removeFilter] shallowCopy took ${Date.now() - _t2}ms`)
     return reply(event, 'removeFilter', requestId, metadata)
+  }
+
+  removeGame(
+    event: IpcMainEvent,
+    data: RequestEnvelope<{ fileIds: number[] }>,
+  ) {
+    const { requestId, payload } = unpackRequest<{ fileIds: number[] }>(data)
+    if (!this.archive || !payload?.fileIds?.length) {
+      return reply(event, 'removeGame', requestId, { error: 'invalid request' })
+    }
+    try {
+      // Look up file paths before deleting so we can cascade
+      const filePaths = getFilePathsByIds(this.archive.path, payload.fileIds)
+      deleteFiles(this.archive.path, payload.fileIds)
+      const removed = payload.fileIds.length
+      this.archive.files = Math.max(0, (this.archive.files || 0) - removed)
+
+      // Cascade: remove derived rows from all filter tables by file path
+      if (filePaths.length > 0) {
+        for (const f of this.archive.filters) {
+          const cascaded = deleteRowsByFilePaths(
+            this.archive.path,
+            f.id,
+            filePaths,
+          )
+          if (cascaded > 0) {
+            f.results = Math.max(0, (f.results || 0) - cascaded)
+          }
+        }
+      }
+
+      this.mainWindow.webContents.send(
+        'archiveUpdated',
+        buildShallowArchive(this.archive),
+      )
+      return reply(event, 'removeGame', requestId, { removed })
+    } catch (error: any) {
+      console.error('[removeGame] error:', error)
+      return reply(event, 'removeGame', requestId, { error: error.message })
+    }
+  }
+
+  removeResult(
+    event: IpcMainEvent,
+    data: RequestEnvelope<{ filterId: string; rowIds: number[] }>,
+  ) {
+    const { requestId, payload } = unpackRequest<{
+      filterId: string
+      rowIds: number[]
+    }>(data)
+    if (!this.archive || !payload?.filterId || !payload?.rowIds?.length) {
+      return reply(event, 'removeResult', requestId, {
+        error: 'invalid request',
+      })
+    }
+    try {
+      const filter = this.archive.filters.find(
+        (f) => f.id === payload.filterId,
+      )
+
+      // If this is the game filter, also delete from the files table + cascade
+      if (filter?.type === 'files') {
+        const db = getDb(this.archive.path)
+        const placeholders = payload.rowIds.map(() => '?').join(',')
+        const rows = db
+          .prepare(
+            `SELECT CAST(JSON_EXTRACT(JSON, '$.id') AS INTEGER) AS fileId, JSON_EXTRACT(JSON, '$.path') AS filePath FROM "${payload.filterId}" WHERE id IN (${placeholders})`,
+          )
+          .all(...payload.rowIds) as { fileId: number; filePath: string }[]
+        const fileIds = rows.map((r) => r.fileId).filter((id) => id > 0)
+        const filePaths = rows
+          .map((r) => r.filePath)
+          .filter((p) => p && p.length > 0)
+        if (fileIds.length > 0) {
+          deleteFiles(this.archive.path, fileIds)
+          this.archive.files = Math.max(
+            0,
+            (this.archive.files || 0) - fileIds.length,
+          )
+        }
+        // Cascade: remove derived rows from downstream filters by file path
+        if (filePaths.length > 0) {
+          for (const f of this.archive.filters) {
+            if (f.id === payload.filterId) continue
+            const cascaded = deleteRowsByFilePaths(
+              this.archive.path,
+              f.id,
+              filePaths,
+            )
+            if (cascaded > 0) {
+              f.results = Math.max(0, (f.results || 0) - cascaded)
+            }
+          }
+        }
+      }
+
+      deleteRows(this.archive.path, payload.filterId, payload.rowIds)
+      const removed = payload.rowIds.length
+      if (filter) {
+        filter.results = Math.max(0, (filter.results || 0) - removed)
+      }
+      this.mainWindow.webContents.send(
+        'archiveUpdated',
+        buildShallowArchive(this.archive),
+      )
+      return reply(event, 'removeResult', requestId, { removed })
+    } catch (error: any) {
+      console.error('[removeResult] error:', error)
+      return reply(event, 'removeResult', requestId, { error: error.message })
+    }
   }
 
   async saveCustomFilter(
@@ -2805,6 +2915,8 @@ export default class Controller {
     ipcMain.on('playClips', this.playClips.bind(this))
     ipcMain.on('playClip', this.playClip.bind(this))
     ipcMain.on('recordClip', this.recordClip.bind(this))
+    ipcMain.on('removeGame', this.removeGame.bind(this))
+    ipcMain.on('removeResult', this.removeResult.bind(this))
     ipcMain.on('logPerfEvents', this.logPerfEvents.bind(this))
     ipcMain.on('debugLog', this.debugLog.bind(this))
     ipcMain.on('openFolder', (_event: IpcMainEvent, folderPath: string) => {

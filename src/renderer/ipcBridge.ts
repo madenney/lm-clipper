@@ -283,6 +283,15 @@ export default {
   deleteCustomFilter(index: number, handler?: ResponseHandler<any>) {
     return request('deleteCustomFilter', index, 'deleteCustomFilter', handler)
   },
+  removeGames(fileIds: number[], handler?: ResponseHandler<any>) {
+    return request('removeGame', { fileIds }, 'removeGame', handler)
+  },
+  removeResults(
+    params: { filterId: string; rowIds: number[] },
+    handler?: ResponseHandler<any>,
+  ) {
+    return request('removeResult', params, 'removeResult', handler)
+  },
   logPerfEvents(events: any[]) {
     return send('logPerfEvents', events)
   },
