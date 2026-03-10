@@ -92,6 +92,13 @@ export default function App() {
       },
     )
 
+    const removeArchiveUpdatedListener = window.electron.ipcRenderer.on(
+      'archiveUpdated',
+      (nextArchive: ShallowArchiveInterface) => {
+        setArchive(nextArchive || null)
+      },
+    )
+
     const removeRecentFromMenuListener = window.electron.ipcRenderer.on(
       'openRecentFromMenu',
       (projectPath: string) => {
@@ -155,6 +162,7 @@ export default function App() {
       removeImportListener()
       removeNewProjectListener()
       removeRefreshListener()
+      removeArchiveUpdatedListener()
       removeRecentFromMenuListener()
       removeSaveAsListener()
       removeUpdateAvailable()

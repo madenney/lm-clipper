@@ -429,6 +429,45 @@ export function Tray({
     })
   }, [getZoomStep])
 
+  // Handle bulk removal of selected items
+  const handleDeleteSelected = useCallback(() => {
+    if (selectedIds.size === 0) return
+    const ids = [...selectedIds].map(Number).filter((n) => !Number.isNaN(n))
+    if (ids.length === 0) return
+
+    // Optimistically remove from local state
+    const idsToRemove = new Set(selectedIds)
+    setClips((prev) =>
+      prev.filter((clip) => {
+        const clipId =
+          'id' in clip && clip.id != null
+            ? String(clip.id)
+            : 'path' in clip && clip.path
+              ? clip.path
+              : ''
+        return !idsToRemove.has(clipId as string)
+      }),
+    )
+    setLightData((prev) => prev.filter((item) => !idsToRemove.has(item.id)))
+    setSelectedIds(new Set())
+    setLastSelectedIndex(null)
+
+    if (isGameFilter && !activeFilter?.isProcessed) {
+      // Unprocessed game filter reads from 'files' table — IDs are file IDs
+      ipcBridge.removeGames(ids)
+    } else {
+      // Processed game filter or any other filter — IDs are filter table row IDs
+      ipcBridge.removeResults({ filterId: activeFilterId, rowIds: ids })
+    }
+  }, [
+    selectedIds,
+    isGameFilter,
+    activeFilter,
+    activeFilterId,
+    setSelectedIds,
+    setLastSelectedIndex,
+  ])
+
   // Keyboard shortcuts: Escape to clear, Ctrl+A to select all visible, Z/X/arrows for full mode nav
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -454,6 +493,8 @@ export function Tray({
         setCurrentPage((p) => Math.max(0, p - 1))
       } else if (mode === 'full' && (e.key === 'x' || e.key === 'ArrowRight')) {
         setCurrentPage((p) => Math.min(Math.max(0, clips.length - 1), p + 1))
+      } else if (e.key === 'Delete' || e.key === 'Backspace') {
+        handleDeleteSelected()
       }
     }
     window.addEventListener('keydown', handleKeyDown)
@@ -465,6 +506,7 @@ export function Tray({
     mode,
     clips.length,
     savedZoom,
+    handleDeleteSelected,
   ])
 
   // Wheel zoom - use native listener with { passive: false } to allow preventDefault
