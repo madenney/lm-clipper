@@ -357,6 +357,7 @@ export default class Controller {
     name?: string
     location?: string
   }) {
+    this.stopNameCountWorker()
     closeDb()
     const newArchivePath = path.resolve(
       payload.location || getDefaultProjectDir(),
@@ -434,6 +435,7 @@ export default class Controller {
     const { requestId } = unpackRequest<null>(data)
     if (this.archive) {
       try {
+        this.stopNameCountWorker()
         const metadata = await getMetaData(this.archive.path)
         this.archive = new Archive(metadata)
         reply(event, 'archive', requestId, metadata)
@@ -1114,8 +1116,7 @@ export default class Controller {
       // Look up file paths before deleting so we can cascade
       const filePaths = getFilePathsByIds(this.archive.path, payload.fileIds)
       deleteFiles(this.archive.path, payload.fileIds)
-      const removed = payload.fileIds.length
-      this.archive.files = Math.max(0, (this.archive.files || 0) - removed)
+      this.archive.files = getTableCount(this.archive.path, 'files')
 
       // Cascade: remove derived rows from all filter tables by file path
       if (filePaths.length > 0) {
@@ -1126,11 +1127,12 @@ export default class Controller {
             filePaths,
           )
           if (cascaded > 0) {
-            f.results = Math.max(0, (f.results || 0) - cascaded)
+            f.results = getTableCount(this.archive.path, f.id)
           }
         }
       }
 
+      const removed = payload.fileIds.length
       this.mainWindow.webContents.send(
         'archiveUpdated',
         buildShallowArchive(this.archive),
@@ -1173,10 +1175,7 @@ export default class Controller {
           .filter((p) => p && p.length > 0)
         if (fileIds.length > 0) {
           deleteFiles(this.archive.path, fileIds)
-          this.archive.files = Math.max(
-            0,
-            (this.archive.files || 0) - fileIds.length,
-          )
+          this.archive.files = getTableCount(this.archive.path, 'files')
         }
         // Cascade: remove derived rows from downstream filters by file path
         if (filePaths.length > 0) {
@@ -1188,22 +1187,23 @@ export default class Controller {
               filePaths,
             )
             if (cascaded > 0) {
-              f.results = Math.max(0, (f.results || 0) - cascaded)
+              f.results = getTableCount(this.archive.path, f.id)
             }
           }
         }
       }
 
       deleteRows(this.archive.path, payload.filterId, payload.rowIds)
-      const removed = payload.rowIds.length
       if (filter) {
-        filter.results = Math.max(0, (filter.results || 0) - removed)
+        filter.results = getTableCount(this.archive.path, payload.filterId)
       }
       this.mainWindow.webContents.send(
         'archiveUpdated',
         buildShallowArchive(this.archive),
       )
-      return reply(event, 'removeResult', requestId, { removed })
+      return reply(event, 'removeResult', requestId, {
+        removed: payload.rowIds.length,
+      })
     } catch (error: any) {
       console.error('[removeResult] error:', error)
       return reply(event, 'removeResult', requestId, { error: error.message })
