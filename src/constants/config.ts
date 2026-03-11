@@ -12,22 +12,8 @@ export const filtersConfig = [
     tooltip: 'Filter replay metadata',
     options: [
       {
-        name: 'Stage',
-        id: 'stage',
-        type: 'multiDropdown',
-        options: legalStages,
-        default: [],
-      },
-      {
         name: 'Char 1',
         id: 'char1',
-        type: 'multiDropdown',
-        options: sortedCharacters,
-        default: [],
-      },
-      {
-        name: 'Char 2',
-        id: 'char2',
         type: 'multiDropdown',
         options: sortedCharacters,
         default: [],
@@ -47,6 +33,13 @@ export const filtersConfig = [
         autocomplete: 'connectCodes',
       },
       {
+        name: 'Char 2',
+        id: 'char2',
+        type: 'multiDropdown',
+        options: sortedCharacters,
+        default: [],
+      },
+      {
         name: 'Player 2',
         id: 'player2',
         type: 'textInput',
@@ -59,6 +52,13 @@ export const filtersConfig = [
         type: 'textInput',
         default: [],
         autocomplete: 'connectCodes',
+      },
+      {
+        name: 'Stage',
+        id: 'stage',
+        type: 'multiDropdown',
+        options: legalStages,
+        default: [],
       },
     ],
   },
@@ -175,13 +175,6 @@ export const filtersConfig = [
         default: [],
       },
       {
-        name: 'Comboee Char',
-        id: 'comboeeChar',
-        type: 'multiDropdown',
-        options: sortedCharacters,
-        default: [],
-      },
-      {
         name: 'Comboer Tag',
         id: 'comboerTag',
         type: 'textInput',
@@ -194,6 +187,13 @@ export const filtersConfig = [
         type: 'textInput',
         default: [],
         autocomplete: 'connectCodes',
+      },
+      {
+        name: 'Comboee Char',
+        id: 'comboeeChar',
+        type: 'multiDropdown',
+        options: sortedCharacters,
+        default: [],
       },
       {
         name: 'Comboee Tag',
