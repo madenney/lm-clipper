@@ -58,7 +58,7 @@ export default function SetupWizard({
     ipcBridge.getPath(step.dialogType, (p) => {
       if (!p) return
       setConfig({ ...config, [step.key]: p })
-      ipcBridge.updateConfig({ key: step.key, value: p })
+      ipcBridge.updateConfig({ key: step.key as string, value: p })
       setError('')
     })
   }
