@@ -174,6 +174,17 @@ export default {
   ) {
     return request('getResults', params, 'getResults', handler)
   },
+  getAllResultIds(filterId: string, handler?: ResponseHandler<string[]>) {
+    return request('getAllResultIds', { filterId }, 'getAllResultIds', handler)
+  },
+  getTableDuration(filterId: string, handler?: ResponseHandler<number>) {
+    return request(
+      'getTableDuration',
+      { filterId },
+      'getTableDuration',
+      handler,
+    )
+  },
   getNames(handler?: ResponseHandler<any>) {
     return request('getNames', null, 'getNames', handler)
   },
@@ -252,6 +263,9 @@ export default {
   },
   playClips(payload: { filterId: string; selectedIds: string[] }) {
     return send('playClips', payload)
+  },
+  stopPlayback() {
+    return send('stopPlayback', null)
   },
   playClip(payload: {
     path: string

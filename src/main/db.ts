@@ -424,6 +424,62 @@ export function getItemsLite(path: string, limit: number, offset: number) {
     .all(limit, offset)
 }
 
+export function getAllIds(path: string, tableId: string): string[] {
+  const db = getDb(path)
+  const rows = db.prepare(`SELECT id FROM "${tableId}" ORDER BY id`).all() as {
+    id: number
+  }[]
+  return rows.map((r) => String(r.id))
+}
+
+export function getTableDuration(path: string, tableId: string): number {
+  const db = getDb(path)
+  const cols = db.prepare(`PRAGMA table_info("${tableId}")`).all() as {
+    name: string
+  }[]
+  const colNames = new Set(cols.map((c) => c.name))
+
+  // Filter/combo tables store data in a JSON column
+  if (colNames.has('JSON') && !colNames.has('startFrame')) {
+    const startExpr = "COALESCE(json_extract(JSON, '$.startFrame'), 0)"
+    const endExpr = `CASE
+      WHEN COALESCE(json_extract(JSON, '$.endFrame'), 0) > 0
+        THEN json_extract(JSON, '$.endFrame')
+      ELSE COALESCE(json_extract(JSON, '$.lastFrame'), 0)
+    END`
+    const diffExpr = `(${endExpr}) - (${startExpr})`
+    const clampedExpr = `CASE WHEN (${diffExpr}) > 0 THEN (${diffExpr}) ELSE 0 END`
+    const row = db
+      .prepare(`SELECT SUM(${clampedExpr}) AS total FROM "${tableId}"`)
+      .get() as { total: number | null } | undefined
+    return row?.total ?? 0
+  }
+
+  // Direct column tables (files)
+  const hasStartFrame = colNames.has('startFrame')
+  const hasEndFrame = colNames.has('endFrame')
+  const hasLastFrame = colNames.has('lastFrame')
+
+  if (!hasStartFrame && !hasEndFrame && !hasLastFrame) return 0
+
+  const startExpr = hasStartFrame ? 'COALESCE(startFrame, 0)' : '0'
+  const endExpr = hasEndFrame
+    ? hasLastFrame
+      ? 'CASE WHEN COALESCE(endFrame, 0) > 0 THEN endFrame ELSE COALESCE(lastFrame, 0) END'
+      : 'COALESCE(endFrame, 0)'
+    : hasLastFrame
+      ? 'COALESCE(lastFrame, 0)'
+      : '0'
+
+  const diffExpr = `(${endExpr}) - (${startExpr})`
+  const clampedExpr = `CASE WHEN (${diffExpr}) > 0 THEN (${diffExpr}) ELSE 0 END`
+
+  const row = db
+    .prepare(`SELECT SUM(${clampedExpr}) AS total FROM "${tableId}"`)
+    .get() as { total: number | null } | undefined
+  return row?.total ?? 0
+}
+
 export function getTableCount(path: string, tableId: string): number {
   const db = getDb(path)
   const row = db.prepare(`SELECT COUNT(*) AS count FROM "${tableId}"`).get() as

@@ -555,15 +555,49 @@ export function Tray({
     }
   }, [mode])
 
+  // Cross-page selection tracking
+  const crossPageRef = useRef(false)
+  const tableDurationRef = useRef(0) // raw frame sum from DB (no addStart/addEnd)
+  const totalItemCountRef = useRef(0) // total items when Select All was clicked
+  const excludedRawRef = useRef(0) // raw frames of excluded (deselected) clips
+  const excludedCountRef = useRef(0) // number of excluded clips
+
+  // Helper: compute raw frame duration for a set of clips (no addStart/addEnd)
+  const computeRawDuration = useCallback((clipList: ClipData[]) => {
+    let totalFrames = 0
+    for (const clip of clipList) {
+      const start = clip.startFrame ?? 0
+      const end =
+        (clip.endFrame ?? 0) > 0
+          ? (clip.endFrame ?? 0)
+          : (('lastFrame' in clip ? clip.lastFrame : 0) ?? 0)
+      totalFrames += Math.max(0, end - start)
+    }
+    return totalFrames
+  }, [])
+
+  // Recompute cross-page duration from cached values
+  const updateCrossPageDuration = useCallback(() => {
+    const rawDuration = tableDurationRef.current - excludedRawRef.current
+    const count = totalItemCountRef.current - excludedCountRef.current
+    setSelectionDuration(rawDuration + count * (addStartFrames + addEndFrames))
+  }, [addStartFrames, addEndFrames, setSelectionDuration])
+
   // Calculate duration when selection changes (including during drag)
   useEffect(() => {
     if (selectedIds.size === 0) {
       setSelectionDuration(null)
+      crossPageRef.current = false
       return
     }
 
-    // Calculate total frames from selected clips
-    let totalFrames = 0
+    // Cross-page selections are managed by click handlers
+    if (crossPageRef.current) {
+      updateCrossPageDuration()
+      return
+    }
+
+    // Local calc for single-page selections
     const selectedClips = clips.filter((clip) => {
       const id =
         'id' in clip && clip.id != null
@@ -573,7 +607,7 @@ export function Tray({
             : ''
       return selectedIds.has(id as string)
     })
-
+    let totalFrames = 0
     for (const clip of selectedClips) {
       const start = clip.startFrame ?? 0
       const end =
@@ -582,9 +616,15 @@ export function Tray({
           : (('lastFrame' in clip ? clip.lastFrame : 0) ?? 0)
       totalFrames += Math.max(0, end - start) + addStartFrames + addEndFrames
     }
-
     setSelectionDuration(totalFrames)
-  }, [selectedIds, clips, setSelectionDuration, addStartFrames, addEndFrames])
+  }, [
+    selectedIds,
+    clips,
+    setSelectionDuration,
+    addStartFrames,
+    addEndFrames,
+    updateCrossPageDuration,
+  ])
 
   // Drag selection state
   const [dragStartIndex, setDragStartIndex] = useState<number | null>(null)
@@ -614,6 +654,7 @@ export function Tray({
 
       if (event.shiftKey && lastSelectedIndex !== null) {
         // Shift+click: range select from last selected
+        crossPageRef.current = false
         const newSelected = new Set(selectedIds)
         const start = Math.min(lastSelectedIndex, index)
         const end = Math.max(lastSelectedIndex, index)
@@ -626,6 +667,24 @@ export function Tray({
         setSelectedIds(newSelected)
       } else if (event.ctrlKey || event.metaKey) {
         // Ctrl+click: toggle single item
+        if (crossPageRef.current) {
+          const clip = clips.find((c) => {
+            const id = 'id' in c && c.id != null ? String(c.id) : ''
+            return id === clipId
+          })
+          if (clip) {
+            const rawDur = computeRawDuration([clip])
+            if (selectedIds.has(clipId)) {
+              // Deselecting
+              excludedRawRef.current += rawDur
+              excludedCountRef.current += 1
+            } else {
+              // Re-selecting
+              excludedRawRef.current -= rawDur
+              excludedCountRef.current -= 1
+            }
+          }
+        }
         const newSelected = new Set(selectedIds)
         if (newSelected.has(clipId)) {
           newSelected.delete(clipId)
@@ -636,6 +695,7 @@ export function Tray({
         setLastSelectedIndex(index)
       } else {
         // Normal click: start drag selection
+        crossPageRef.current = false
         isDraggingRef.current = true
         setDragStartIndex(index)
         setSelectedIds(new Set([clipId]))
@@ -648,6 +708,8 @@ export function Tray({
       lastSelectedIndex,
       setSelectedIds,
       setLastSelectedIndex,
+      clips,
+      computeRawDuration,
     ],
   )
 
@@ -711,30 +773,89 @@ export function Tray({
             Showing {showCount.toLocaleString()} /{' '}
             {displayTotal.toLocaleString()} {isClips ? 'clips' : 'games'}
           </span>
-          {lightData.length > 0 && (
+        </div>
+        {lightData.length > 0 && (
+          <div className="tray-select-btns">
             <button
               type="button"
               className="tray-select-all-btn"
               onClick={() => {
-                const allIds = new Set(lightData.map((item) => item.id))
-                const allSelected =
-                  allIds.size > 0 &&
-                  [...allIds].every((id) => selectedIds.has(id))
-                if (allSelected) {
-                  setSelectedIds(new Set())
+                const pageIds = new Set(lightData.map((item) => item.id))
+                const allPageSelected =
+                  pageIds.size > 0 &&
+                  [...pageIds].every((id) => selectedIds.has(id))
+                if (allPageSelected) {
+                  // Deselect page
+                  if (crossPageRef.current) {
+                    const pageClips = clips.filter((c) => {
+                      const id = 'id' in c && c.id != null ? String(c.id) : ''
+                      return pageIds.has(id)
+                    })
+                    excludedRawRef.current += computeRawDuration(pageClips)
+                    excludedCountRef.current += pageClips.length
+                  }
+                  setSelectedIds((prev) => {
+                    const next = new Set(prev)
+                    for (const id of pageIds) next.delete(id)
+                    return next
+                  })
                   setLastSelectedIndex(null)
                 } else {
-                  setSelectedIds(allIds)
+                  // Select page
+                  if (crossPageRef.current) {
+                    // Re-adding previously excluded page items
+                    const readdedIds = [...pageIds].filter(
+                      (id) => !selectedIds.has(id),
+                    )
+                    const readdedClips = clips.filter((c) => {
+                      const id = 'id' in c && c.id != null ? String(c.id) : ''
+                      return readdedIds.includes(id)
+                    })
+                    excludedRawRef.current -= computeRawDuration(readdedClips)
+                    excludedCountRef.current -= readdedClips.length
+                  }
+                  setSelectedIds((prev) => new Set([...prev, ...pageIds]))
                 }
               }}
             >
-              {lightData.length > 0 &&
-              [...lightData].every((item) => selectedIds.has(item.id))
+              {[...lightData].every((item) => selectedIds.has(item.id))
+                ? 'Deselect Page'
+                : 'Select Page'}
+            </button>
+            <button
+              type="button"
+              className="tray-select-all-btn"
+              onClick={() => {
+                if (selectedIds.size === displayTotal && displayTotal > 0) {
+                  setSelectedIds(new Set())
+                  setLastSelectedIndex(null)
+                  crossPageRef.current = false
+                } else {
+                  const tableId =
+                    isGameFilter && !activeFilter?.isProcessed
+                      ? 'files'
+                      : activeFilterId
+                  ipcBridge.getAllResultIds(tableId, (ids) => {
+                    if (!ids) return
+                    setSelectedIds(new Set(ids))
+                    crossPageRef.current = true
+                    totalItemCountRef.current = ids.length
+                    excludedRawRef.current = 0
+                    excludedCountRef.current = 0
+                    ipcBridge.getTableDuration(tableId, (dur) => {
+                      tableDurationRef.current = dur ?? 0
+                      updateCrossPageDuration()
+                    })
+                  })
+                }
+              }}
+            >
+              {selectedIds.size === displayTotal && displayTotal > 0
                 ? 'Deselect All'
                 : 'Select All'}
             </button>
-          )}
-        </div>
+          </div>
+        )}
         <div className="tray-zoom">
           {totalDataPages > 1 && (
             <>

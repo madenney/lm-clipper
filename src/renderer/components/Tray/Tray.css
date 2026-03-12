@@ -41,6 +41,11 @@
   font-size: 12px;
 }
 
+.tray-select-btns {
+  display: flex;
+  gap: 4px;
+}
+
 .tray-select-all-btn {
   border: 1px solid #686868;
   border-radius: 6px;
