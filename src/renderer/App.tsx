@@ -4,6 +4,7 @@ import './styles/App.css'
 import Main from './components/Main'
 import LoadingScreen from './components/LoadingScreen'
 import UpdateBanner from './components/UpdateBanner'
+import SetupWizard from './components/SetupWizard'
 import {
   ConfigInterface,
   SavedCustomFilter,
@@ -227,6 +228,10 @@ export default function App() {
     return <LoadingScreen />
   }
 
+  const [wizardOpen, setWizardOpen] = useState(false)
+
+  const triggerSetupWizard = () => setWizardOpen(true)
+
   return (
     <>
       {updateStatus && (
@@ -235,11 +240,19 @@ export default function App() {
           onDismiss={() => setUpdateStatus(null)}
         />
       )}
+      {wizardOpen && (
+        <SetupWizard
+          config={config}
+          setConfig={setConfig}
+          onDismiss={() => setWizardOpen(false)}
+        />
+      )}
       <Main
         archive={archive}
         setArchive={setArchive}
         config={config}
         setConfig={setConfig}
+        triggerSetupWizard={triggerSetupWizard}
       />
     </>
   )

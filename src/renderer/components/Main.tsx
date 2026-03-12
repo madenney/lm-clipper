@@ -1,8 +1,10 @@
 import { useState, Dispatch, SetStateAction, useEffect, useRef } from 'react'
 import { FaFolder, FaPlay, FaCircle } from 'react-icons/fa'
 import { FiTerminal } from 'react-icons/fi'
+
 import ipcBridge from 'renderer/ipcBridge'
 import { videoConfig } from 'constants/config'
+import Tooltip from './Tooltip'
 import {
   ConfigInterface,
   ShallowArchiveInterface,
@@ -132,6 +134,7 @@ type MainProps = {
   setArchive: Dispatch<SetStateAction<ShallowArchiveInterface | null>>
   config: ConfigInterface
   setConfig: Dispatch<SetStateAction<ConfigInterface | null>>
+  triggerSetupWizard: () => void
 }
 
 export default function Main({
@@ -139,6 +142,7 @@ export default function Main({
   setArchive,
   config,
   setConfig,
+  triggerSetupWizard,
 }: MainProps) {
   const [leftWidth, setLeftWidth] = useState(580)
   const [activeFilterId, setActiveFilterId] = useState('files')
@@ -158,6 +162,9 @@ export default function Main({
     null,
   )
   const [isCalculatingDuration, _setIsCalculatingDuration] = useState(false)
+
+  // Playback state
+  const [isPlaying, setIsPlaying] = useState(false)
 
   // Video generation state
   const [isGenerating, setIsGenerating] = useState(false)
@@ -225,10 +232,20 @@ export default function Main({
         }
       },
     )
+    const removePlaybackStarted = window.electron.ipcRenderer.on(
+      'playbackStarted',
+      () => setIsPlaying(true),
+    )
+    const removePlaybackDone = window.electron.ipcRenderer.on(
+      'playbackDone',
+      () => setIsPlaying(false),
+    )
     return () => {
       removeFinished()
       removeMsg()
       removeOutputPath()
+      removePlaybackStarted()
+      removePlaybackDone()
     }
   }, [])
 
@@ -464,13 +481,25 @@ export default function Main({
   )?.options as { value: number; label: string }[] | undefined
 
   function playClips() {
+    if (!config.dolphinPath || !config.ssbmIsoPath) {
+      triggerSetupWizard()
+      return
+    }
     ipcBridge.playClips({
       filterId: activeFilterId,
       selectedIds: Array.from(selectedIds),
     })
   }
 
+  function stopPlayback() {
+    ipcBridge.stopPlayback()
+  }
+
   function generateVideo() {
+    if (!config.dolphinPath || !config.ssbmIsoPath || !config.outputPath) {
+      triggerSetupWizard()
+      return
+    }
     setVideoLog([])
     setIsGenerating(true)
     ipcBridge.generateVideo({
@@ -657,8 +686,11 @@ export default function Main({
               }
             />
           </div>
-          <div className="footer-setting" title="Clips per Dolphin batch">
-            <span className="footer-setting-label">Batch</span>
+          <div
+            className="footer-setting"
+            title="Max clips per Dolphin instance"
+          >
+            <span className="footer-setting-label">Max Clips</span>
             <input
               type="number"
               className="footer-input"
@@ -708,77 +740,99 @@ export default function Main({
           </div>
         </div>
         <div className="footer-right">
-          {!isGenerating && selectedIds.size > 0 ? (
-            <div className="footer-selection">
-              <span className="footer-selection-count">
-                {selectedIds.size} {isShowingGames ? 'game' : 'clip'}
-                {selectedIds.size !== 1 ? 's' : ''}
-              </span>
-              {selectionDuration !== null && selectionDuration > 0 && (
-                <span className="footer-selection-duration">
-                  {isCalculatingDuration ? (
-                    <span className="footer-spinner" />
-                  ) : (
-                    formatDuration(selectionDuration)
-                  )}
+          <div className="footer-status">
+            {!isGenerating && selectedIds.size > 0 ? (
+              <div className="footer-selection">
+                <span className="footer-selection-count">
+                  {selectedIds.size} {isShowingGames ? 'game' : 'clip'}
+                  {selectedIds.size !== 1 ? 's' : ''}
                 </span>
-              )}
-            </div>
-          ) : !isGenerating ? (
-            <span className="footer-no-selection">No clips selected</span>
-          ) : null}
-          {isGenerating && (
-            <div className="footer-generating">
-              <span className="footer-gen-spinner" />
-              {videoMsg ? (
-                <span className="footer-gen-msg">
-                  {videoMsg === 'Concatenating clips...' ? (
-                    <span className="footer-dots-anim">Merging videos</span>
-                  ) : (
-                    videoMsg
-                  )}
-                </span>
-              ) : (
-                <span className="footer-gen-msg">
-                  <span className="footer-dots-anim">Starting</span>
-                </span>
-              )}
-            </div>
-          )}
+                {selectionDuration !== null && selectionDuration > 0 && (
+                  <span className="footer-selection-duration">
+                    {isCalculatingDuration ? (
+                      <span className="footer-spinner" />
+                    ) : (
+                      formatDuration(selectionDuration)
+                    )}
+                  </span>
+                )}
+              </div>
+            ) : !isGenerating ? (
+              <span className="footer-no-selection">No clips selected</span>
+            ) : null}
+            {isGenerating && (
+              <div className="footer-generating">
+                <span className="footer-gen-spinner" />
+                {videoMsg ? (
+                  <span className="footer-gen-msg">
+                    {videoMsg === 'Concatenating clips...' ? (
+                      <span className="footer-dots-anim">Merging videos</span>
+                    ) : (
+                      videoMsg
+                    )}
+                  </span>
+                ) : (
+                  <span className="footer-gen-msg">
+                    <span className="footer-dots-anim">Starting</span>
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
           {isGenerating ? (
-            <>
-              <button
-                type="button"
-                className="stop-button"
-                onClick={stopVideo}
-                title="Stop after the current clip finishes — keeps all completed clips"
+            <div className="footer-action-group">
+              <Tooltip
+                text="Stop after the current clip finishes — keeps all completed clips"
+                offsetX={-80}
               >
-                Stop
-              </button>
-              <button
-                type="button"
-                className="cancel-button"
-                onClick={cancelVideo}
-                title="Cancel immediately — kills active Dolphin processes and discards in-progress clips"
+                <button
+                  type="button"
+                  className="stop-button"
+                  onClick={stopVideo}
+                >
+                  Stop
+                </button>
+              </Tooltip>
+              <Tooltip
+                text="Cancel immediately — kills active Dolphin processes and discards in-progress clips"
+                offsetX={-120}
               >
-                Cancel
-              </button>
-            </>
+                <button
+                  type="button"
+                  className="cancel-button"
+                  onClick={cancelVideo}
+                >
+                  Cancel
+                </button>
+              </Tooltip>
+            </div>
           ) : (
             <div className="footer-action-group">
-              <button
-                type="button"
-                className="footer-action-button"
-                onClick={playClips}
-                disabled={selectedIds.size === 0}
-              >
-                <FaPlay className="footer-icon footer-icon--play" /> Play
-              </button>
+              {isPlaying ? (
+                <Tooltip text="Stop playback and close Dolphin" offsetX={-60}>
+                  <button
+                    type="button"
+                    className="stop-button"
+                    onClick={stopPlayback}
+                  >
+                    Stop
+                  </button>
+                </Tooltip>
+              ) : (
+                <button
+                  type="button"
+                  className="footer-action-button"
+                  onClick={playClips}
+                  disabled={selectedIds.size === 0}
+                >
+                  <FaPlay className="footer-icon footer-icon--play" /> Play
+                </button>
+              )}
               <button
                 type="button"
                 className="footer-action-button"
                 onClick={generateVideo}
-                disabled={selectedIds.size === 0}
+                disabled={selectedIds.size === 0 || isPlaying}
               >
                 <FaCircle className="footer-icon footer-icon--record" /> Record
               </button>

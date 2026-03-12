@@ -778,6 +778,19 @@ export default function Top({
         <button
           type="button"
           className="top-gecko-btn"
+          onClick={() => {
+            handleChange('dolphinPath', '')
+            handleChange('ssbmIsoPath', '')
+            handleChange('outputPath', '')
+          }}
+          title="DEV: Clear paths to test setup wizard"
+          style={{ color: '#e55' }}
+        >
+          Clear Paths
+        </button>
+        <button
+          type="button"
+          className="top-gecko-btn"
           onClick={() => setGeckoModalOpen(true)}
           title="Configure Gecko Codes for recording"
         >
