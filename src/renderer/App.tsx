@@ -224,13 +224,13 @@ export default function App() {
     }
   }, [])
 
-  if (!config) {
-    return <LoadingScreen />
-  }
-
   const [wizardOpen, setWizardOpen] = useState(false)
 
   const triggerSetupWizard = () => setWizardOpen(true)
+
+  if (!config) {
+    return <LoadingScreen />
+  }
 
   return (
     <>

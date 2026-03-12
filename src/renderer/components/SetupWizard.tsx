@@ -98,7 +98,11 @@ export default function SetupWizard({
           <div className="setup-path-display" title={currentValue}>
             {currentValue || 'No path selected'}
           </div>
-          <button type="button" className="setup-browse-btn" onClick={handleBrowse}>
+          <button
+            type="button"
+            className="setup-browse-btn"
+            onClick={handleBrowse}
+          >
             Browse
           </button>
         </div>
@@ -106,20 +110,24 @@ export default function SetupWizard({
         {error && <div className="setup-error">{error}</div>}
 
         <div className="setup-actions">
-          <button
-            type="button"
-            className="setup-skip"
-            onClick={onDismiss}
-          >
+          <button type="button" className="setup-skip" onClick={onDismiss}>
             Skip
           </button>
           <div className="setup-nav">
             {stepIndex > 0 && (
-              <button type="button" className="setup-back-btn" onClick={handleBack}>
+              <button
+                type="button"
+                className="setup-back-btn"
+                onClick={handleBack}
+              >
                 Back
               </button>
             )}
-            <button type="button" className="setup-next-btn" onClick={handleNext}>
+            <button
+              type="button"
+              className="setup-next-btn"
+              onClick={handleNext}
+            >
               {isLast ? 'Finish' : 'Next'}
             </button>
           </div>
