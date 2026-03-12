@@ -160,6 +160,7 @@ export default class Controller {
   importStatus: ImportStatus
   activeVideoJob: VideoJobController | null
   activePlaybackProcess: ChildProcess | null
+  playbackAborted: boolean
   activeTmpDirs: Set<string>
   codeEditorWindow: BrowserWindow | null
   codeEditorContext: {
@@ -239,6 +240,7 @@ export default class Controller {
     this.nameCountWorker = null
     this.activeVideoJob = null
     this.activePlaybackProcess = null
+    this.playbackAborted = false
     this.activeTmpDirs = new Set()
     this.codeEditorWindow = null
     this.codeEditorContext = null
@@ -260,6 +262,7 @@ export default class Controller {
     }
 
     // Kill playback Dolphin process
+    this.playbackAborted = true
     if (this.activePlaybackProcess) {
       try {
         this.activePlaybackProcess.kill()
@@ -1436,6 +1439,40 @@ export default class Controller {
     }
   }
 
+  getAllResultIds(
+    event: IpcMainEvent,
+    data: RequestEnvelope<{ filterId: string }>,
+  ) {
+    const { requestId, payload } = unpackRequest<{ filterId: string }>(data)
+    if (!this.archive || !payload?.filterId) {
+      return reply(event, 'getAllResultIds', requestId, [])
+    }
+    try {
+      const ids = this.archive.getAllIds(payload.filterId)
+      reply(event, 'getAllResultIds', requestId, ids)
+    } catch (error) {
+      console.error('Error fetching all IDs:', error)
+      reply(event, 'getAllResultIds', requestId, [])
+    }
+  }
+
+  getTableDuration(
+    event: IpcMainEvent,
+    data: RequestEnvelope<{ filterId: string }>,
+  ) {
+    const { requestId, payload } = unpackRequest<{ filterId: string }>(data)
+    if (!this.archive || !payload?.filterId) {
+      return reply(event, 'getTableDuration', requestId, 0)
+    }
+    try {
+      const total = this.archive.getTableDuration(payload.filterId)
+      reply(event, 'getTableDuration', requestId, total)
+    } catch (error) {
+      console.error('Error calculating table duration:', error)
+      reply(event, 'getTableDuration', requestId, 0)
+    }
+  }
+
   private stopNameCountWorker() {
     if (!this.nameCountWorker) return
     const worker = this.nameCountWorker
@@ -1966,7 +2003,11 @@ export default class Controller {
     const items = await this.archive.getItemsByIds(payload.filterId, numericIds)
     if (!items || items.length === 0) return
 
+    this.playbackAborted = false
+    this.mainWindow.webContents.send('playbackStarted')
+
     for (const item of items) {
+      if (this.playbackAborted) break
       if (!('path' in item) || !item.path) continue
       const clipPayload: ClipPayload = {
         path: item.path as string,
@@ -1976,6 +2017,19 @@ export default class Controller {
         lastFrame: 'lastFrame' in item ? (item.lastFrame as number) : undefined,
       }
       await this.playClipAsync(clipPayload)
+    }
+
+    this.mainWindow.webContents.send('playbackDone')
+  }
+
+  stopPlayback() {
+    this.playbackAborted = true
+    if (this.activePlaybackProcess) {
+      try {
+        this.activePlaybackProcess.kill()
+      } catch (_) {
+        // empty
+      }
     }
   }
 
@@ -2905,6 +2959,8 @@ export default class Controller {
     ipcMain.on('saveCustomFilter', this.saveCustomFilter.bind(this))
     ipcMain.on('deleteCustomFilter', this.deleteCustomFilter.bind(this))
     ipcMain.on('getResults', this.getResults.bind(this))
+    ipcMain.on('getAllResultIds', this.getAllResultIds.bind(this))
+    ipcMain.on('getTableDuration', this.getTableDuration.bind(this))
     ipcMain.on('getNames', this.getNames.bind(this))
     ipcMain.on('getConnectCodes', this.getConnectCodes.bind(this))
     ipcMain.on('runFilter', this.runFilter.bind(this))
@@ -2921,6 +2977,7 @@ export default class Controller {
     ipcMain.on('cancelVideo', this.cancelVideo.bind(this))
     ipcMain.on('playClips', this.playClips.bind(this))
     ipcMain.on('playClip', this.playClip.bind(this))
+    ipcMain.on('stopPlayback', () => this.stopPlayback())
     ipcMain.on('recordClip', this.recordClip.bind(this))
     ipcMain.on('removeGame', this.removeGame.bind(this))
     ipcMain.on('removeResult', this.removeResult.bind(this))

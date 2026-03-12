@@ -19,6 +19,8 @@ import {
   getItems,
   getItemsLite,
   getAllFromTable,
+  getAllIds,
+  getTableDuration,
   getItemsByIds,
   updateMetaData,
   deleteFilter,
@@ -323,6 +325,14 @@ export default class Archive {
   async getItemsByIds(filterId: string, ids: number[]) {
     const response = await getItemsByIds(this.path, filterId, ids)
     return this.parseRows(filterId, response)
+  }
+
+  getAllIds(filterId: string): string[] {
+    return getAllIds(this.path, filterId)
+  }
+
+  getTableDuration(filterId: string): number {
+    return getTableDuration(this.path, filterId)
   }
 
   async getNames() {

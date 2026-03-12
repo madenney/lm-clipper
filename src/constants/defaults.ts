@@ -18,7 +18,7 @@ export const config = {
   shuffle: false,
   resolution: 2,
   playbackResolution: 2,
-  bitrateKbps: 15000,
+  bitrateKbps: 50000,
   addStartFrames: 0,
   addEndFrames: 0,
   lastClipOffset: 1,
