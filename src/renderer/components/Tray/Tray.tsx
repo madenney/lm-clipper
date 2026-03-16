@@ -37,6 +37,12 @@ type TrayProps = {
   setSelectionDuration: React.Dispatch<React.SetStateAction<number | null>>
   addStartFrames: number
   addEndFrames: number
+  onClipPlay?: (_payload: {
+    path: string
+    startFrame?: number
+    endFrame?: number
+    lastFrame?: number
+  }) => void
   onClipRecord?: (_clipId: string) => void
 }
 
@@ -62,6 +68,7 @@ export function Tray({
   setSelectionDuration,
   addStartFrames,
   addEndFrames,
+  onClipPlay,
   onClipRecord,
 }: TrayProps) {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -966,6 +973,7 @@ export function Tray({
                 e,
               )
             }}
+            onPlay={onClipPlay || undefined}
             onRecord={
               onClipRecord
                 ? () => {
@@ -999,6 +1007,7 @@ export function Tray({
             onClipMouseDown={handleClipMouseDown}
             onClipMouseEnter={handleClipMouseEnter}
             onClipDoubleClick={handleClipDoubleClick}
+            onClipPlay={onClipPlay}
             onClipRecord={onClipRecord}
             onBackgroundClick={() => {
               setSelectedIds(new Set())

@@ -25,12 +25,32 @@
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
 }
 
-.setup-step-indicator {
-  font-size: 12px;
-  color: #888;
+.setup-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 20px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid #2a2a2a;
+}
+
+.setup-header-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #999;
   text-transform: uppercase;
-  letter-spacing: 1px;
-  margin-bottom: 8px;
+  letter-spacing: 1.5px;
+}
+
+.setup-header-subtitle {
+  font-size: 11px;
+  color: #555;
+}
+
+.setup-step-indicator {
+  font-size: 11px;
+  color: #666;
+  margin-top: 2px;
 }
 
 .setup-title {
@@ -62,11 +82,15 @@
   border-radius: 6px;
   color: #ccc;
   font-size: 13px;
+  font-family: inherit;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  display: flex;
-  align-items: center;
+}
+
+.setup-path-display:focus {
+  outline: none;
+  border-color: #555;
 }
 
 .setup-browse-btn {
@@ -85,6 +109,165 @@
   border-color: #555;
 }
 
+/* Dolphin help box */
+.setup-dolphin-help {
+  background: #111;
+  border: 1px solid #333;
+  border-radius: 8px;
+  padding: 14px 16px;
+  margin-bottom: 16px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #999;
+}
+
+.setup-help-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: #ccc;
+  cursor: pointer;
+  text-align: left;
+}
+
+.setup-help-toggle:hover {
+  color: #eee;
+}
+
+.setup-help-arrow {
+  display: inline-block;
+  width: 0;
+  height: 0;
+  border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent;
+  border-left: 6px solid #888;
+  transition: transform 150ms ease;
+  flex-shrink: 0;
+}
+
+.setup-help-arrow-open {
+  transform: rotate(90deg);
+}
+
+.setup-help-body {
+  margin-top: 10px;
+}
+
+.setup-dev-platform-select {
+  margin-left: auto;
+  background: #1a1a1a;
+  border: 1px solid #444;
+  border-radius: 4px;
+  color: #888;
+  font-size: 11px;
+  padding: 2px 6px;
+  cursor: pointer;
+}
+
+.setup-help-body p {
+  margin: 0 0 8px;
+  color: #999;
+}
+
+.setup-help-path-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.setup-help-path {
+  flex: 1;
+  min-width: 0;
+  background: #222;
+  padding: 8px 12px;
+  border-radius: 4px;
+  color: #bbb;
+  font-size: 11px;
+  word-break: break-all;
+  user-select: all;
+}
+
+.setup-open-folder-btn {
+  background: none;
+  border: 1px solid #444;
+  border-radius: 4px;
+  padding: 4px 8px;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.setup-open-folder-btn:hover {
+  border-color: #666;
+  background: #2a2a2a;
+}
+
+.setup-folder-warning {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: #e5a54b;
+}
+
+/* Validation status */
+.setup-validation {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  font-size: 12px;
+  padding: 8px 12px;
+  border-radius: 6px;
+}
+
+.setup-validation-validating {
+  color: #8ab4f8;
+  background: rgba(138, 180, 248, 0.08);
+}
+
+.setup-validation-valid {
+  color: #4caf50;
+  background: rgba(76, 175, 80, 0.08);
+}
+
+.setup-validation-invalid {
+  color: #e55;
+  background: rgba(238, 85, 85, 0.08);
+}
+
+.setup-validation-spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid #8ab4f8;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: setupSpin 0.6s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes setupSpin {
+  to { transform: rotate(360deg); }
+}
+
+/* Disabled next button */
+.setup-next-btn-disabled {
+  background: #1a3a27;
+  border-color: #2a4a35;
+  color: #6a8a6f;
+  cursor: default;
+}
+
+.setup-next-btn-disabled:hover {
+  background: #1a3a27;
+}
+
 .setup-error {
   margin-top: 10px;
   font-size: 12px;
@@ -96,19 +279,6 @@
   align-items: center;
   justify-content: space-between;
   margin-top: 28px;
-}
-
-.setup-skip {
-  background: none;
-  border: none;
-  color: #666;
-  font-size: 13px;
-  cursor: pointer;
-  padding: 4px 0;
-}
-
-.setup-skip:hover {
-  color: #999;
 }
 
 .setup-nav {

@@ -1,6 +1,6 @@
 import { useState, Dispatch, SetStateAction, useEffect, useRef } from 'react'
 import { FaFolder, FaPlay, FaCircle } from 'react-icons/fa'
-import { FiTerminal } from 'react-icons/fi'
+import { FiTerminal, FiAlertTriangle } from 'react-icons/fi'
 
 import ipcBridge from 'renderer/ipcBridge'
 import { videoConfig } from 'constants/config'
@@ -134,7 +134,9 @@ type MainProps = {
   setArchive: Dispatch<SetStateAction<ShallowArchiveInterface | null>>
   config: ConfigInterface
   setConfig: Dispatch<SetStateAction<ConfigInterface | null>>
-  triggerSetupWizard: () => void
+  triggerSetupWizard: (_mode: 'play' | 'record') => void
+  pendingAction: 'play' | 'record' | null
+  clearPendingAction: () => void
 }
 
 export default function Main({
@@ -143,6 +145,8 @@ export default function Main({
   config,
   setConfig,
   triggerSetupWizard,
+  pendingAction,
+  clearPendingAction,
 }: MainProps) {
   const [leftWidth, setLeftWidth] = useState(580)
   const [activeFilterId, setActiveFilterId] = useState('files')
@@ -209,8 +213,21 @@ export default function Main({
     const removeFinished = window.electron.ipcRenderer.on(
       'videoJobFinished',
       () => {
-        setIsGenerating(false)
-        setVideoMsg('')
+        setVideoMsg((prev) => {
+          const wasCancelled = prev === 'Stopped.' || prev === 'Cancelled.'
+          if (wasCancelled) {
+            setTimeout(() => {
+              setIsGenerating(false)
+              setVideoMsg('')
+            }, 1000)
+          } else {
+            setTimeout(() => {
+              setIsGenerating(false)
+              setVideoMsg('')
+            }, 2000)
+          }
+          return wasCancelled ? prev : 'Done :)'
+        })
       },
     )
     const removeMsg = window.electron.ipcRenderer.on(
@@ -366,6 +383,39 @@ export default function Main({
         }
       }
       if (paths.length === 0) return
+
+      // Single file drop: check extension + name, then validate if suspicious
+      if (paths.length === 1) {
+        const p = paths[0]
+        const name = p.split(/[/\\]/).pop()?.toLowerCase() || ''
+        const ext = name.slice(name.lastIndexOf('.'))
+        const execExts = new Set(['.exe', '.appimage', '.app'])
+        const maybeIso = ext === '.iso' || ext === '.gcm'
+        const maybeDolphin =
+          execExts.has(ext) &&
+          (name.includes('dolphin') || name.includes('slippi'))
+
+        if (maybeDolphin) {
+          ipcBridge.validateDolphinPath(p, (result) => {
+            if (result.valid) {
+              setConfig((prev) => (prev ? { ...prev, dolphinPath: p } : prev))
+              ipcBridge.updateConfig({ key: 'dolphinPath', value: p })
+            }
+          })
+          return
+        }
+
+        if (maybeIso) {
+          ipcBridge.validateIsoPath(p, (result) => {
+            if (result.valid) {
+              setConfig((prev) => (prev ? { ...prev, ssbmIsoPath: p } : prev))
+              ipcBridge.updateConfig({ key: 'ssbmIsoPath', value: p })
+            }
+          })
+          return
+        }
+      }
+
       ipcBridge.importDroppedSlpFiles(paths, (newArchive) => {
         if (!newArchive || newArchive?.error) {
           console.error('Error importing dropped files: ', newArchive?.error)
@@ -482,7 +532,7 @@ export default function Main({
 
   function playClips() {
     if (!config.dolphinPath || !config.ssbmIsoPath) {
-      triggerSetupWizard()
+      triggerSetupWizard('play')
       return
     }
     ipcBridge.playClips({
@@ -497,7 +547,7 @@ export default function Main({
 
   function generateVideo() {
     if (!config.dolphinPath || !config.ssbmIsoPath || !config.outputPath) {
-      triggerSetupWizard()
+      triggerSetupWizard('record')
       return
     }
     setVideoLog([])
@@ -508,7 +558,31 @@ export default function Main({
     })
   }
 
+  useEffect(() => {
+    if (!pendingAction) return
+    clearPendingAction()
+    if (pendingAction === 'play') playClips()
+    else if (pendingAction === 'record') generateVideo()
+  }, [pendingAction]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  function handleClipPlay(payload: {
+    path: string
+    startFrame?: number
+    endFrame?: number
+    lastFrame?: number
+  }) {
+    if (!config.dolphinPath || !config.ssbmIsoPath) {
+      triggerSetupWizard('play')
+      return
+    }
+    ipcBridge.playClip(payload)
+  }
+
   function handleClipRecord(clipId: string) {
+    if (!config.dolphinPath || !config.ssbmIsoPath || !config.outputPath) {
+      triggerSetupWizard('record')
+      return
+    }
     setVideoLog([])
     setIsGenerating(true)
     ipcBridge.generateVideo({
@@ -585,6 +659,7 @@ export default function Main({
           setSelectionDuration={setSelectionDuration}
           addStartFrames={config.addStartFrames || 0}
           addEndFrames={config.addEndFrames || 0}
+          onClipPlay={handleClipPlay} // eslint-disable-line react/jsx-no-bind
           onClipRecord={handleClipRecord} // eslint-disable-line react/jsx-no-bind
         />
       </div>
@@ -596,8 +671,14 @@ export default function Main({
           title="Toggle recording console"
         >
           <FiTerminal />
-          {videoLog.length > 0 && (
-            <span className="footer-console-badge">{videoLog.length}</span>
+          {videoLog.some((m) => m.startsWith('Error:')) ? (
+            <span className="footer-console-error">
+              <FiAlertTriangle />
+            </span>
+          ) : (
+            videoLog.length > 0 && (
+              <span className="footer-console-badge">{videoLog.length}</span>
+            )
           )}
         </button>
         <div className="footer-section">
@@ -740,103 +821,139 @@ export default function Main({
           </div>
         </div>
         <div className="footer-right">
-          <div className="footer-status">
-            {!isGenerating && selectedIds.size > 0 ? (
-              <div className="footer-selection">
-                <span className="footer-selection-count">
-                  {selectedIds.size} {isShowingGames ? 'game' : 'clip'}
-                  {selectedIds.size !== 1 ? 's' : ''}
-                </span>
-                {selectionDuration !== null && selectionDuration > 0 && (
-                  <span className="footer-selection-duration">
-                    {isCalculatingDuration ? (
-                      <span className="footer-spinner" />
-                    ) : (
-                      formatDuration(selectionDuration)
-                    )}
-                  </span>
-                )}
-              </div>
-            ) : !isGenerating ? (
-              <span className="footer-no-selection">No clips selected</span>
-            ) : null}
-            {isGenerating && (
-              <div className="footer-generating">
-                <span className="footer-gen-spinner" />
-                {videoMsg ? (
-                  <span className="footer-gen-msg">
-                    {videoMsg === 'Concatenating clips...' ? (
-                      <span className="footer-dots-anim">Merging videos</span>
-                    ) : (
-                      videoMsg
-                    )}
-                  </span>
-                ) : (
-                  <span className="footer-gen-msg">
-                    <span className="footer-dots-anim">Starting</span>
-                  </span>
-                )}
-              </div>
-            )}
-          </div>
           {isGenerating ? (
-            <div className="footer-action-group">
-              <Tooltip
-                text="Stop after the current clip finishes — keeps all completed clips"
-                offsetX={-80}
-              >
-                <button
-                  type="button"
-                  className="stop-button"
-                  onClick={stopVideo}
+            <>
+              <div className="footer-gen-status">
+                {videoMsg !== 'Done :)' && (
+                  <span className="footer-gen-spinner" />
+                )}
+                <span className="footer-gen-msg">
+                  {videoMsg === 'Done :)' ? (
+                    'Done :)'
+                  ) : videoMsg === 'Concatenating clips...' ? (
+                    <span className="footer-dots-anim">Merging videos</span>
+                  ) : videoMsg &&
+                    /^(recording|encoding) \d+\/\d+$/.test(videoMsg) ? (
+                    <>
+                      <span className="footer-gen-label footer-dots-anim">
+                        {videoMsg.startsWith('recording')
+                          ? 'Recording'
+                          : 'Encoding'}
+                      </span>
+                      <span className="footer-gen-progress">
+                        {videoMsg.replace(/^\w+ /, '')}{' '}
+                        {isShowingGames ? 'games' : 'clips'}
+                      </span>
+                    </>
+                  ) : videoMsg === 'Configuring Dolphin...' ? (
+                    <span className="footer-dots-anim">
+                      Configuring Dolphin
+                    </span>
+                  ) : (
+                    videoMsg || (
+                      <span className="footer-dots-anim">Starting</span>
+                    )
+                  )}
+                </span>
+              </div>
+              <div className="footer-action-group">
+                <Tooltip
+                  text="Stop after the current clip finishes — keeps all completed clips"
+                  offsetX={-80}
                 >
-                  Stop
-                </button>
-              </Tooltip>
-              <Tooltip
-                text="Cancel immediately — kills active Dolphin processes and discards in-progress clips"
-                offsetX={-120}
-              >
-                <button
-                  type="button"
-                  className="cancel-button"
-                  onClick={cancelVideo}
-                >
-                  Cancel
-                </button>
-              </Tooltip>
-            </div>
-          ) : (
-            <div className="footer-action-group">
-              {isPlaying ? (
-                <Tooltip text="Stop playback and close Dolphin" offsetX={-60}>
                   <button
                     type="button"
                     className="stop-button"
-                    onClick={stopPlayback}
+                    onClick={stopVideo}
                   >
                     Stop
                   </button>
                 </Tooltip>
-              ) : (
+                <Tooltip
+                  text="Cancel immediately — kills active Dolphin processes and discards in-progress clips"
+                  offsetX={-120}
+                >
+                  <button
+                    type="button"
+                    className="cancel-button"
+                    onClick={cancelVideo}
+                  >
+                    Cancel
+                  </button>
+                </Tooltip>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="footer-status">
+                {selectedIds.size > 0 ? (
+                  <div className="footer-selection">
+                    <span className="footer-selection-count">
+                      {selectedIds.size} {isShowingGames ? 'game' : 'clip'}
+                      {selectedIds.size !== 1 ? 's' : ''}
+                    </span>
+                    {selectionDuration !== null && selectionDuration > 0 && (
+                      <span className="footer-selection-duration">
+                        {isCalculatingDuration ? (
+                          <span className="footer-spinner" />
+                        ) : (
+                          formatDuration(selectionDuration)
+                        )}
+                      </span>
+                    )}
+                  </div>
+                ) : (
+                  <span className="footer-no-selection">No clips selected</span>
+                )}
+              </div>
+              {videoLog.length > 0 &&
+                videoLog.some((m) => m.startsWith('Error:')) && (
+                  <div
+                    className="footer-error"
+                    title={videoLog.find((m) => m.startsWith('Error:'))}
+                  >
+                    <FiAlertTriangle /> Error — check console
+                    <button
+                      type="button"
+                      className="footer-error-dismiss"
+                      onClick={() => setVideoLog([])}
+                    >
+                      &times;
+                    </button>
+                  </div>
+                )}
+              <div className="footer-action-group">
                 <button
                   type="button"
                   className="footer-action-button"
                   onClick={playClips}
-                  disabled={selectedIds.size === 0}
+                  disabled={selectedIds.size === 0 || isPlaying}
                 >
                   <FaPlay className="footer-icon footer-icon--play" /> Play
                 </button>
-              )}
-              <button
-                type="button"
-                className="footer-action-button"
-                onClick={generateVideo}
-                disabled={selectedIds.size === 0 || isPlaying}
-              >
-                <FaCircle className="footer-icon footer-icon--record" /> Record
-              </button>
-            </div>
+                {isPlaying ? (
+                  <Tooltip text="Stop playback and close Dolphin" offsetX={-60}>
+                    <button
+                      type="button"
+                      className="cancel-button"
+                      onClick={stopPlayback}
+                    >
+                      Stop
+                    </button>
+                  </Tooltip>
+                ) : (
+                  <button
+                    type="button"
+                    className="footer-action-button"
+                    onClick={generateVideo}
+                    disabled={selectedIds.size === 0}
+                  >
+                    <FaCircle className="footer-icon footer-icon--record" />{' '}
+                    Record
+                  </button>
+                )}
+              </div>
+            </>
           )}
         </div>
         {videoOutputPaths.length > 0 && (

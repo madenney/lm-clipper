@@ -224,9 +224,12 @@ export default function App() {
     }
   }, [])
 
-  const [wizardOpen, setWizardOpen] = useState(false)
+  const [wizardMode, setWizardMode] = useState<'play' | 'record' | null>(null)
+  const [pendingAction, setPendingAction] = useState<'play' | 'record' | null>(
+    null,
+  )
 
-  const triggerSetupWizard = () => setWizardOpen(true)
+  const triggerSetupWizard = (mode: 'play' | 'record') => setWizardMode(mode)
 
   if (!config) {
     return <LoadingScreen />
@@ -240,11 +243,15 @@ export default function App() {
           onDismiss={() => setUpdateStatus(null)}
         />
       )}
-      {wizardOpen && (
+      {wizardMode && (
         <SetupWizard
           config={config}
           setConfig={setConfig}
-          onDismiss={() => setWizardOpen(false)}
+          mode={wizardMode}
+          onDismiss={(completed) => {
+            if (completed) setPendingAction(wizardMode)
+            setWizardMode(null)
+          }}
         />
       )}
       <Main
@@ -253,6 +260,8 @@ export default function App() {
         config={config}
         setConfig={setConfig}
         triggerSetupWizard={triggerSetupWizard}
+        pendingAction={pendingAction}
+        clearPendingAction={() => setPendingAction(null)}
       />
     </>
   )

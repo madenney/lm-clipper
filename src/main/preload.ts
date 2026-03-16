@@ -31,6 +31,7 @@ const electronHandler = {
 }
 
 contextBridge.exposeInMainWorld('electron', electronHandler)
+contextBridge.exposeInMainWorld('electronPlatform', process.platform)
 contextBridge.exposeInMainWorld('electronWebUtils', {
   getPathForFile: (file: File) => webUtils.getPathForFile(file),
 })
