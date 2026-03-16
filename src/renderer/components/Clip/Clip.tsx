@@ -22,7 +22,6 @@ import {
   getStageName,
   getPlayerLabel,
 } from '../../lib/clipAssets'
-import ipcBridge from '../../ipcBridge'
 import {
   getPlayers,
   getClipPayload,
@@ -39,6 +38,12 @@ type ClipProps = {
   onMouseDown?: (_e: React.MouseEvent) => void
   onDoubleClick?: (_e: React.MouseEvent) => void
   onMouseEnter?: () => void
+  onPlay?: (_payload: {
+    path: string
+    startFrame?: number
+    endFrame?: number
+    lastFrame?: number
+  }) => void
   onRecord?: () => void
 }
 
@@ -51,6 +56,7 @@ function ClipComponent({
   onMouseDown,
   onDoubleClick,
   onMouseEnter,
+  onPlay,
   onRecord,
 }: ClipProps) {
   const [player1, player2] = getPlayers(data)
@@ -82,9 +88,8 @@ function ClipComponent({
   const preventDrag = (e: React.DragEvent) => e.preventDefault()
 
   // Handlers
-  const handlePlay = clipPayload
-    ? () => ipcBridge.playClip(clipPayload)
-    : undefined
+  const handlePlay =
+    onPlay && clipPayload ? () => onPlay(clipPayload) : undefined
   const handleRecord = onRecord || undefined
 
   const handlePlayClick = (e: MouseEvent) => {

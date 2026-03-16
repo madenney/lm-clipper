@@ -282,6 +282,35 @@
   }
 }
 
+.footer-error {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: #c44;
+  flex-shrink: 0;
+  padding: 2px 8px;
+  background: rgba(204, 68, 68, 0.08);
+  border: 1px solid rgba(204, 68, 68, 0.2);
+  border-radius: 4px;
+  cursor: default;
+}
+
+.footer-error-dismiss {
+  background: none;
+  border: none;
+  color: #c44;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 0 0 4px;
+  opacity: 0.6;
+}
+
+.footer-error-dismiss:hover {
+  opacity: 1;
+}
+
 .footer-action-group {
   display: flex;
   gap: 4px;
@@ -289,7 +318,8 @@
 }
 
 .footer-action-button,
-.footer-action-group .stop-button {
+.footer-action-group .stop-button,
+.footer-action-group .cancel-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -301,7 +331,8 @@
   font-size: 16px;
   font-weight: 600;
   padding: 10px 20px;
-  min-width: 90px;
+  width: 110px;
+  box-sizing: border-box;
   cursor: pointer;
   transition: all 120ms ease;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
@@ -342,6 +373,7 @@
 
 .footer-icon--record {
   color: #e53935;
+  font-size: 18px;
 }
 
 .footer-action-group .stop-button {
@@ -358,14 +390,7 @@
 .stop-button {
   background: linear-gradient(180deg, #b8860b 0%, #8b6508 100%);
   border: 1px solid #d4a017;
-  border-radius: 6px;
   color: #fff;
-  font-size: 14px;
-  font-weight: 600;
-  padding: 10px 20px;
-  cursor: pointer;
-  transition: all 120ms ease;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
 }
 
 .stop-button:hover {
@@ -383,14 +408,7 @@
 .cancel-button {
   background: linear-gradient(180deg, #8b2020 0%, #6b1515 100%);
   border: 1px solid #a52a2a;
-  border-radius: 6px;
   color: #fff;
-  font-size: 14px;
-  font-weight: 600;
-  padding: 10px 20px;
-  cursor: pointer;
-  transition: all 120ms ease;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
 }
 
 .cancel-button:hover {
@@ -405,11 +423,13 @@
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
 }
 
-.footer-generating {
+.footer-gen-status {
   display: flex;
   align-items: center;
   gap: 10px;
+  flex: 1;
   min-width: 0;
+  justify-content: flex-end;
 }
 
 .footer-gen-spinner {
@@ -515,6 +535,9 @@
 
 .footer-dots-anim::after {
   content: '';
+  display: inline-block;
+  width: 1.5ch;
+  text-align: left;
   animation: dots 1.5s steps(4, end) infinite;
 }
 
@@ -523,6 +546,16 @@
   25% { content: '.'; }
   50% { content: '..'; }
   75% { content: '...'; }
+}
+
+.footer-gen-label {
+  display: inline-block;
+  width: 12ch;
+}
+
+.footer-gen-progress {
+  color: #888;
+  font-size: 11px;
 }
 
 /* Console Button */
@@ -570,6 +603,15 @@
 .footer-console-btn--active .footer-console-badge {
   background: #2a5a30;
   color: #7fcf7f;
+}
+
+.footer-console-error {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  font-size: 16px;
+  color: #e55;
+  stroke-width: 3;
 }
 
 /* Console Panel */

@@ -187,6 +187,7 @@ export default class Controller {
       ...defaultConfig.savedCustomFilters,
       ...userTemplates,
     ]
+    this.ensureDefaultOutputPath()
     if (this.config.lastArchivePath === '') {
       this.config.lastArchivePath = null
     }
@@ -410,6 +411,25 @@ export default class Controller {
   async getConfig(event: IpcMainEvent, data?: RequestEnvelope<null>) {
     const { requestId } = unpackRequest<null>(data)
     reply(event, 'config', requestId, this.config)
+  }
+
+  async setDefaultOutputPath(
+    event: IpcMainEvent,
+    data?: RequestEnvelope<null>,
+  ) {
+    const { requestId } = unpackRequest<null>(data)
+    this.ensureDefaultOutputPath()
+    reply(event, 'setDefaultOutputPath', requestId, this.config.outputPath)
+  }
+
+  private ensureDefaultOutputPath() {
+    if (!this.config.outputPath) {
+      this.config.outputPath = path.join(
+        app.getPath('videos') || app.getPath('home'),
+        'LM Clipper',
+      )
+      fs.writeFileSync(this.configPath, JSON.stringify(this.config, null, 2))
+    }
   }
 
   async updateConfig(
@@ -1939,16 +1959,210 @@ export default class Controller {
 
   async getPath(
     event: IpcMainEvent,
-    data: RequestEnvelope<'openFile' | 'openDirectory'>,
+    data: RequestEnvelope<
+      | 'openFile'
+      | 'openDirectory'
+      | { type: 'openFile' | 'openDirectory'; defaultPath?: string }
+    >,
   ) {
-    const { requestId, payload } = unpackRequest<'openFile' | 'openDirectory'>(
-      data,
-    )
-    const { canceled, filePaths } = await dialog.showOpenDialog({
-      properties: [payload || 'openFile'],
-    })
+    const { requestId, payload } = unpackRequest<
+      | 'openFile'
+      | 'openDirectory'
+      | { type: 'openFile' | 'openDirectory'; defaultPath?: string }
+    >(data)
+    const type =
+      typeof payload === 'string' ? payload : payload?.type || 'openFile'
+    const defaultPath =
+      typeof payload === 'object' ? payload?.defaultPath : undefined
+    const opts: dialog.OpenDialogOptions = { properties: [type] }
+    if (defaultPath) {
+      let resolved = defaultPath
+      if (resolved.startsWith('~')) {
+        resolved = path.join(os.homedir(), resolved.slice(1))
+      }
+      if (resolved.includes('%APPDATA%')) {
+        resolved = resolved.replace('%APPDATA%', app.getPath('appData') || '')
+      }
+      if (fs.existsSync(resolved)) {
+        opts.defaultPath = resolved
+      }
+    }
+    const { canceled, filePaths } = await dialog.showOpenDialog(opts)
     if (canceled) return reply(event, 'getPath', requestId)
     return reply(event, 'getPath', requestId, filePaths[0])
+  }
+
+  async detectDolphinPath(event: IpcMainEvent, data: RequestEnvelope<null>) {
+    const { requestId } = unpackRequest<null>(data)
+    const candidates: string[] = []
+    const platform = os.platform()
+
+    if (platform === 'linux') {
+      candidates.push(
+        path.join(
+          app.getPath('appData'),
+          'Slippi Launcher',
+          'playback',
+          'Slippi_Playback-x86_64.AppImage',
+        ),
+      )
+    } else if (platform === 'win32') {
+      candidates.push(
+        path.join(
+          app.getPath('appData'),
+          'Slippi Launcher',
+          'playback',
+          'Slippi Dolphin.exe',
+        ),
+      )
+    } else if (platform === 'darwin') {
+      candidates.push(
+        path.join(
+          app.getPath('appData'),
+          'Slippi Launcher',
+          'playback',
+          'Slippi Dolphin.app',
+        ),
+      )
+    }
+
+    for (const candidate of candidates) {
+      try {
+        await fsPromises.access(candidate)
+        return reply(event, 'detectDolphinPath', requestId, candidate)
+      } catch {
+        // not found, try next
+      }
+    }
+
+    return reply(event, 'detectDolphinPath', requestId, null)
+  }
+
+  async validateDolphinPath(
+    event: IpcMainEvent,
+    data: RequestEnvelope<string>,
+  ) {
+    const { requestId, payload: dolphinPath } = unpackRequest<string>(data)
+
+    if (!dolphinPath) {
+      return reply(event, 'validateDolphinPath', requestId, {
+        valid: false,
+        message: 'No path provided.',
+      })
+    }
+
+    try {
+      await fsPromises.access(dolphinPath)
+    } catch {
+      return reply(event, 'validateDolphinPath', requestId, {
+        valid: false,
+        message: 'File does not exist at this path.',
+      })
+    }
+
+    try {
+      const output = await new Promise<string>((resolve, reject) => {
+        const proc = spawn(dolphinPath, ['-h'], { timeout: 10000 })
+        let out = ''
+        proc.stdout?.on('data', (chunk: Buffer) => {
+          out += chunk.toString()
+        })
+        proc.stderr?.on('data', (chunk: Buffer) => {
+          out += chunk.toString()
+        })
+        proc.on('close', () => resolve(out))
+        proc.on('error', (err) => reject(err))
+      })
+
+      if (output.includes('--hide-seekbar')) {
+        return reply(event, 'validateDolphinPath', requestId, {
+          valid: true,
+          message: 'Slippi Dolphin Playback detected.',
+        })
+      }
+
+      // Has Slippi flags but not playback-specific ones — likely the netplay build
+      if (output.includes('slippi') || output.includes('Slippi')) {
+        return reply(event, 'validateDolphinPath', requestId, {
+          valid: false,
+          message:
+            'This appears to be Slippi Dolphin Online/Netplay, not the Playback build. LM Clipper requires the Playback build.',
+        })
+      }
+
+      return reply(event, 'validateDolphinPath', requestId, {
+        valid: false,
+        message:
+          'This does not appear to be Slippi Dolphin Playback. Make sure you select the Playback build, not regular Dolphin.',
+      })
+    } catch {
+      return reply(event, 'validateDolphinPath', requestId, {
+        valid: false,
+        message:
+          'Could not run this file. Make sure it is an executable Dolphin binary.',
+      })
+    }
+  }
+
+  async validateIsoPath(event: IpcMainEvent, data: RequestEnvelope<string>) {
+    const { requestId, payload: isoPath } = unpackRequest<string>(data)
+
+    if (!isoPath) {
+      return reply(event, 'validateIsoPath', requestId, {
+        valid: false,
+        message: 'No path provided.',
+      })
+    }
+
+    try {
+      await fsPromises.access(isoPath)
+    } catch {
+      return reply(event, 'validateIsoPath', requestId, {
+        valid: false,
+        message: 'File does not exist at this path.',
+      })
+    }
+
+    try {
+      const fd = await fsPromises.open(isoPath, 'r')
+      const buf = Buffer.alloc(6)
+      await fd.read(buf, 0, 6, 0)
+      await fd.close()
+      const gameId = buf.toString('ascii')
+
+      if (gameId === 'GALE01') {
+        return reply(event, 'validateIsoPath', requestId, {
+          valid: true,
+          message: 'NTSC Melee ISO detected (GALE01).',
+        })
+      }
+
+      if (gameId === 'GALP01') {
+        return reply(event, 'validateIsoPath', requestId, {
+          valid: false,
+          message:
+            'This is a PAL Melee ISO (GALP01). Slippi requires the NTSC version (GALE01).',
+        })
+      }
+
+      if (gameId === 'GALJ01') {
+        return reply(event, 'validateIsoPath', requestId, {
+          valid: false,
+          message:
+            'This is a Japanese Melee ISO (GALJ01). Slippi requires the NTSC version (GALE01).',
+        })
+      }
+
+      return reply(event, 'validateIsoPath', requestId, {
+        valid: false,
+        message: `This does not appear to be a Melee ISO (got game ID "${gameId}"). Select an NTSC SSBM ISO (GALE01).`,
+      })
+    } catch {
+      return reply(event, 'validateIsoPath', requestId, {
+        valid: false,
+        message: 'Could not read this file. Make sure it is a valid .iso file.',
+      })
+    }
   }
 
   async logPerfEvents(_event: IpcMainEvent, data: RequestEnvelope<any>) {
@@ -2003,12 +2217,16 @@ export default class Controller {
     const items = await this.archive.getItemsByIds(payload.filterId, numericIds)
     if (!items || items.length === 0) return
 
+    const playable = items.filter(
+      (item) => 'path' in item && Boolean(item.path),
+    )
+    if (playable.length === 0) return
+
     this.playbackAborted = false
     this.mainWindow.webContents.send('playbackStarted')
 
-    for (const item of items) {
+    for (const item of playable) {
       if (this.playbackAborted) break
-      if (!('path' in item) || !item.path) continue
       const clipPayload: ClipPayload = {
         path: item.path as string,
         startFrame:
@@ -2213,10 +2431,14 @@ export default class Controller {
       return reply(event, 'playClip', requestId)
     }
 
+    this.playbackAborted = false
+    this.mainWindow.webContents.send('playbackStarted')
+
     await this.playClipAsync(payload, (msg) => {
       this.mainWindow.webContents.send('videoMsg', msg)
     })
 
+    this.mainWindow.webContents.send('playbackDone')
     return reply(event, 'playClip', requestId)
   }
 
@@ -2264,11 +2486,11 @@ export default class Controller {
     }
 
     try {
-      await fsPromises.access(outputPath)
+      await fsPromises.mkdir(outputPath, { recursive: true })
     } catch (err) {
       this.mainWindow.webContents.send(
         'videoMsg',
-        `Error: Could not access given output path ${outputPath} `,
+        `Error: Could not create output directory ${outputPath} `,
       )
       return reply(event, 'recordClip', requestId)
     }
@@ -2360,13 +2582,12 @@ export default class Controller {
 
     const effectiveNumCPUs = numCPUs || 1
 
-    // check if output directory exist
     try {
-      await fsPromises.access(outputPath)
+      await fsPromises.mkdir(outputPath, { recursive: true })
     } catch (err) {
       this.mainWindow.webContents.send(
         'videoMsg',
-        `Error: Could not access given output path ${outputPath} `,
+        `Error: Could not create output directory ${outputPath} `,
       )
       return reply(event, 'generateVideo', requestId)
     }
@@ -2938,6 +3159,7 @@ export default class Controller {
   initiateListeners() {
     ipcMain.on('getConfig', this.getConfig.bind(this))
     ipcMain.on('updateConfig', this.updateConfig.bind(this))
+    ipcMain.on('setDefaultOutputPath', this.setDefaultOutputPath.bind(this))
     ipcMain.on('getDirectory', this.getDirectory.bind(this))
     ipcMain.on('getArchive', this.getArchive.bind(this))
     ipcMain.on('getImportStatus', this.getImportStatus.bind(this))
@@ -2972,6 +3194,9 @@ export default class Controller {
     ipcMain.on('stopFilter', this.stopFilter.bind(this))
     ipcMain.on('cancelFilter', this.cancelFilter.bind(this))
     ipcMain.on('getPath', this.getPath.bind(this))
+    ipcMain.on('detectDolphinPath', this.detectDolphinPath.bind(this))
+    ipcMain.on('validateDolphinPath', this.validateDolphinPath.bind(this))
+    ipcMain.on('validateIsoPath', this.validateIsoPath.bind(this))
     ipcMain.on('generateVideo', this.generateVideo.bind(this))
     ipcMain.on('stopVideo', this.stopVideo.bind(this))
     ipcMain.on('cancelVideo', this.cancelVideo.bind(this))
@@ -2993,6 +3218,33 @@ export default class Controller {
         if (err) console.error('shell.openPath failed:', err)
       })
     })
+    ipcMain.on(
+      'openDolphinFolder',
+      (event: IpcMainEvent, data: RequestEnvelope<string>) => {
+        const { requestId, payload: rawPath } = unpackRequest<string>(data)
+        if (!rawPath) {
+          return reply(event, 'openDolphinFolder', requestId, {
+            found: false,
+          })
+        }
+        let resolved = rawPath
+        if (resolved.startsWith('~')) {
+          resolved = path.join(os.homedir(), resolved.slice(1))
+        }
+        if (resolved.includes('%APPDATA%')) {
+          resolved = resolved.replace('%APPDATA%', app.getPath('appData') || '')
+        }
+        if (!fs.existsSync(resolved)) {
+          return reply(event, 'openDolphinFolder', requestId, {
+            found: false,
+          })
+        }
+        shell.openPath(resolved).then((err) => {
+          if (err) console.error('shell.openPath failed:', err)
+        })
+        return reply(event, 'openDolphinFolder', requestId, { found: true })
+      },
+    )
     ipcMain.on('getLogsPath', (event: IpcMainEvent) => {
       event.reply('logsPath', getLogPath())
     })

@@ -122,6 +122,8 @@ const processOneReplay = async (
   replay: ReplayInterface,
   config: ConfigInterface & { numProcesses: number; gameMusicOn: boolean },
   signal: VideoSignal,
+  onRecorded?: () => void,
+  onError?: (_msg: string) => void,
 ): Promise<boolean> => {
   const outputPattern = config.outputFilenamePattern || '{index}'
   const resolvedName = resolveFilenamePattern(outputPattern, replay)
@@ -143,6 +145,7 @@ const processOneReplay = async (
     await fsPromises.access(replay.path)
   } catch {
     logMain('record: replay file not found', { path: replay.path })
+    onError?.(`Error: Replay file not found: ${replay.path}`)
     return false
   }
 
@@ -151,6 +154,7 @@ const processOneReplay = async (
     game = new SlippiGame(replay.path)
   } catch (e) {
     logMain('record: broken/unreadable replay file', { path: replay.path })
+    onError?.(`Error: Could not read replay: ${replay.path}`)
     return false
   }
 
@@ -166,7 +170,8 @@ const processOneReplay = async (
   } else if (replay.endFrame > 0) {
     endFrame = replay.endFrame
   } else {
-    console.log('Cannot determine game length:', replay.path)
+    logMain('record: cannot determine game length', { path: replay.path })
+    onError?.(`Error: Cannot determine game length: ${replay.path}`)
     return false
   }
 
@@ -225,6 +230,8 @@ const processOneReplay = async (
   })
 
   if (signal.stopped || signal.cancelled) return false
+
+  onRecorded?.()
 
   // 3. Merge video and audio with ffmpeg
   const ffmpegMergeArgs = [
@@ -360,19 +367,37 @@ const processReplays = async (
   signal: VideoSignal,
 ) => {
   const queue = [...replays]
-  let completed = 0
+  const total = replays.length
+  const progress = { recorded: 0, encoded: 0 }
 
-  eventEmitter(`0/${replays.length} clips`)
+  const emitStatus = () => {
+    if (progress.recorded < total) {
+      eventEmitter(`recording ${progress.recorded}/${total}`)
+    } else {
+      eventEmitter(`encoding ${progress.encoded}/${total}`)
+    }
+  }
+  emitStatus()
 
+  const onRecorded = () => {
+    progress.recorded += 1
+    emitStatus()
+  }
   const worker = async () => {
     let replay = queue.shift()
     while (replay !== undefined) {
       if (signal.stopped || signal.cancelled) break
-      const ok = await processOneReplay(replay, config, signal)
+      const ok = await processOneReplay(
+        replay,
+        config,
+        signal,
+        onRecorded,
+        eventEmitter,
+      )
       if (!ok && (signal.stopped || signal.cancelled)) break
       if (ok) {
-        completed += 1
-        eventEmitter(`${completed}/${replays.length} clips`)
+        progress.encoded += 1
+        emitStatus()
       }
       replay = queue.shift()
     }

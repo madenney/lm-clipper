@@ -38,6 +38,12 @@ type DomLayerProps = {
   ) => void
   onClipMouseEnter: (_index: number) => void
   onClipDoubleClick?: (_index: number, _clipId: string) => void
+  onClipPlay?: (_payload: {
+    path: string
+    startFrame?: number
+    endFrame?: number
+    lastFrame?: number
+  }) => void
   onClipRecord?: (_clipId: string) => void
   onBackgroundClick: () => void
   startIndex?: number // For pagination - offset to add to local indices
@@ -63,6 +69,7 @@ const MemoClip = memo(
     onMouseDown,
     onDoubleClick,
     onMouseEnter,
+    onPlay,
     onRecord,
   }: {
     data: ClipData
@@ -73,6 +80,12 @@ const MemoClip = memo(
     onMouseDown: (_e: React.MouseEvent) => void
     onDoubleClick?: (_e: React.MouseEvent) => void
     onMouseEnter: () => void
+    onPlay?: (_payload: {
+      path: string
+      startFrame?: number
+      endFrame?: number
+      lastFrame?: number
+    }) => void
     onRecord?: () => void
   }) {
     return (
@@ -85,6 +98,7 @@ const MemoClip = memo(
         onMouseDown={onMouseDown}
         onDoubleClick={onDoubleClick}
         onMouseEnter={onMouseEnter}
+        onPlay={onPlay}
         onRecord={onRecord}
       />
     )
@@ -114,6 +128,7 @@ export function DomLayer({
   onClipMouseDown,
   onClipMouseEnter,
   onClipDoubleClick,
+  onClipPlay,
   onClipRecord,
   onBackgroundClick,
   startIndex = 0,
@@ -236,6 +251,8 @@ export function DomLayer({
   onClipMouseEnterRef.current = onClipMouseEnter
   const onClipDoubleClickRef = useRef(onClipDoubleClick)
   onClipDoubleClickRef.current = onClipDoubleClick
+  const onClipPlayRef = useRef(onClipPlay)
+  onClipPlayRef.current = onClipPlay
   const onClipRecordRef = useRef(onClipRecord)
   onClipRecordRef.current = onClipRecord
 
@@ -273,6 +290,14 @@ export function DomLayer({
       const handleDoubleClick = onClipDoubleClickRef.current
         ? () => onClipDoubleClickRef.current?.(globalIndex, clipId)
         : undefined
+      const handlePlay = onClipPlayRef.current
+        ? (payload: {
+            path: string
+            startFrame?: number
+            endFrame?: number
+            lastFrame?: number
+          }) => onClipPlayRef.current?.(payload)
+        : undefined
       const handleRecord = onClipRecordRef.current
         ? () => onClipRecordRef.current?.(clipId)
         : undefined
@@ -297,6 +322,7 @@ export function DomLayer({
             onMouseDown={handleMouseDown}
             onDoubleClick={handleDoubleClick}
             onMouseEnter={handleMouseEnter}
+            onPlay={handlePlay}
             onRecord={handleRecord}
           />,
         )
@@ -322,6 +348,7 @@ export function DomLayer({
             onMouseDown={handleMouseDown}
             onDoubleClick={handleDoubleClick}
             onMouseEnter={handleMouseEnter}
+            onPlay={handlePlay}
             onRecord={handleRecord}
           />,
         )

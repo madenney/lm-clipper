@@ -18,7 +18,6 @@ import {
   getPlayerLabel,
   getCharacterName,
 } from '../../lib/clipAssets'
-import ipcBridge from '../../ipcBridge'
 import { moves } from '../../../constants/moves'
 import {
   getPlayers,
@@ -31,6 +30,12 @@ type FullCardProps = {
   data: ClipData
   isSelected?: boolean
   onMouseDown?: (_e: React.MouseEvent) => void
+  onPlay?: (_payload: {
+    path: string
+    startFrame?: number
+    endFrame?: number
+    lastFrame?: number
+  }) => void
   onRecord?: () => void
   onClose?: () => void
 }
@@ -128,6 +133,7 @@ function FullCardComponent({
   data,
   isSelected,
   onMouseDown,
+  onPlay,
   onRecord,
   onClose,
 }: FullCardProps) {
@@ -179,9 +185,8 @@ function FullCardComponent({
       : null
 
   // Handlers
-  const handlePlay = clipPayload
-    ? () => ipcBridge.playClip(clipPayload)
-    : undefined
+  const handlePlay =
+    onPlay && clipPayload ? () => onPlay(clipPayload) : undefined
   const handleRecord = onRecord || undefined
 
   const handlePlayClick = (e: MouseEvent) => {

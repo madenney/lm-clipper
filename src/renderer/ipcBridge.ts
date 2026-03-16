@@ -102,6 +102,14 @@ export default {
   getConfig(handler?: ResponseHandler<any>) {
     return request('getConfig', null, 'config', handler)
   },
+  setDefaultOutputPath(handler?: ResponseHandler<string>) {
+    return request(
+      'setDefaultOutputPath',
+      null,
+      'setDefaultOutputPath',
+      handler,
+    )
+  },
   getArchive(handler?: ResponseHandler<any>) {
     return request('getArchive', null, 'archive', handler)
   },
@@ -246,8 +254,45 @@ export default {
   }) {
     return send('updateConfig', config)
   },
-  getPath(type: 'openFile' | 'openDirectory', handler?: ResponseHandler<any>) {
-    return request('getPath', type, 'getPath', handler)
+  getPath(
+    typeOrOpts:
+      | 'openFile'
+      | 'openDirectory'
+      | { type: 'openFile' | 'openDirectory'; defaultPath?: string },
+    handler?: ResponseHandler<any>,
+  ) {
+    return request('getPath', typeOrOpts, 'getPath', handler)
+  },
+  openDolphinFolder(
+    folderPath: string,
+    handler?: ResponseHandler<{ found: boolean }>,
+  ) {
+    return request(
+      'openDolphinFolder',
+      folderPath,
+      'openDolphinFolder',
+      handler,
+    )
+  },
+  detectDolphinPath(handler?: ResponseHandler<string | null>) {
+    return request('detectDolphinPath', null, 'detectDolphinPath', handler)
+  },
+  validateDolphinPath(
+    dolphinPath: string,
+    handler?: ResponseHandler<{ valid: boolean; message: string }>,
+  ) {
+    return request(
+      'validateDolphinPath',
+      dolphinPath,
+      'validateDolphinPath',
+      handler,
+    )
+  },
+  validateIsoPath(
+    isoPath: string,
+    handler?: ResponseHandler<{ valid: boolean; message: string }>,
+  ) {
+    return request('validateIsoPath', isoPath, 'validateIsoPath', handler)
   },
   generateVideo(
     payload: { filterId: string; selectedIds: string[] },
