@@ -283,6 +283,7 @@ export default function Filters({
 
   function runFilter(filter: ShallowFilterInterface) {
     if (!archive) return
+    setActiveFilterId(filter.id)
     setFilterMsgs((prev) => {
       const updated = { ...prev }
       delete updated[filter.id]
@@ -1564,6 +1565,7 @@ export default function Filters({
                             key={entry.id}
                             value={entry.id}
                             disabled={needsParser}
+                            title={entry.tooltip || ''}
                           >
                             {entry.shortName || entry.name}
                             {needsParser ? ' (requires combo parser)' : ''}

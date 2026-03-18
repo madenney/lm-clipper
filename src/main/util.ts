@@ -52,6 +52,24 @@ export function createOutputDirectory(basePath: string): string {
   return dir
 }
 
+export function getSlpzPath() {
+  if (process.env.NODE_ENV === 'development') {
+    return 'slpz'
+  }
+
+  const resourcesPath = process.resourcesPath
+  const type = os.type()
+  switch (type) {
+    case 'Linux':
+      return path.resolve(resourcesPath, 'slpz', 'slpz-linux-x64')
+    case 'Windows_NT':
+      return path.resolve(resourcesPath, 'slpz', 'slpz-win32-x64.exe')
+    case 'Darwin':
+    default:
+      throw new Error('no os?')
+  }
+}
+
 export function getFFMPEGPath() {
   if (process.env.NODE_ENV === 'development') {
     return 'ffmpeg'

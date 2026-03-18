@@ -1,0 +1,131 @@
+.slpz-body {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.slpz-description {
+  color: #999;
+  font-size: 13px;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.slpz-options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.slpz-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  background: #222;
+  border: 1px solid #333;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: border-color 120ms ease;
+}
+
+.slpz-option:hover {
+  border-color: #4a9d5b;
+}
+
+.slpz-option input[type='radio'] {
+  margin-top: 2px;
+  accent-color: #4a9d5b;
+}
+
+.slpz-option-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.slpz-option-label {
+  color: #ddd;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.slpz-option-desc {
+  color: #777;
+  font-size: 11px;
+}
+
+.slpz-dir-row {
+  display: flex;
+  gap: 8px;
+  margin-left: 28px;
+}
+
+.slpz-dir-input {
+  flex: 1;
+  padding: 6px 10px;
+  background: #1a1a1a;
+  border: 1px solid #333;
+  border-radius: 5px;
+  color: #ccc;
+  font-size: 12px;
+  outline: none;
+}
+
+.slpz-dir-input:focus {
+  border-color: #4a9d5b;
+}
+
+.slpz-dir-browse {
+  padding: 6px 14px;
+  background: #2a2a2a;
+  border: 1px solid #444;
+  border-radius: 5px;
+  color: #ccc;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 120ms ease;
+}
+
+.slpz-dir-browse:hover {
+  background: #333;
+  border-color: #555;
+}
+
+.slpz-remember {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #888;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.slpz-remember input[type='checkbox'] {
+  accent-color: #4a9d5b;
+}
+
+.slpz-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid #2a2a2a;
+}
+
+.slpz-cancel-btn {
+  padding: 8px 20px;
+  background: none;
+  border: 1px solid #444;
+  border-radius: 6px;
+  color: #999;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 120ms ease;
+}
+
+.slpz-cancel-btn:hover {
+  border-color: #666;
+  color: #ccc;
+}

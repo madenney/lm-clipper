@@ -351,6 +351,15 @@ export default {
   ) {
     return request('removeResult', params, 'removeResult', handler)
   },
+  reorderClips(
+    params: {
+      filterId: string
+      updates: { id: number; sort_order: number }[]
+    },
+    handler?: ResponseHandler<any>,
+  ) {
+    return request('reorderClips', params, 'reorderClips', handler)
+  },
   logPerfEvents(events: any[]) {
     return send('logPerfEvents', events)
   },

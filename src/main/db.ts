@@ -366,8 +366,15 @@ export function getItemsByIds(path: string, tableId: string, ids: number[]) {
   if (ids.length === 0) return []
   const db = getDb(path)
   const placeholders = ids.map(() => '?').join(',')
+  const cols = db.prepare(`PRAGMA table_info("${tableId}")`).all() as {
+    name: string
+  }[]
+  const hasSortOrder = cols.some((c) => c.name === 'sort_order')
+  const orderBy = hasSortOrder ? 'COALESCE(sort_order, id), id' : 'id'
   return db
-    .prepare(`SELECT * FROM "${tableId}" WHERE id IN (${placeholders})`)
+    .prepare(
+      `SELECT * FROM "${tableId}" WHERE id IN (${placeholders}) ORDER BY ${orderBy}`,
+    )
     .all(...ids)
 }
 
@@ -412,8 +419,14 @@ export function getItems(
   offset: number,
 ) {
   const db = getDb(path)
+  // Use sort_order if the column exists, falling back to id order
+  const cols = db.prepare(`PRAGMA table_info("${tableId}")`).all() as {
+    name: string
+  }[]
+  const hasSortOrder = cols.some((c) => c.name === 'sort_order')
+  const orderBy = hasSortOrder ? 'COALESCE(sort_order, id), id' : 'id'
   return db
-    .prepare(`SELECT * FROM "${tableId}" ORDER BY id LIMIT ? OFFSET ?`)
+    .prepare(`SELECT * FROM "${tableId}" ORDER BY ${orderBy} LIMIT ? OFFSET ?`)
     .all(limit, offset)
 }
 
@@ -426,7 +439,14 @@ export function getItemsLite(path: string, limit: number, offset: number) {
 
 export function getAllIds(path: string, tableId: string): string[] {
   const db = getDb(path)
-  const rows = db.prepare(`SELECT id FROM "${tableId}" ORDER BY id`).all() as {
+  const cols = db.prepare(`PRAGMA table_info("${tableId}")`).all() as {
+    name: string
+  }[]
+  const hasSortOrder = cols.some((c) => c.name === 'sort_order')
+  const orderBy = hasSortOrder ? 'COALESCE(sort_order, id), id' : 'id'
+  const rows = db
+    .prepare(`SELECT id FROM "${tableId}" ORDER BY ${orderBy}`)
+    .all() as {
     id: number
   }[]
   return rows.map((r) => String(r.id))
@@ -493,7 +513,8 @@ export function createFilter(path: string, id: string) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS "${id}" (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      JSON TEXT
+      JSON TEXT,
+      sort_order INTEGER DEFAULT NULL
     )
   `)
 }
@@ -592,6 +613,31 @@ export function deleteRows(path: string, tableId: string, rowIds: number[]) {
   db.prepare(`DELETE FROM "${tableId}" WHERE id IN (${placeholders})`).run(
     ...rowIds,
   )
+}
+
+export function updateSortOrder(
+  path: string,
+  tableId: string,
+  updates: { id: number; sort_order: number }[],
+) {
+  if (updates.length === 0) return
+  const db = getDb(path)
+  // Ensure sort_order column exists (migration for old tables)
+  const cols = db.prepare(`PRAGMA table_info("${tableId}")`).all() as {
+    name: string
+  }[]
+  if (!cols.some((c) => c.name === 'sort_order')) {
+    db.exec(
+      `ALTER TABLE "${tableId}" ADD COLUMN sort_order INTEGER DEFAULT NULL`,
+    )
+  }
+  const stmt = db.prepare(`UPDATE "${tableId}" SET sort_order = ? WHERE id = ?`)
+  const updateMany = db.transaction((items: typeof updates) => {
+    for (const item of items) {
+      stmt.run(item.sort_order, item.id)
+    }
+  })
+  updateMany(updates)
 }
 
 export function getProcessedSourceIds(path: string, tableId: string): number[] {

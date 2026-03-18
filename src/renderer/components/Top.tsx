@@ -405,16 +405,8 @@ export default function Top({
             <div className="settings-empty">No settings in this section.</div>
           )
         }
-        const isFullWidth = items.every(
-          (c: any) =>
-            c.type === 'openFile' ||
-            c.type === 'openDirectory' ||
-            c.type === 'textInput',
-        )
         return (
-          <div
-            className={`settings-list${isFullWidth ? '' : ' settings-list--grid'}`}
-          >
+          <div className="settings-list">
             {items.map((c: any) => {
               const isWide =
                 c.type === 'openFile' ||
@@ -424,6 +416,7 @@ export default function Top({
                 <div
                   className={`settings-item${isWide ? ' settings-item--path' : ''}`}
                   key={c.id}
+                  title={c.tooltip || ''}
                 >
                   <div className="settings-item-info">
                     <label className="settings-item-label" htmlFor={c.id}>
@@ -668,7 +661,11 @@ export default function Top({
               <h3 className="settings-section-title">Built-in Codes</h3>
               <div className="settings-list settings-list--grid">
                 {geckoItems.map((c: any) => (
-                  <div className="settings-item" key={c.id}>
+                  <div
+                    className="settings-item"
+                    key={c.id}
+                    title={c.tooltip || ''}
+                  >
                     <div className="settings-item-info">
                       <label className="settings-item-label" htmlFor={c.id}>
                         {c.label}
@@ -731,17 +728,6 @@ export default function Top({
             }
           />
         </label>
-        <label className="top-control" title="Shuffle clip results">
-          <span className="top-control-label">Shuffle</span>
-          <span className="settings-toggle">
-            <input
-              type="checkbox"
-              checked={!!config.shuffle}
-              onChange={(e) => handleChange('shuffle', e.target.checked)}
-            />
-            <span className="settings-toggle-slider" />
-          </span>
-        </label>
       </div>
       <div className="top-actions">
         {isImporting ? (
@@ -775,19 +761,19 @@ export default function Top({
             </button>
           </>
         ) : null}
-        <button
-          type="button"
-          className="top-gecko-btn"
-          onClick={() => {
-            handleChange('dolphinPath', '')
-            handleChange('ssbmIsoPath', '')
-            handleChange('outputPath', '')
-          }}
-          title="DEV: Clear paths to test setup wizard"
-          style={{ color: '#e55' }}
-        >
-          Clear Paths
-        </button>
+        {config.testMode && (
+          <button
+            type="button"
+            className="top-gecko-btn"
+            onClick={() => {
+              handleChange('slpzMode', 'ask')
+              handleChange('slpzOutputDir', '')
+            }}
+            title="Reset SLPZ settings to ask every time (dev helper)"
+          >
+            Reset SLPZ
+          </button>
+        )}
         <button
           type="button"
           className="top-gecko-btn"

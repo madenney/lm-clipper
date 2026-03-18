@@ -12,6 +12,7 @@ const METHODS_WITH_EMITTER = new Set([
   'zeroToDeaths',
   'files',
   'actionStateFilter',
+  'afkDetection',
 ])
 
 function postMessage(message: WorkerMessage) {
@@ -195,6 +196,7 @@ function run() {
         'removeStarKOFrames',
         'koDirection',
         'edgeguard',
+        'afkDetection',
       ])
       const isSlow = slowTypes.has(type)
       const effectiveChunkSize = isSlow ? 1 : CHUNK_SIZE

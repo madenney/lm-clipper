@@ -6,7 +6,7 @@ import {
   IpcMainEvent,
   BrowserWindow,
 } from 'electron'
-import { spawn, ChildProcess } from 'child_process'
+import { spawn, execFileSync, execSync, ChildProcess } from 'child_process'
 import { Worker } from 'worker_threads'
 import crypto from 'crypto'
 import os from 'os'
@@ -33,7 +33,12 @@ import slpToVideo, {
   VideoJobController,
   setFFMPEGPathOverride,
 } from './slpToVideo'
-import { resolveHtmlPath, updateEfbScale, createOutputDirectory } from './util'
+import {
+  resolveHtmlPath,
+  updateEfbScale,
+  createOutputDirectory,
+  getSlpzPath,
+} from './util'
 import {
   getMetaData,
   createDB,
@@ -43,6 +48,7 @@ import {
   deleteRowsByFilePaths,
   getFilePathsByIds,
   deleteRows,
+  updateSortOrder,
 } from './db'
 import { closeDb, getDb } from './dbConnection'
 import { appendPerfEvents } from './perfLogger'
@@ -152,6 +158,7 @@ export default class Controller {
   runningFilterIndices: Set<number>
   filterCancelIds: Set<string>
   currentImportAbortController: AbortController | null
+  pendingSlpzSourceDir: string
   importQueue: string[][]
   importInProgress: boolean
   currentCountWorker: Worker | null
@@ -235,6 +242,7 @@ export default class Controller {
     this.runningFilterIndices = new Set()
     this.filterCancelIds = new Set()
     this.currentImportAbortController = null
+    this.pendingSlpzSourceDir = ''
     this.importQueue = []
     this.importInProgress = false
     this.currentCountWorker = null
@@ -688,11 +696,127 @@ export default class Controller {
       return
     }
 
+    // Extract zip files before import
+    const zipFiles = filePaths.filter(
+      (p) => path.extname(p).toLowerCase() === '.zip',
+    )
+    const nonZipFiles = filePaths.filter(
+      (p) => path.extname(p).toLowerCase() !== '.zip',
+    )
+
+    if (zipFiles.length > 0) {
+      const zipChoice = await this.promptZipWizard(zipFiles)
+      if (!zipChoice) {
+        this.setImportStatus({
+          isImporting: false,
+          current: 0,
+          total: null,
+          queueLength: this.importQueue.length,
+        })
+        this.mainWindow.webContents.send('importingFileUpdate', {
+          finished: true,
+          cancelled: true,
+        })
+        return
+      }
+
+      const extractedDirs: string[] = []
+      for (const zipFile of zipFiles) {
+        try {
+          const zipName = path.basename(zipFile, '.zip')
+          const extractDir = path.join(zipChoice.outputDir, zipName)
+          fs.mkdirSync(extractDir, { recursive: true })
+          this.extractZip(zipFile, extractDir)
+          extractedDirs.push(extractDir)
+          if (zipChoice.deleteOriginal) {
+            try {
+              fs.unlinkSync(zipFile)
+            } catch {
+              // Non-fatal
+            }
+          }
+        } catch (error) {
+          console.error(`Failed to extract ${zipFile}:`, error)
+        }
+      }
+
+      // Replace zip paths with extracted directories
+      filePaths = [...nonZipFiles, ...extractedDirs]
+      if (filePaths.length === 0) return
+    }
+
     const fileCountBefore = this.archive.files || 0
     const detectDuplicates = this.config.detectDuplicatesOnImport !== false
     const maxWorkers = Math.max(1, this.config.numFilterThreads || 1)
     const importAbortController = new AbortController()
     this.currentImportAbortController = importAbortController
+
+    // Check if batch may contain .slpz files and resolve decompression config
+    const mayHaveSlpz = filePaths.some((p) => {
+      const ext = path.extname(p).toLowerCase()
+      return ext === '.slpz' || ext === '' // directories may contain .slpz
+    })
+
+    let slpzConfig:
+      | {
+          slpzBinaryPath: string
+          slpzMode: 'extract' | 'replace'
+          slpzOutputDir: string
+        }
+      | undefined
+
+    if (mayHaveSlpz) {
+      // Determine source directory for default extract path
+      const slpzFiles = filePaths.filter(
+        (p) => path.extname(p).toLowerCase() === '.slpz',
+      )
+      this.pendingSlpzSourceDir = slpzFiles.length
+        ? path.dirname(slpzFiles[0])
+        : path.dirname(filePaths[0])
+
+      const resolvedMode = this.config.slpzMode || 'ask'
+      if (resolvedMode === 'ask') {
+        const userChoice = await this.promptSlpzWizard()
+        if (!userChoice) {
+          // User cancelled
+          this.currentImportAbortController = null
+          this.setImportStatus({
+            isImporting: false,
+            current: 0,
+            total: null,
+            queueLength: this.importQueue.length,
+          })
+          this.mainWindow.webContents.send('importingFileUpdate', {
+            finished: true,
+            cancelled: true,
+          })
+          return
+        }
+        slpzConfig = {
+          slpzBinaryPath: this.config.slpzPath || getSlpzPath(),
+          slpzMode: userChoice.mode,
+          slpzOutputDir: userChoice.outputDir || '',
+        }
+        if (userChoice.remember) {
+          this.config.slpzMode = userChoice.mode
+          if (userChoice.outputDir) {
+            this.config.slpzOutputDir = userChoice.outputDir
+          }
+          fs.writeFileSync(
+            this.configPath,
+            JSON.stringify(this.config, null, 2),
+          )
+          this.mainWindow.webContents.send('config', this.config)
+        }
+      } else {
+        slpzConfig = {
+          slpzBinaryPath: this.config.slpzPath || getSlpzPath(),
+          slpzMode: resolvedMode,
+          slpzOutputDir: this.config.slpzOutputDir || '',
+        }
+      }
+    }
+
     this.startCountWorker(filePaths)
     this.mainWindow.webContents.send('importingFileUpdate', {
       current: 0,
@@ -714,6 +838,7 @@ export default class Controller {
         detectDuplicates,
         abortSignal: importAbortController.signal,
         maxWorkers,
+        slpzConfig,
       },
     )
     const { terminated, failed } = result
@@ -775,6 +900,139 @@ export default class Controller {
     })
   }
 
+  private cancelSlpzWizard: (() => void) | null = null
+
+  private promptSlpzWizard(): Promise<{
+    mode: 'extract' | 'replace'
+    outputDir: string
+    remember: boolean
+  } | null> {
+    return new Promise((resolve) => {
+      let resolved = false
+      let timer: ReturnType<typeof setTimeout> | null = null
+
+      const cleanup = () => {
+        ipcMain.removeListener('slpzWizardResponse', handler)
+        this.cancelSlpzWizard = null
+        this.pendingSlpzSourceDir = ''
+        if (timer) {
+          clearTimeout(timer)
+          timer = null
+        }
+      }
+
+      const done = (
+        data: {
+          mode: 'extract' | 'replace'
+          outputDir: string
+          remember: boolean
+        } | null,
+      ) => {
+        if (resolved) return
+        resolved = true
+        cleanup()
+        resolve(data)
+      }
+
+      const handler = (
+        _event: IpcMainEvent,
+        data: {
+          mode: 'extract' | 'replace'
+          outputDir: string
+          remember: boolean
+        } | null,
+      ) => {
+        done(data)
+      }
+
+      this.cancelSlpzWizard = () => {
+        this.mainWindow.webContents.send('dismissSlpzWizard')
+        done(null)
+      }
+
+      timer = setTimeout(() => {
+        this.mainWindow.webContents.send('dismissSlpzWizard')
+        done(null)
+      }, 120000)
+
+      ipcMain.on('slpzWizardResponse', handler)
+
+      const defaultOutputDir = this.pendingSlpzSourceDir
+        ? path.join(this.pendingSlpzSourceDir, 'slp')
+        : ''
+      this.mainWindow.webContents.send('showSlpzWizard', {
+        defaultOutputDir,
+      })
+    })
+  }
+
+  private cancelZipWizard: (() => void) | null = null
+
+  private promptZipWizard(
+    zipFiles: string[],
+  ): Promise<{ outputDir: string; deleteOriginal: boolean } | null> {
+    return new Promise((resolve) => {
+      let resolved = false
+      let timer: ReturnType<typeof setTimeout> | null = null
+
+      const cleanup = () => {
+        ipcMain.removeListener('zipWizardResponse', handler)
+        this.cancelZipWizard = null
+        if (timer) {
+          clearTimeout(timer)
+          timer = null
+        }
+      }
+
+      const done = (
+        data: { outputDir: string; deleteOriginal: boolean } | null,
+      ) => {
+        if (resolved) return
+        resolved = true
+        cleanup()
+        resolve(data)
+      }
+
+      const handler = (
+        _event: IpcMainEvent,
+        data: { outputDir: string; deleteOriginal: boolean } | null,
+      ) => {
+        done(data)
+      }
+
+      this.cancelZipWizard = () => {
+        this.mainWindow.webContents.send('dismissZipWizard')
+        done(null)
+      }
+
+      timer = setTimeout(() => {
+        this.mainWindow.webContents.send('dismissZipWizard')
+        done(null)
+      }, 120000)
+
+      ipcMain.on('zipWizardResponse', handler)
+
+      const defaultOutputDir = path.dirname(zipFiles[0])
+      this.mainWindow.webContents.send('showZipWizard', {
+        zipFiles,
+        defaultOutputDir,
+      })
+    })
+  }
+
+  private extractZip(zipPath: string, outputDir: string) {
+    if (process.platform === 'win32') {
+      execSync(
+        `powershell -Command "Expand-Archive -LiteralPath '${zipPath.replace(/'/g, "''")}' -DestinationPath '${outputDir.replace(/'/g, "''")}' -Force"`,
+        { timeout: 300000 },
+      )
+    } else {
+      execFileSync('unzip', ['-o', '-q', zipPath, '-d', outputDir], {
+        timeout: 300000,
+      })
+    }
+  }
+
   async addFilesManual(event: IpcMainEvent, data?: RequestEnvelope<null>) {
     const { requestId } = unpackRequest<null>(data)
     if (!this.archive) {
@@ -795,7 +1053,7 @@ export default class Controller {
 
     const { canceled, filePaths } = await dialog.showOpenDialog({
       properties: ['openFile', 'openDirectory', 'multiSelections'],
-      filters: [{ name: 'slp files', extensions: ['slp'] }],
+      filters: [{ name: 'Slippi Replays', extensions: ['slp', 'slpz', 'zip'] }],
     })
     if (canceled || !filePaths || filePaths.length === 0) {
       return reply(
@@ -840,6 +1098,12 @@ export default class Controller {
   private _abortImport() {
     this.importQueue = []
     this.stopCountWorker()
+    if (this.cancelSlpzWizard) {
+      this.cancelSlpzWizard()
+    }
+    if (this.cancelZipWizard) {
+      this.cancelZipWizard()
+    }
     if (this.currentImportAbortController) {
       this.currentImportAbortController.abort()
       this.currentImportAbortController = null
@@ -1230,6 +1494,31 @@ export default class Controller {
     } catch (error: any) {
       console.error('[removeResult] error:', error)
       return reply(event, 'removeResult', requestId, { error: error.message })
+    }
+  }
+
+  reorderClips(
+    event: IpcMainEvent,
+    data: RequestEnvelope<{
+      filterId: string
+      updates: { id: number; sort_order: number }[]
+    }>,
+  ) {
+    const { requestId, payload } = unpackRequest<{
+      filterId: string
+      updates: { id: number; sort_order: number }[]
+    }>(data)
+    if (!this.archive || !payload?.filterId || !payload?.updates?.length) {
+      return reply(event, 'reorderClips', requestId, {
+        error: 'invalid request',
+      })
+    }
+    try {
+      updateSortOrder(this.archive.path, payload.filterId, payload.updates)
+      return reply(event, 'reorderClips', requestId, { success: true })
+    } catch (error: any) {
+      console.error('[reorderClips] error:', error)
+      return reply(event, 'reorderClips', requestId, { error: error.message })
     }
   }
 
@@ -2312,7 +2601,7 @@ export default class Controller {
     const args = [
       '-i',
       filePath,
-      '-b',
+      ...(this.config.fullscreen !== false ? ['-b'] : []),
       '-e',
       path.resolve(ssbmIsoPath),
       '--cout',
@@ -3206,6 +3495,7 @@ export default class Controller {
     ipcMain.on('recordClip', this.recordClip.bind(this))
     ipcMain.on('removeGame', this.removeGame.bind(this))
     ipcMain.on('removeResult', this.removeResult.bind(this))
+    ipcMain.on('reorderClips', this.reorderClips.bind(this))
     ipcMain.on('logPerfEvents', this.logPerfEvents.bind(this))
     ipcMain.on('debugLog', this.debugLog.bind(this))
     ipcMain.on('openFolder', (_event: IpcMainEvent, folderPath: string) => {
@@ -3353,7 +3643,7 @@ export default class Controller {
       const dolphinProcess = spawn(path.resolve(dolphinPath), [
         '-i',
         configFile,
-        '-b',
+        ...(this.config.fullscreen !== false ? ['-b'] : []),
         '-e',
         path.resolve(ssbmIsoPath),
         '--cout',

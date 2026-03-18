@@ -473,6 +473,30 @@ export const filtersConfig = [
     ],
   },
   {
+    id: 'afkDetection',
+    label: 'AFK Detection',
+    tooltip:
+      'Filter clips where a player had little or no controller input (AFK/idle)',
+    options: [
+      {
+        name: 'Max Inputs/sec',
+        id: 'maxInputsPerSec',
+        type: 'int',
+        default: '2',
+        tooltip:
+          'Threshold for active input frames per second. Players at or below this are considered AFK. Default: 2.',
+      },
+      {
+        name: 'Exclude AFK',
+        id: 'exclude',
+        type: 'checkbox',
+        default: true,
+        tooltip:
+          'Remove clips where the opponent was AFK. Uncheck to keep only AFK clips.',
+      },
+    ],
+  },
+  {
     id: 'koDirection',
     label: 'KO Direction',
     tooltip: 'Filter KOs by blast zone direction',
@@ -584,6 +608,7 @@ export const settingsCategories = [
   { key: 'rendering', label: 'Gecko Codes' },
   { key: 'performance', label: 'Performance' },
   { key: 'general', label: 'General' },
+  { key: 'slpz', label: 'SLPZ' },
 ] as const
 
 export const videoConfig = [
@@ -700,6 +725,13 @@ export const videoConfig = [
     category: 'video',
   },
   {
+    label: 'Fullscreen',
+    default: true,
+    id: 'fullscreen',
+    type: 'checkbox',
+    category: 'video',
+  },
+  {
     label: 'Concatenate Output',
     default: false,
     id: 'concatenate',
@@ -715,18 +747,13 @@ export const videoConfig = [
   },
   // Rendering
   {
-    label: 'Hide HUD',
+    label: 'Widescreen 16:9',
     default: false,
-    id: 'hideHud',
+    id: 'widescreen',
     type: 'checkbox',
     category: 'rendering',
-  },
-  {
-    label: 'Fixed Camera',
-    default: false,
-    id: 'fixedCamera',
-    type: 'checkbox',
-    category: 'rendering',
+    tooltip:
+      'Render in 16:9 widescreen instead of the native 4:3 aspect ratio. Also adjusts the Dolphin aspect ratio and ffmpeg scaling.',
   },
   {
     label: 'No Screen Shake',
@@ -734,6 +761,26 @@ export const videoConfig = [
     id: 'disableScreenShake',
     type: 'checkbox',
     category: 'rendering',
+    tooltip:
+      'Disable camera shake on hard hits and smash attacks. Gives a cleaner, more stable image.',
+  },
+  {
+    label: 'Hide HUD',
+    default: false,
+    id: 'hideHud',
+    type: 'checkbox',
+    category: 'rendering',
+    tooltip:
+      'Remove the damage percentages, stock icons, and timer from the screen.',
+  },
+  {
+    label: 'Fixed Camera',
+    default: false,
+    id: 'fixedCamera',
+    type: 'checkbox',
+    category: 'rendering',
+    tooltip:
+      'Lock the camera in a fixed position instead of following the players. Shows the full stage at all times.',
   },
   {
     label: 'No Magnifying Glass',
@@ -741,6 +788,8 @@ export const videoConfig = [
     id: 'disableMagnifyingGlass',
     type: 'checkbox',
     category: 'rendering',
+    tooltip:
+      'Hide the magnifying glass bubble that appears when a player is off-screen.',
   },
   {
     label: 'Hide Tags',
@@ -748,6 +797,8 @@ export const videoConfig = [
     id: 'hideTags',
     type: 'checkbox',
     category: 'rendering',
+    tooltip:
+      'Hide the nametag text that floats above characters during gameplay.',
   },
   {
     label: 'Hide Netplay Names',
@@ -755,6 +806,8 @@ export const videoConfig = [
     id: 'hideNames',
     type: 'checkbox',
     category: 'rendering',
+    tooltip:
+      'Hide the connect code / netplay name overlay shown at the bottom of the screen.',
   },
   {
     label: 'Game Music',
@@ -762,6 +815,8 @@ export const videoConfig = [
     id: 'gameMusic',
     type: 'checkbox',
     category: 'rendering',
+    tooltip:
+      'Play the in-game stage music during recording. Off by default so clips have clean game audio only.',
   },
   {
     label: 'Enable Chants',
@@ -769,6 +824,8 @@ export const videoConfig = [
     id: 'enableChants',
     type: 'checkbox',
     category: 'rendering',
+    tooltip:
+      'Allow the crowd to chant character names during gameplay. Off by default to keep audio clean.',
   },
   {
     label: 'No Electric SFX',
@@ -776,6 +833,8 @@ export const videoConfig = [
     id: 'noElectricSFX',
     type: 'checkbox',
     category: 'rendering',
+    tooltip:
+      'Remove the electric hit sound effects (the buzzing on moves like Fox up-smash, Pikachu thunder, etc.).',
   },
   {
     label: 'No Crowd Noise',
@@ -783,6 +842,44 @@ export const videoConfig = [
     id: 'noCrowdNoise',
     type: 'checkbox',
     category: 'rendering',
+    tooltip:
+      'Silence the background crowd ambience and reactions during gameplay.',
+  },
+  {
+    label: 'Freeze FD Background',
+    default: false,
+    id: 'freezeFD',
+    type: 'checkbox',
+    category: 'rendering',
+    tooltip:
+      "Prevent Final Destination's cosmic background from cycling through its animation phases. Keeps it static for a cleaner look.",
+  },
+  {
+    label: 'Center Align HUD',
+    default: false,
+    id: 'centerHud',
+    type: 'checkbox',
+    category: 'rendering',
+    tooltip:
+      'Force the damage percentages to be centered on screen (2-player layout) instead of spread to the corners.',
+  },
+  {
+    label: 'Develop Mode',
+    default: false,
+    id: 'developMode',
+    type: 'checkbox',
+    category: 'rendering',
+    tooltip:
+      'Enable debug/develop mode. Allows access to frame advance, hitbox/hurtbox display overlays, and alternate camera angles.',
+  },
+  {
+    label: 'Flash Red Failed L-Cancel',
+    default: false,
+    id: 'flashRedLCancel',
+    type: 'checkbox',
+    category: 'rendering',
+    tooltip:
+      'Character model flashes red when an L-cancel input is missed. Useful for technical/educational combo videos.',
   },
   // Performance
   {
@@ -856,5 +953,37 @@ export const videoConfig = [
     type: 'button',
     category: 'general',
     buttonLabel: 'Launch Test',
+  },
+  // SLPZ
+  {
+    label: 'SLPZ Mode',
+    default: 'ask',
+    id: 'slpzMode',
+    type: 'dropdown',
+    category: 'slpz',
+    options: [
+      { label: 'Ask each time', value: 'ask' },
+      { label: 'Extract to directory', value: 'extract' },
+      { label: 'Replace in-place', value: 'replace' },
+    ],
+    tooltip:
+      'How to handle .slpz files during import. "Ask" shows a dialog each time, "Extract" decompresses to a directory, "Replace" decompresses next to the original and deletes the .slpz.',
+  },
+  {
+    label: 'SLPZ Output Directory',
+    default: '',
+    id: 'slpzOutputDir',
+    type: 'openDirectory',
+    category: 'slpz',
+    tooltip:
+      'Where to put decompressed .slp files when using "Extract to directory" mode.',
+  },
+  {
+    label: 'slpz Binary Path',
+    default: '',
+    id: 'slpzPath',
+    type: 'openFile',
+    category: 'slpz',
+    tooltip: 'Path to the slpz binary. Leave empty to use the bundled version.',
   },
 ]

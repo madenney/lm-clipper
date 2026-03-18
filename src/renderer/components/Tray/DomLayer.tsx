@@ -47,6 +47,10 @@ type DomLayerProps = {
   onClipRecord?: (_clipId: string) => void
   onBackgroundClick: () => void
   startIndex?: number // For pagination - offset to add to local indices
+  reorderActive?: boolean
+  reorderDraggingIds?: Set<string> | null
+  reorderInsertIndex?: number | null
+  onReorderInsertIndexChange?: (_index: number | null) => void
 }
 
 type LayoutInfo = {
@@ -110,7 +114,9 @@ const MemoClip = memo(
       prev.data === next.data &&
       prev.size === next.size &&
       prev.mode === next.mode &&
-      prev.isSelected === next.isSelected
+      prev.isSelected === next.isSelected &&
+      prev.style.opacity === next.style.opacity &&
+      prev.style.transform === next.style.transform
     )
   },
 )
@@ -132,6 +138,10 @@ export function DomLayer({
   onClipRecord,
   onBackgroundClick,
   startIndex = 0,
+  reorderActive = false,
+  reorderDraggingIds = null,
+  reorderInsertIndex = null,
+  onReorderInsertIndexChange,
 }: DomLayerProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [scrollTop, setScrollTop] = useState(0)
@@ -244,6 +254,43 @@ export function DomLayer({
     [layout.totalHeight],
   )
 
+  // Track reorder insert position from mouse
+  const onReorderInsertIndexChangeRef = useRef(onReorderInsertIndexChange)
+  onReorderInsertIndexChangeRef.current = onReorderInsertIndexChange
+
+  useEffect(() => {
+    if (!reorderActive || !containerRef.current) return
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const container = containerRef.current
+      if (!container) return
+      const rect = container.getBoundingClientRect()
+      const { cellSize, padding } = layout
+      if (cellSize <= 0) return
+
+      const mouseY = e.clientY - rect.top + container.scrollTop
+      const mouseX = e.clientX - rect.left
+
+      if (mode === 'full') {
+        const idx = Math.round((mouseY - padding) / cellSize)
+        onReorderInsertIndexChangeRef.current?.(
+          Math.max(0, Math.min(idx, clips.length)),
+        )
+      } else {
+        const row = Math.floor((mouseY - padding) / cellSize)
+        const col = Math.round((mouseX - padding) / cellSize)
+        const clampedCol = Math.max(0, Math.min(col, columns))
+        const idx = row * columns + clampedCol
+        onReorderInsertIndexChangeRef.current?.(
+          Math.max(0, Math.min(idx, clips.length)),
+        )
+      }
+    }
+
+    document.addEventListener('mousemove', handleMouseMove)
+    return () => document.removeEventListener('mousemove', handleMouseMove)
+  }, [reorderActive, layout, mode, columns, clips.length])
+
   // Store handlers in refs so callbacks don't go stale
   const onClipMouseDownRef = useRef(onClipMouseDown)
   onClipMouseDownRef.current = onClipMouseDown
@@ -277,6 +324,7 @@ export function DomLayer({
 
       const key = clipId ? `${clipId}-${i}` : `clip-${i}`
       const isSelected = selectedIds.has(clipId)
+      const isDragging = reorderActive && reorderDraggingIds?.has(clipId)
 
       // Create stable callbacks that use refs
       // Add startIndex to get global index for pagination support
@@ -317,6 +365,11 @@ export function DomLayer({
               top,
               left: padding,
               right: padding,
+              opacity: isDragging ? 0.4 : undefined,
+              transform: isDragging ? 'scale(0.95)' : undefined,
+              transition: isDragging
+                ? 'opacity 150ms ease, transform 150ms ease'
+                : undefined,
             }}
             isSelected={isSelected}
             onMouseDown={handleMouseDown}
@@ -343,6 +396,11 @@ export function DomLayer({
               position: 'absolute',
               top,
               left,
+              opacity: isDragging ? 0.4 : undefined,
+              transform: isDragging ? 'scale(0.95)' : undefined,
+              transition: isDragging
+                ? 'opacity 150ms ease, transform 150ms ease'
+                : undefined,
             }}
             isSelected={isSelected}
             onMouseDown={handleMouseDown}
@@ -366,12 +424,14 @@ export function DomLayer({
     mode,
     selectedIds,
     startIndex,
+    reorderActive,
+    reorderDraggingIds,
   ])
 
   return (
     <div
       ref={containerRef}
-      className="dom-layer"
+      className={`dom-layer${reorderActive ? ' dom-layer--reordering' : ''}`}
       style={containerStyle}
       onScroll={handleScroll}
       onClick={(e) => {
@@ -383,7 +443,48 @@ export function DomLayer({
         }
       }}
     >
-      <div style={innerStyle}>{renderedClips}</div>
+      <div style={innerStyle}>
+        {renderedClips}
+        {reorderActive &&
+          reorderInsertIndex !== null &&
+          reorderInsertIndex >= 0 && (
+            <div
+              className="reorder-indicator"
+              style={(() => {
+                const { cellSize, padding } = layout
+                if (mode === 'full') {
+                  return {
+                    position: 'absolute' as const,
+                    top: padding + reorderInsertIndex * cellSize - 2,
+                    left: padding,
+                    right: padding,
+                    height: 3,
+                  }
+                }
+                const row = Math.floor(reorderInsertIndex / columns)
+                const col = reorderInsertIndex % columns
+                if (col === 0 && reorderInsertIndex > 0) {
+                  // End of previous row — show horizontal bar at row boundary
+                  const prevRow = row - 1
+                  return {
+                    position: 'absolute' as const,
+                    top: padding + prevRow * cellSize + clipSize + gap / 2 - 1,
+                    left: padding,
+                    width: columns * cellSize - gap,
+                    height: 3,
+                  }
+                }
+                return {
+                  position: 'absolute' as const,
+                  top: padding + row * cellSize,
+                  left: padding + col * cellSize - gap / 2 - 1,
+                  width: 3,
+                  height: clipSize,
+                }
+              })()}
+            />
+          )}
+      </div>
     </div>
   )
 }

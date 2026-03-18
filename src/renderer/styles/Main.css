@@ -150,26 +150,26 @@
 .footer-setting {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
   flex-shrink: 0;
 }
 
 .footer-setting-label {
-  font-size: 10px;
-  color: #666;
+  font-size: 12px;
+  color: #777;
   white-space: nowrap;
 }
 
 .footer-select {
-  padding: 3px 4px;
-  font-size: 11px;
+  padding: 4px 6px;
+  font-size: 13px;
   color: #c0c0c0;
   background: #252525;
   border: 1px solid #333;
   border-radius: 3px;
   outline: none;
   cursor: pointer;
-  max-width: 140px;
+  max-width: 160px;
 }
 
 .footer-select:focus {
@@ -182,9 +182,9 @@
 }
 
 .footer-input {
-  width: 40px;
-  padding: 3px 4px;
-  font-size: 11px;
+  width: 44px;
+  padding: 4px 6px;
+  font-size: 13px;
   color: #c0c0c0;
   background: #252525;
   border: 1px solid #333;
@@ -206,7 +206,7 @@
 }
 
 .footer-input--wide {
-  width: 56px;
+  width: 64px;
 }
 
 .footer-toggle {
@@ -214,8 +214,8 @@
 }
 
 .footer-toggle input[type="checkbox"] {
-  width: 13px;
-  height: 13px;
+  width: 15px;
+  height: 15px;
   accent-color: #4a9d5b;
   cursor: pointer;
 }

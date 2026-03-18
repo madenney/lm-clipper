@@ -5,6 +5,8 @@ import Main from './components/Main'
 import LoadingScreen from './components/LoadingScreen'
 import UpdateBanner from './components/UpdateBanner'
 import SetupWizard from './components/SetupWizard'
+import SlpzWizard from './components/SlpzWizard'
+import ZipWizard from './components/ZipWizard'
 import {
   ConfigInterface,
   SavedCustomFilter,
@@ -231,6 +233,53 @@ export default function App() {
 
   const triggerSetupWizard = (mode: 'play' | 'record') => setWizardMode(mode)
 
+  const [slpzDefaultOutputDir, setSlpzDefaultOutputDir] = useState<
+    string | null
+  >(null)
+
+  useEffect(() => {
+    const removeShow = window.electron.ipcRenderer.on(
+      'showSlpzWizard',
+      ({ defaultOutputDir }: { defaultOutputDir: string }) => {
+        setSlpzDefaultOutputDir(defaultOutputDir || '')
+      },
+    )
+    const removeDismiss = window.electron.ipcRenderer.on(
+      'dismissSlpzWizard',
+      () => {
+        setSlpzDefaultOutputDir(null)
+      },
+    )
+    return () => {
+      removeShow()
+      removeDismiss()
+    }
+  }, [])
+
+  const [zipWizardData, setZipWizardData] = useState<{
+    zipFiles: string[]
+    defaultOutputDir: string
+  } | null>(null)
+
+  useEffect(() => {
+    const removeShow = window.electron.ipcRenderer.on(
+      'showZipWizard',
+      (data: { zipFiles: string[]; defaultOutputDir: string }) => {
+        setZipWizardData(data)
+      },
+    )
+    const removeDismiss = window.electron.ipcRenderer.on(
+      'dismissZipWizard',
+      () => {
+        setZipWizardData(null)
+      },
+    )
+    return () => {
+      removeShow()
+      removeDismiss()
+    }
+  }, [])
+
   if (!config) {
     return <LoadingScreen />
   }
@@ -241,6 +290,19 @@ export default function App() {
         <UpdateBanner
           status={updateStatus}
           onDismiss={() => setUpdateStatus(null)}
+        />
+      )}
+      {slpzDefaultOutputDir !== null && (
+        <SlpzWizard
+          defaultOutputDir={slpzDefaultOutputDir}
+          onDismiss={() => setSlpzDefaultOutputDir(null)}
+        />
+      )}
+      {zipWizardData && (
+        <ZipWizard
+          zipFiles={zipWizardData.zipFiles}
+          defaultOutputDir={zipWizardData.defaultOutputDir}
+          onDismiss={() => setZipWizardData(null)}
         />
       )}
       {wizardMode && (
