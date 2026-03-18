@@ -10,6 +10,7 @@ import custom from './custom'
 import edgeguard from './edgeguard'
 import deduplicate from './deduplicate'
 import zeroToDeaths from './zerotoDeaths'
+import afkDetection from './afkDetection'
 
 type FilterMethod = (..._args: any[]) => any
 
@@ -26,6 +27,7 @@ const methods: Record<string, FilterMethod> = {
   edgeguard,
   deduplicate,
   zeroToDeaths,
+  afkDetection,
 }
 
 export default methods

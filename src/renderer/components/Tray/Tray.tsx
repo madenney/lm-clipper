@@ -633,31 +633,26 @@ export function Tray({
     updateCrossPageDuration,
   ])
 
-  // Drag selection state
-  const [dragStartIndex, setDragStartIndex] = useState<number | null>(null)
-  const isDraggingRef = useRef(false)
-
-  // Calculate selection range from start to end index
-  const getSelectionRange = useCallback(
-    (startIdx: number, endIdx: number): Set<string> => {
-      const minIdx = Math.min(startIdx, endIdx)
-      const maxIdx = Math.max(startIdx, endIdx)
-      const ids = new Set<string>()
-      for (let i = minIdx; i <= maxIdx; i++) {
-        const item = lightData[i]
-        if (item) {
-          ids.add(item.id)
-        }
-      }
-      return ids
-    },
-    [lightData],
+  // Reorder drag state
+  const [reorderInsertIndex, setReorderInsertIndex] = useState<number | null>(
+    null,
   )
+  const reorderDragRef = useRef<{
+    startX: number
+    startY: number
+    active: boolean
+    draggingIds: Set<string>
+  } | null>(null)
+  const reorderPendingClickRef = useRef<{
+    index: number
+    clipId: string
+  } | null>(null)
 
-  // Handle mouse down on clip - start drag or handle click modifiers
+  // Handle mouse down on clip - select or start reorder drag
   const handleClipMouseDown = useCallback(
     (index: number, clipId: string, event: React.MouseEvent) => {
       if (event.button !== 0) return // Only left click
+      if (reorderDragRef.current?.active) return // Suppress during reorder
 
       if (event.shiftKey && lastSelectedIndex !== null) {
         // Shift+click: range select from last selected
@@ -682,11 +677,9 @@ export function Tray({
           if (clip) {
             const rawDur = computeRawDuration([clip])
             if (selectedIds.has(clipId)) {
-              // Deselecting
               excludedRawRef.current += rawDur
               excludedCountRef.current += 1
             } else {
-              // Re-selecting
               excludedRawRef.current -= rawDur
               excludedCountRef.current -= 1
             }
@@ -701,12 +694,31 @@ export function Tray({
         setSelectedIds(newSelected)
         setLastSelectedIndex(index)
       } else {
-        // Normal click: start drag selection
-        crossPageRef.current = false
-        isDraggingRef.current = true
-        setDragStartIndex(index)
-        setSelectedIds(new Set([clipId]))
-        setLastSelectedIndex(index)
+        // Normal click: select this clip and set up potential reorder drag
+        // If already selected, keep selection (drag all selected).
+        // If not selected, select just this one.
+        const isAlreadySelected = selectedIds.has(clipId)
+        if (!isAlreadySelected) {
+          crossPageRef.current = false
+          setSelectedIds(new Set([clipId]))
+          setLastSelectedIndex(index)
+        }
+
+        // Set up reorder drag (threshold will activate it)
+        if (isDom) {
+          const draggingIds = isAlreadySelected
+            ? new Set(selectedIds)
+            : new Set([clipId])
+          reorderDragRef.current = {
+            startX: event.clientX,
+            startY: event.clientY,
+            active: false,
+            draggingIds,
+          }
+          reorderPendingClickRef.current = isAlreadySelected
+            ? { index, clipId }
+            : null
+        }
       }
     },
     [
@@ -717,30 +729,131 @@ export function Tray({
       setLastSelectedIndex,
       clips,
       computeRawDuration,
+      isDom,
     ],
   )
 
-  // Handle mouse enter on clip during drag - update selection in real-time
-  const handleClipMouseEnter = useCallback(
-    (index: number) => {
-      if (!isDraggingRef.current || dragStartIndex === null) return
-      const newSelection = getSelectionRange(dragStartIndex, index)
-      setSelectedIds(newSelection)
+  // No-op — drag-to-select removed, reorder handles mouse tracking via document listener
+  const handleClipMouseEnter = useCallback((_index: number) => {}, [])
+
+  // Handle reorder drop
+  const handleReorderDrop = useCallback(
+    (insertIndex: number) => {
+      if (!reorderDragRef.current?.active) return
+      const { draggingIds } = reorderDragRef.current
+
+      // Build new order: remove dragged clips, insert at drop position
+      const draggedClips: ClipData[] = []
+      const remainingClips: ClipData[] = []
+      const getClipId = (clip: ClipData) =>
+        'id' in clip && clip.id != null
+          ? String(clip.id)
+          : 'path' in clip && clip.path
+            ? clip.path
+            : ''
+
+      // Count how many dragged clips sit before the insert point
+      let draggedBefore = 0
+      for (let i = 0; i < clips.length; i++) {
+        if (i >= insertIndex) break
+        if (draggingIds.has(getClipId(clips[i]) as string)) {
+          draggedBefore++
+        }
+      }
+
+      for (const clip of clips) {
+        if (draggingIds.has(getClipId(clip) as string)) {
+          draggedClips.push(clip)
+        } else {
+          remainingClips.push(clip)
+        }
+      }
+
+      // Adjust insert index: subtract dragged clips that were before the drop point
+      const adjustedIndex = Math.min(
+        insertIndex - draggedBefore,
+        remainingClips.length,
+      )
+      const newOrder = [
+        ...remainingClips.slice(0, adjustedIndex),
+        ...draggedClips,
+        ...remainingClips.slice(adjustedIndex),
+      ]
+
+      // Optimistic update
+      setClips(newOrder)
+
+      // Build sort_order updates for entire page
+      const baseOffset = dataPage * numPerPage
+      const updates = newOrder
+        .map((clip, i) => {
+          const id = 'id' in clip && clip.id != null ? Number(clip.id) : NaN
+          if (Number.isNaN(id)) return null
+          return { id, sort_order: baseOffset + i }
+        })
+        .filter(Boolean) as { id: number; sort_order: number }[]
+
+      const tableId =
+        isGameFilter && !activeFilter?.isProcessed ? 'files' : activeFilterId
+      ipcBridge.reorderClips({ filterId: tableId, updates })
+
+      // Update lightData to match new order
+      setLightData(
+        newOrder.map((clip, i) => ({
+          id: getClipId(clip) || String(i),
+          stage: clip.stage,
+        })),
+      )
     },
-    [dragStartIndex, getSelectionRange, setSelectedIds],
+    [clips, dataPage, numPerPage, isGameFilter, activeFilter, activeFilterId],
   )
 
-  // Handle mouse up - end drag
+  // Handle mouse up - end reorder drag
   useEffect(() => {
     const handleMouseUp = () => {
-      if (isDraggingRef.current) {
-        isDraggingRef.current = false
-        setDragStartIndex(null)
+      if (!reorderDragRef.current) return
+      if (reorderDragRef.current.active && reorderInsertIndex !== null) {
+        handleReorderDrop(reorderInsertIndex)
+      } else if (reorderPendingClickRef.current) {
+        // Didn't exceed threshold — treat as a normal click (deselect others)
+        const { index, clipId } = reorderPendingClickRef.current
+        crossPageRef.current = false
+        setSelectedIds(new Set([clipId]))
+        setLastSelectedIndex(index)
       }
+      reorderDragRef.current = null
+      reorderPendingClickRef.current = null
+      setReorderInsertIndex(null)
     }
 
     document.addEventListener('mouseup', handleMouseUp)
     return () => document.removeEventListener('mouseup', handleMouseUp)
+  }, [
+    reorderInsertIndex,
+    handleReorderDrop,
+    setSelectedIds,
+    setLastSelectedIndex,
+  ])
+
+  // Handle mousemove for reorder drag threshold and position tracking
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!reorderDragRef.current) return
+      const { startX, startY, active } = reorderDragRef.current
+      if (!active) {
+        const dx = e.clientX - startX
+        const dy = e.clientY - startY
+        if (Math.abs(dx) > 5 || Math.abs(dy) > 5) {
+          reorderDragRef.current.active = true
+          reorderPendingClickRef.current = null
+          // Force a re-render so DomLayer shows drag state
+          setReorderInsertIndex(-1)
+        }
+      }
+    }
+
+    document.addEventListener('mousemove', handleMouseMove)
+    return () => document.removeEventListener('mousemove', handleMouseMove)
   }, [])
 
   // Double-click a clip to open it in full mode
@@ -1014,6 +1127,10 @@ export function Tray({
               setLastSelectedIndex(null)
             }}
             startIndex={0}
+            reorderActive={reorderDragRef.current?.active ?? false}
+            reorderDraggingIds={reorderDragRef.current?.draggingIds ?? null}
+            reorderInsertIndex={reorderInsertIndex}
+            onReorderInsertIndexChange={setReorderInsertIndex}
           />
         )}
 

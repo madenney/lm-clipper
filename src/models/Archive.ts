@@ -54,13 +54,18 @@ export default class Archive {
       detectDuplicates?: boolean
       abortSignal?: AbortSignal
       maxWorkers?: number
+      slpzConfig?: {
+        slpzBinaryPath: string
+        slpzMode: 'extract' | 'replace'
+        slpzOutputDir: string
+      }
     },
   ) {
     const paths = Array.isArray(_paths) ? _paths : [_paths]
     const detectDuplicates = options?.detectDuplicates !== false
     const abortSignal = options?.abortSignal
     const maxWorkers = Math.max(1, options?.maxWorkers || 1)
-    const workerPool = new ImportWorkerPool(maxWorkers)
+    const workerPool = new ImportWorkerPool(maxWorkers, options?.slpzConfig)
     const progressThrottleMs = 200
     const maxInFlight = Math.max(4, maxWorkers * 2)
     const batchThreshold = 50
@@ -432,9 +437,22 @@ class ImportWorkerPool {
   private nextId = 1
   private terminated = false
   private workerExecArgv?: string[]
+  private slpzConfig?: {
+    slpzBinaryPath: string
+    slpzMode: 'extract' | 'replace'
+    slpzOutputDir: string
+  }
 
-  constructor(size: number) {
+  constructor(
+    size: number,
+    slpzConfig?: {
+      slpzBinaryPath: string
+      slpzMode: 'extract' | 'replace'
+      slpzOutputDir: string
+    },
+  ) {
     this.workerExecArgv = getWorkerExecArgv()
+    this.slpzConfig = slpzConfig
     for (let i = 0; i < size; i += 1) {
       this.addWorker()
     }
@@ -477,6 +495,9 @@ class ImportWorkerPool {
   private addWorker() {
     const worker = new Worker(new URL('./ImportWorker.ts', import.meta.url), {
       ...(this.workerExecArgv ? { execArgv: this.workerExecArgv } : {}),
+      ...(this.slpzConfig
+        ? { workerData: { slpzConfig: this.slpzConfig } }
+        : {}),
     })
     worker.on('message', (message: ImportWorkerResponse) => {
       this.handleMessage(worker, message)

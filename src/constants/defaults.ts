@@ -35,6 +35,9 @@ export const config = {
   defaultProjectDirectory: '',
   ffmpegPath: '',
   customGeckoCodes: [] as { name: string; code: string; enabled: boolean }[],
+  slpzMode: 'ask' as const,
+  slpzOutputDir: '',
+  slpzPath: '',
   detectDuplicatesOnImport: false,
   includeDefaultFilters: true,
   savedCustomFilters: [

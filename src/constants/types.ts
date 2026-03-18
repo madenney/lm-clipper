@@ -45,6 +45,9 @@ export interface ConfigInterface {
   defaultProjectDirectory: string
   ffmpegPath: string
   customGeckoCodes: CustomGeckoCode[]
+  slpzMode: 'ask' | 'extract' | 'replace'
+  slpzOutputDir: string
+  slpzPath: string
   detectDuplicatesOnImport: boolean
   includeDefaultFilters: boolean
   savedCustomFilters: SavedCustomFilter[]
@@ -207,6 +210,11 @@ export interface ArchiveInterface {
       detectDuplicates?: boolean
       abortSignal?: AbortSignal
       maxWorkers?: number
+      slpzConfig?: {
+        slpzBinaryPath: string
+        slpzMode: 'extract' | 'replace'
+        slpzOutputDir: string
+      }
     },
   ): Promise<boolean>
   getItems?(params: {

@@ -28,3 +28,20 @@
 .dom-layer::-webkit-scrollbar-thumb:hover {
   background: #505050;
 }
+
+.dom-layer--reordering {
+  cursor: grabbing !important;
+}
+
+.dom-layer--reordering * {
+  cursor: grabbing !important;
+  pointer-events: none;
+}
+
+.reorder-indicator {
+  background: #4a9d5b;
+  border-radius: 2px;
+  z-index: 10;
+  pointer-events: none;
+  box-shadow: 0 0 8px rgba(74, 157, 91, 0.6);
+}

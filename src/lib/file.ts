@@ -73,5 +73,5 @@ export async function* streamSlpFilePaths(
   _paths: string | string[],
   options: StreamOptions = {},
 ) {
-  yield* streamFilePathsByExtension(_paths, ['.slp'], options)
+  yield* streamFilePathsByExtension(_paths, ['.slp', '.slpz'], options)
 }

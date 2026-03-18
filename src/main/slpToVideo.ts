@@ -192,7 +192,7 @@ const processOneReplay = async (
     '-o',
     `${fileBasename}-unmerged`,
     `--output-directory=${outputDir}`,
-    '-b',
+    ...(config.fullscreen !== false ? ['-b'] : []),
     '-e',
     config.ssbmIsoPath,
     '--cout',
@@ -242,7 +242,7 @@ const processOneReplay = async (
     '-b:v',
     `${config.bitrateKbps}k`,
   ]
-  if (config.resolution === 4 && !config.widescreenOff) {
+  if (config.resolution === 4 && config.widescreen !== false) {
     ffmpegMergeArgs.push('-vf', 'scale=1920:1080')
   }
   ffmpegMergeArgs.push(basePath('-merged.avi'))
@@ -562,6 +562,53 @@ const configureDolphin = async (
   }
 
   let newSettings: string[] = ['[Gecko]']
+
+  // Inline definitions for codes not in the playback GALE01r2.ini
+  if (config.freezeFD) {
+    newSettings.push('$Freeze FD Background')
+    newSettings.push('0421AAE0 48000008')
+  }
+  if (config.centerHud) {
+    newSettings.push('$Center Align 2P HUD')
+    newSettings.push('C216E9AC 00000009')
+    newSettings.push('887F0061 2C030003')
+    newSettings.push('41820030 887F0085')
+    newSettings.push('2C030003 41820024')
+    newSettings.push('887F00A9 2C030003')
+    newSettings.push('40820018 887F00CD')
+    newSettings.push('2C030003 4082000C')
+    newSettings.push('38600002 4800000C')
+    newSettings.push('887F0000 5463F77E')
+    newSettings.push('60000000 00000000')
+  }
+  if (config.flashRedLCancel) {
+    newSettings.push('$Flash Red Failed L-Cancel A')
+    newSettings.push('C20C0148 0000000C')
+    newSettings.push('387F0488 899E0564')
+    newSettings.push('2C0C00D4 41820008')
+    newSettings.push('4800004C 39800091')
+    newSettings.push('999E0564 3D80437F')
+    newSettings.push('919E0518 3D80C200')
+    newSettings.push('919E0524 3D800000')
+    newSettings.push('919E051C 919E0520')
+    newSettings.push('919E0528 919E052C')
+    newSettings.push('919E0530 3D80C280')
+    newSettings.push('919E0534 3D80800C')
+    newSettings.push('618C0150 7D8903A6')
+    newSettings.push('4E800420 00000000')
+    newSettings.push('$Flash Red Failed L-Cancel B')
+    newSettings.push('C208D690 00000009')
+    newSettings.push('3D808048 818C9D30')
+    newSettings.push('558C443E 2C0C0208')
+    newSettings.push('40820020 818DB61C')
+    newSettings.push('898C0000 8965000C')
+    newSettings.push('7C0C5800 4182000C')
+    newSettings.push('88A5067F 48000018')
+    newSettings.push('88A5067F 2C050007')
+    newSettings.push('4180000C 398000D4')
+    newSettings.push('99830564 00000000')
+  }
+
   // Write custom code definitions
   newSettings.push(...geckoDefinitions)
 
@@ -570,7 +617,8 @@ const configureDolphin = async (
   if (config.hideHud) newSettings.push('$Optional: Hide HUD')
   if (config.hideTags) newSettings.push('$Optional: Hide Tags')
   if (config.fixedCamera) newSettings.push('$Optional: Fixed Camera Always')
-  if (!config.widescreenOff) newSettings.push('$Optional: Widescreen 16:9')
+  if (config.widescreen !== false)
+    newSettings.push('$Optional: Widescreen 16:9')
   if (config.disableScreenShake)
     newSettings.push('$Optional: Disable Screen Shake')
   if (config.noElectricSFX) newSettings.push('$Optional: No Electric SFX')
@@ -579,6 +627,13 @@ const configureDolphin = async (
     newSettings.push('$Optional: Prevent Character Crowd Chants')
   if (config.disableMagnifyingGlass)
     newSettings.push('$Optional: Disable Magnifying-glass HUD')
+  if (config.freezeFD) newSettings.push('$Freeze FD Background')
+  if (config.centerHud) newSettings.push('$Center Align 2P HUD')
+  if (config.developMode) newSettings.push('$Optional: Enable Develop Mode')
+  if (config.flashRedLCancel) {
+    newSettings.push('$Flash Red Failed L-Cancel A')
+    newSettings.push('$Flash Red Failed L-Cancel B')
+  }
   // Enable custom gecko codes
   for (const gc of customGeckoCodes) {
     if (gc.name && gc.code && gc.enabled) {
@@ -603,7 +658,7 @@ const configureDolphin = async (
     crlfDelay: Infinity,
   })
   newSettings = []
-  const aspectRatioSetting = config.widescreenOff ? 5 : 6
+  const aspectRatioSetting = config.widescreen !== false ? 6 : 5
   // eslint-disable-next-line no-restricted-syntax
   for await (const line of rl) {
     if (line.startsWith('AspectRatio')) {

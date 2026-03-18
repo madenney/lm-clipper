@@ -231,6 +231,10 @@
         {
           "from": "release/app/ffmpeg/ffmpeg-win32-x64.exe",
           "to": "ffmpeg/ffmpeg-win32-x64.exe"
+        },
+        {
+          "from": "release/app/slpz/slpz-win32-x64.exe",
+          "to": "slpz/slpz-win32-x64.exe"
         }
       ]
     },
@@ -243,6 +247,10 @@
         {
           "from": "release/app/ffmpeg/ffmpeg-linux-x64",
           "to": "ffmpeg/ffmpeg-linux-x64"
+        },
+        {
+          "from": "release/app/slpz/slpz-linux-x64",
+          "to": "slpz/slpz-linux-x64"
         }
       ]
     },
