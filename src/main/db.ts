@@ -1,6 +1,37 @@
 import { FileInterface } from 'constants/types'
-import { getDb } from './dbConnection'
+import { getDb, setOnCloseCallback } from './dbConnection'
 import { archive as defaultArchive } from '../constants/defaults'
+
+// Cache table column info to avoid repeated PRAGMA calls
+const schemaCache = new Map<string, Set<string>>()
+
+function getTableColumns(path: string, tableId: string): Set<string> {
+  const key = `${path}:${tableId}`
+  const cached = schemaCache.get(key)
+  if (cached) return cached
+  const db = getDb(path)
+  const cols = db.prepare(`PRAGMA table_info("${tableId}")`).all() as {
+    name: string
+  }[]
+  const names = new Set(cols.map((c) => c.name))
+  schemaCache.set(key, names)
+  return names
+}
+
+export function invalidateSchemaCache(path?: string, tableId?: string) {
+  if (path && tableId) {
+    schemaCache.delete(`${path}:${tableId}`)
+  } else if (path) {
+    for (const key of schemaCache.keys()) {
+      if (key.startsWith(`${path}:`)) schemaCache.delete(key)
+    }
+  } else {
+    schemaCache.clear()
+  }
+}
+
+// Clear schema cache when DB connection closes
+setOnCloseCallback(() => schemaCache.clear())
 
 export function dbExists(path: string) {
   try {
@@ -138,7 +169,11 @@ export function getMetaData(path: string) {
     throw new Error('metadata missing')
   }
 
-  let extra: { filters?: any[]; savedCustomFilters?: any[] } = {}
+  let extra: {
+    filters?: any[]
+    savedCustomFilters?: any[]
+    cachedCounts?: Record<string, number>
+  } = {}
   try {
     extra = JSON.parse(row.extra || '{}')
   } catch (_) {
@@ -152,6 +187,7 @@ export function getMetaData(path: string) {
     filters: extra.filters || [],
     savedCustomFilters: extra.savedCustomFilters || [],
   }
+  const cachedCounts: Record<string, number> = extra.cachedCounts || {}
 
   let needsUpdate = false
 
@@ -188,12 +224,23 @@ export function getMetaData(path: string) {
   }
   metadata.files = countRow.count
 
+  const newCachedCounts: Record<string, number> = {}
   for (const filter of metadata.filters) {
     try {
-      const countResult = db
-        .prepare(`SELECT COUNT(*) AS count FROM "${filter.id}"`)
-        .get() as { count: number }
-      filter.results = countResult.count
+      // Use cached count for processed filters; recount for unprocessed/running
+      if (
+        filter.isProcessed &&
+        cachedCounts[filter.id] !== undefined &&
+        cachedCounts[filter.id] >= 0
+      ) {
+        filter.results = cachedCounts[filter.id]
+      } else {
+        const countResult = db
+          .prepare(`SELECT COUNT(*) AS count FROM "${filter.id}"`)
+          .get() as { count: number }
+        filter.results = countResult.count
+      }
+      newCachedCounts[filter.id] = filter.results
     } catch (error) {
       console.log(`Missing filter table ${filter.id}, recreating`)
       createFilter(path, filter.id)
@@ -213,6 +260,8 @@ export function getMetaData(path: string) {
       created_at INTEGER
     )
   `)
+
+  metadata.cachedCounts = newCachedCounts
 
   // Check for resumable filter runs
   for (const filter of metadata.filters) {
@@ -243,12 +292,16 @@ export function updateMetaData(
     createdAt?: number
     filters?: any[]
     savedCustomFilters?: any[]
+    cachedCounts?: Record<string, number>
   },
 ) {
   const db = getDb(path)
   const extraObj: any = { filters: metadata.filters || [] }
   if (metadata.savedCustomFilters && metadata.savedCustomFilters.length > 0) {
     extraObj.savedCustomFilters = metadata.savedCustomFilters
+  }
+  if (metadata.cachedCounts) {
+    extraObj.cachedCounts = metadata.cachedCounts
   }
   const extra = JSON.stringify(extraObj)
   db.prepare(
@@ -366,10 +419,8 @@ export function getItemsByIds(path: string, tableId: string, ids: number[]) {
   if (ids.length === 0) return []
   const db = getDb(path)
   const placeholders = ids.map(() => '?').join(',')
-  const cols = db.prepare(`PRAGMA table_info("${tableId}")`).all() as {
-    name: string
-  }[]
-  const hasSortOrder = cols.some((c) => c.name === 'sort_order')
+  const colNames = getTableColumns(path, tableId)
+  const hasSortOrder = colNames.has('sort_order')
   const orderBy = hasSortOrder ? 'COALESCE(sort_order, id), id' : 'id'
   return db
     .prepare(
@@ -419,11 +470,8 @@ export function getItems(
   offset: number,
 ) {
   const db = getDb(path)
-  // Use sort_order if the column exists, falling back to id order
-  const cols = db.prepare(`PRAGMA table_info("${tableId}")`).all() as {
-    name: string
-  }[]
-  const hasSortOrder = cols.some((c) => c.name === 'sort_order')
+  const colNames = getTableColumns(path, tableId)
+  const hasSortOrder = colNames.has('sort_order')
   const orderBy = hasSortOrder ? 'COALESCE(sort_order, id), id' : 'id'
   return db
     .prepare(`SELECT * FROM "${tableId}" ORDER BY ${orderBy} LIMIT ? OFFSET ?`)
@@ -439,10 +487,8 @@ export function getItemsLite(path: string, limit: number, offset: number) {
 
 export function getAllIds(path: string, tableId: string): string[] {
   const db = getDb(path)
-  const cols = db.prepare(`PRAGMA table_info("${tableId}")`).all() as {
-    name: string
-  }[]
-  const hasSortOrder = cols.some((c) => c.name === 'sort_order')
+  const colNames = getTableColumns(path, tableId)
+  const hasSortOrder = colNames.has('sort_order')
   const orderBy = hasSortOrder ? 'COALESCE(sort_order, id), id' : 'id'
   const rows = db
     .prepare(`SELECT id FROM "${tableId}" ORDER BY ${orderBy}`)
@@ -454,10 +500,7 @@ export function getAllIds(path: string, tableId: string): string[] {
 
 export function getTableDuration(path: string, tableId: string): number {
   const db = getDb(path)
-  const cols = db.prepare(`PRAGMA table_info("${tableId}")`).all() as {
-    name: string
-  }[]
-  const colNames = new Set(cols.map((c) => c.name))
+  const colNames = getTableColumns(path, tableId)
 
   // Filter/combo tables store data in a JSON column
   if (colNames.has('JSON') && !colNames.has('startFrame')) {
@@ -517,11 +560,13 @@ export function createFilter(path: string, id: string) {
       sort_order INTEGER DEFAULT NULL
     )
   `)
+  invalidateSchemaCache(path, id)
 }
 
 export function deleteFilter(path: string, id: string) {
   const db = getDb(path)
   db.exec(`DROP TABLE IF EXISTS "${id}"`)
+  invalidateSchemaCache(path, id)
 }
 
 export function upsertFilterRun(
@@ -623,13 +668,12 @@ export function updateSortOrder(
   if (updates.length === 0) return
   const db = getDb(path)
   // Ensure sort_order column exists (migration for old tables)
-  const cols = db.prepare(`PRAGMA table_info("${tableId}")`).all() as {
-    name: string
-  }[]
-  if (!cols.some((c) => c.name === 'sort_order')) {
+  const colNames = getTableColumns(path, tableId)
+  if (!colNames.has('sort_order')) {
     db.exec(
       `ALTER TABLE "${tableId}" ADD COLUMN sort_order INTEGER DEFAULT NULL`,
     )
+    invalidateSchemaCache(path, tableId)
   }
   const stmt = db.prepare(`UPDATE "${tableId}" SET sort_order = ? WHERE id = ?`)
   const updateMany = db.transaction((items: typeof updates) => {

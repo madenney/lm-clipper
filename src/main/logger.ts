@@ -1,4 +1,4 @@
-import fs from 'fs'
+import fs, { promises as fsPromises } from 'fs'
 import path from 'path'
 import os from 'os'
 
@@ -51,10 +51,37 @@ const safeStringify = (value: any) => {
   }
 }
 
+let logDirReady = false
+const MAX_LOG_SIZE = 10 * 1024 * 1024 // 10 MB
+const rotatedFiles = new Set<string>()
+
+const rotateIfNeeded = (filePath: string) => {
+  if (rotatedFiles.has(filePath)) return
+  try {
+    const stats = fs.statSync(filePath)
+    if (stats.size > MAX_LOG_SIZE) {
+      const backupPath = `${filePath}.old`
+      try {
+        fs.unlinkSync(backupPath)
+      } catch (_) {
+        // no old backup
+      }
+      fs.renameSync(filePath, backupPath)
+    }
+  } catch (_) {
+    // file doesn't exist yet
+  }
+  rotatedFiles.add(filePath)
+}
+
 const writeLog = (fileName: string, entry: string) => {
-  ensureLogDir()
+  if (!logDirReady) {
+    ensureLogDir()
+    logDirReady = true
+  }
   const filePath = path.join(logRoot, fileName)
-  fs.appendFileSync(filePath, `${entry}\n`)
+  rotateIfNeeded(filePath)
+  fsPromises.appendFile(filePath, `${entry}\n`).catch(() => {})
 }
 
 const formatLine = (label: string, detail?: any) => {

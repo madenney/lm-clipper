@@ -1,10 +1,21 @@
 import { SlippiGame } from '@slippi/slippi-js'
-import { FileInterface, ClipInterface } from '../../constants/types'
+import {
+  FileInterface,
+  ClipInterface,
+  SlpParserParams,
+} from '../../constants/types'
 import { detectCombos } from './comboDetection'
-import matchesAny from './matchesAny'
+import { matchesPlayer, safeInt } from '../../lib/filterHelpers'
 
-export default (file: FileInterface, params: { [key: string]: any }) => {
-  const results: ClipInterface[] = []
+type SlpParserResult = {
+  combos: ClipInterface[]
+  lastFrame?: number
+}
+
+export default (
+  file: FileInterface,
+  params: SlpParserParams,
+): SlpParserResult => {
   const {
     minHits,
     maxHits,
@@ -20,22 +31,32 @@ export default (file: FileInterface, params: { [key: string]: any }) => {
 
   const { path, players, stage, startedAt } = file
   if (!players) {
-    return []
+    return { combos: [] }
   }
 
   const game = new SlippiGame(path)
   let combos
+  let lastFrame: number | undefined
   try {
     const settings = game.getSettings()
     const frames = game.getFrames()
-    if (!settings || !frames) return []
-    const timeout = comboTimeout ? parseInt(comboTimeout, 10) : 45
+    if (!settings || !frames) return { combos: [] }
+    const timeout = safeInt(comboTimeout, 45, 1, 600)
     combos = detectCombos(frames, settings, timeout)
+    // Discover lastFrame from frame data (free — already loaded)
+    const metadata = game.getMetadata()
+    lastFrame = metadata?.lastFrame ?? undefined
+    if (!lastFrame || lastFrame <= 0) {
+      const frameKeys = Object.keys(frames)
+      if (frameKeys.length > 0) {
+        lastFrame = Math.max(...frameKeys.map(Number))
+      }
+    }
   } catch (e) {
     console.warn('Broken file:', path)
-    return []
+    return { combos: [] }
   }
-  if (!combos || combos.length === 0) return []
+  if (!combos || combos.length === 0) return { combos: [], lastFrame }
   const filteredCombos: ClipInterface[] = []
   combos.forEach((combo) => {
     if (!combo.moves || combo.moves.length === 0) return false
@@ -45,46 +66,14 @@ export default (file: FileInterface, params: { [key: string]: any }) => {
       (p) => p && p.playerIndex === combo.moves[0].playerIndex,
     )
     if (!comboer) return false
-    const comboee = players.find((p) => p.playerIndex === combo.playerIndex)
+    const comboee = players.find(
+      (p) => p && p.playerIndex === combo.playerIndex,
+    )
     if (!comboee) return false
-    if (!matchesAny(comboer.characterId, comboerChar)) return false
-    if (comboerTag && (!Array.isArray(comboerTag) || comboerTag.length > 0)) {
-      const tags = Array.isArray(comboerTag)
-        ? comboerTag.map((t: string) => t.toLowerCase())
-        : comboerTag.toLowerCase().split(';')
-      const name = (comboer.displayName || '').toLowerCase()
-      if (tags.indexOf(name) === -1) {
-        return false
-      }
-    }
-    if (comboerCC && (!Array.isArray(comboerCC) || comboerCC.length > 0)) {
-      const codes = Array.isArray(comboerCC)
-        ? comboerCC.map((t: string) => t.toLowerCase())
-        : comboerCC.toLowerCase().split(';')
-      const code = (comboer.connectCode || '').toLowerCase()
-      if (codes.indexOf(code) === -1) {
-        return false
-      }
-    }
-    if (!matchesAny(comboee.characterId, comboeeChar)) return false
-    if (comboeeTag && (!Array.isArray(comboeeTag) || comboeeTag.length > 0)) {
-      const tags = Array.isArray(comboeeTag)
-        ? comboeeTag.map((t: string) => t.toLowerCase())
-        : comboeeTag.toLowerCase().split(';')
-      const name = (comboee.displayName || '').toLowerCase()
-      if (tags.indexOf(name) === -1) {
-        return false
-      }
-    }
-    if (comboeeCC && (!Array.isArray(comboeeCC) || comboeeCC.length > 0)) {
-      const codes = Array.isArray(comboeeCC)
-        ? comboeeCC.map((t: string) => t.toLowerCase())
-        : comboeeCC.toLowerCase().split(';')
-      const code = (comboee.connectCode || '').toLowerCase()
-      if (codes.indexOf(code) === -1) {
-        return false
-      }
-    }
+    if (!matchesPlayer(comboer, comboerChar, comboerTag, comboerCC))
+      return false
+    if (!matchesPlayer(comboee, comboeeChar, comboeeTag, comboeeCC))
+      return false
     if (didKill && !combo.didKill) return false
 
     return filteredCombos.push({
@@ -103,6 +92,5 @@ export default (file: FileInterface, params: { [key: string]: any }) => {
       },
     })
   })
-  filteredCombos.forEach((c) => results.push(c))
-  return results
+  return { combos: filteredCombos, lastFrame }
 }

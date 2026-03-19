@@ -12,6 +12,7 @@ import {
   deleteFilterRun,
   getProcessedSourceIds,
 } from '../main/db'
+import { getWorkerExecArgv } from '../lib'
 
 type Slice = {
   bottom: number
@@ -25,8 +26,9 @@ export default class Filter {
   label: string
   type: string
   isProcessed: boolean
-  params: { [key: string]: any }
+  params: Record<string, any>
   results: number
+  private _activeSlices: Slice[] | null = null
 
   constructor(filterJSON: FilterInterface) {
     this.id = filterJSON.id
@@ -45,6 +47,19 @@ export default class Filter {
     await deleteFilter(dbPath, this.id)
   }
 
+  getWorkerStatus(): Array<{
+    workerId: number
+    completed: number
+    total: number
+  }> | null {
+    if (!this._activeSlices) return null
+    return this._activeSlices.map((s, i) => ({
+      workerId: i,
+      completed: s.completed,
+      total: s.top - s.bottom + 1,
+    }))
+  }
+
   async run3(
     dbPath: string,
     prevTableId: string,
@@ -52,7 +67,7 @@ export default class Filter {
     eventEmitter: EventEmitterInterface,
     abortSignal?: AbortSignal,
     options?: { resume?: boolean },
-  ): Promise<{ terminated: boolean; errors: string[] }> {
+  ): Promise<{ terminated: boolean; errors: string[]; logs?: string[] }> {
     const resume = options?.resume === true
     const prevResultsLength = await getTableLength(dbPath, prevTableId)
     let maxFiles = prevResultsLength
@@ -75,7 +90,11 @@ export default class Filter {
     }
 
     // Record that this filter run is in progress
-    upsertFilterRun(dbPath, this.id, JSON.stringify(this.params), maxFiles)
+    try {
+      upsertFilterRun(dbPath, this.id, JSON.stringify(this.params), maxFiles)
+    } catch (err) {
+      console.error('Failed to record filter run:', err)
+    }
 
     if (maxFiles === 0) {
       this.isProcessed = true
@@ -86,6 +105,7 @@ export default class Filter {
     const threadCount =
       this.type === 'sort' ? 1 : Math.min(minThreads, maxFiles)
     const slices = createSlices(maxFiles, threadCount)
+    this._activeSlices = slices
     const workerResults = new Array(slices.length).fill(0)
     const workers: Worker[] = []
     const errors: string[] = []
@@ -106,13 +126,8 @@ export default class Filter {
     eventEmitter({ current: 0, total: maxFiles })
 
     try {
+      const workerExecArgv = getWorkerExecArgv()
       const promises = slices.map((slice, i) => {
-        const workerExecArgv = (() => {
-          const mode = process.env.LM_CLIPPER_WORKER_TS_NODE
-          if (!mode) return undefined
-          if (mode === 'esm') return ['--loader', 'ts-node/esm']
-          return ['-r', 'ts-node/register/transpile-only']
-        })()
         // Slow I/O filters (edgeguard, actionStateFilter, etc.) load full .slp
         // frame data via SlippiGame.getFrames(), which can be 20-40 MB per file.
         // Worker threads default to a small heap (~48-64 MB) so we bump it.
@@ -138,6 +153,7 @@ export default class Filter {
             params: this.params,
             skipSourceIds,
           },
+          stderr: true,
           ...(workerExecArgv ? { execArgv: workerExecArgv } : {}),
           ...(resourceLimits ? { resourceLimits } : {}),
         })
@@ -165,14 +181,12 @@ export default class Filter {
             }
 
             if (e.type === 'error') {
-              const errMsg = (e as any).message || 'Unknown error'
-              if (errors.length < 10) errors.push(errMsg)
+              if (errors.length < 10) errors.push(e.message)
             }
 
-            if ((e as any).type === 'logs') {
-              const workerLogs = (e as any).logs
-              if (Array.isArray(workerLogs)) {
-                for (const l of workerLogs) {
+            if (e.type === 'logs') {
+              if (Array.isArray(e.logs)) {
+                for (const l of e.logs) {
                   if (logs.length < 500) logs.push(l)
                 }
               }
@@ -186,14 +200,31 @@ export default class Filter {
             }
           })
 
+          let workerStderr = ''
+          worker.stderr?.on('data', (chunk: Buffer) => {
+            workerStderr += chunk.toString()
+          })
+
           worker.on('error', (error) => {
             console.error('Worker error:', error)
+            const detail = workerStderr
+              ? `${error.message}\n${workerStderr.slice(-500)}`
+              : error.message
+            if (errors.length < 10)
+              errors.push(`Worker ${i} crashed: ${detail}`)
             resolve()
           })
 
           worker.on('exit', (code) => {
             if (code !== 0) {
-              console.log(`Worker exited with code ${code}`)
+              console.log(
+                `Worker ${i} exited with code ${code}`,
+                workerStderr.slice(-500),
+              )
+              const detail = workerStderr
+                ? `Worker ${i} exited with code ${code}: ${workerStderr.slice(-500)}`
+                : `Worker ${i} exited with code ${code}`
+              if (errors.length < 10) errors.push(detail)
             }
             resolve()
           })
@@ -202,6 +233,8 @@ export default class Filter {
 
       await Promise.all(promises)
     } finally {
+      this._activeSlices = null
+
       if (abortSignal) {
         abortSignal.removeEventListener('abort', abortHandler)
       }

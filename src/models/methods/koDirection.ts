@@ -1,5 +1,6 @@
 /* eslint-disable eqeqeq */
 import { SlippiGame } from '@slippi/slippi-js'
+import { ClipInterface, KoDirectionParams } from '../../constants/types'
 
 function getDeathDirection(actionStateId: number): string | null {
   if (actionStateId > 10) return null
@@ -15,17 +16,17 @@ function getDeathDirection(actionStateId: number): string | null {
   }
 }
 
-export default (prevResults: any[], params: any) => {
+export default (prevResults: ClipInterface[], params: KoDirectionParams) => {
   const { direction } = params
   const directions: string[] = Array.isArray(direction) ? direction : []
   if (directions.length === 0) return prevResults
 
-  return prevResults.filter((clip: any) => {
+  return prevResults.filter((clip) => {
     const { path, comboee, endFrame } = clip
     if (!comboee || !clip.combo?.didKill) return false
 
     const game = new SlippiGame(path)
-    let stocks: any[] | undefined
+    let stocks: ReturnType<SlippiGame['getStats']>['stocks'] | undefined
     try {
       stocks = game.getStats()?.stocks
     } catch (e) {
@@ -39,7 +40,7 @@ export default (prevResults: any[], params: any) => {
 
     // Find the stock loss that matches this combo's kill
     const stock = stocks.find(
-      (s: any) =>
+      (s) =>
         s.playerIndex == comboee.playerIndex &&
         s.endFrame != null &&
         Math.abs(s.endFrame - _endFrame) <= 60,

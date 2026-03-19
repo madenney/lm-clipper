@@ -1,4 +1,8 @@
-import { ClipInterface, EventEmitterInterface } from 'constants/types'
+import {
+  ClipInterface,
+  EventEmitterInterface,
+  CustomParams,
+} from 'constants/types'
 import { SlippiGame } from '@slippi/slippi-js'
 
 export interface CustomResult {
@@ -8,7 +12,7 @@ export interface CustomResult {
 
 export default (
   prevResults: ClipInterface[],
-  params: { [key: string]: any },
+  params: CustomParams,
   eventEmitter: EventEmitterInterface,
 ): ClipInterface[] | CustomResult => {
   const { code, maxFiles } = params
@@ -17,15 +21,16 @@ export default (
     return prevResults
   }
 
-  const limit =
+  const parsedLimit =
     maxFiles === '' || maxFiles === undefined
       ? prevResults.length
       : parseInt(maxFiles, 10)
+  const limit =
+    Number.isNaN(parsedLimit) || parsedLimit < 0
+      ? prevResults.length
+      : parsedLimit
 
-  const sliced = prevResults.slice(
-    0,
-    Number.isNaN(limit) ? prevResults.length : limit,
-  )
+  const sliced = prevResults.slice(0, limit)
 
   eventEmitter({ current: 0, total: sliced.length })
 

@@ -26,10 +26,17 @@ import { getFFMPEGPath } from './util'
 import { logMain, getLogPath } from './logger'
 import { ConfigInterface, ReplayInterface } from '../constants/types'
 
+export type VideoWorkerStatus = {
+  replayPath: string
+  phase: 'idle' | 'recording' | 'encoding'
+  replayIndex: number
+}
+
 export type VideoJobController = {
   stop: () => void
   cancel: () => void
   promise: Promise<void>
+  getWorkerStatus: () => VideoWorkerStatus[]
 }
 
 type VideoSignal = {
@@ -365,6 +372,7 @@ const processReplays = async (
   config: ConfigInterface & { numProcesses: number; gameMusicOn: boolean },
   eventEmitter: (_msg: string) => void,
   signal: VideoSignal,
+  workerStatuses: VideoWorkerStatus[],
 ) => {
   const queue = [...replays]
   const total = replays.length
@@ -383,15 +391,23 @@ const processReplays = async (
     progress.recorded += 1
     emitStatus()
   }
-  const worker = async () => {
+  const worker = async (workerIndex: number) => {
     let replay = queue.shift()
     while (replay !== undefined) {
       if (signal.stopped || signal.cancelled) break
+      workerStatuses[workerIndex] = {
+        replayPath: replay.path,
+        phase: 'recording',
+        replayIndex: replay.index,
+      }
       const ok = await processOneReplay(
         replay,
         config,
         signal,
-        onRecorded,
+        () => {
+          workerStatuses[workerIndex].phase = 'encoding'
+          onRecorded()
+        },
         eventEmitter,
       )
       if (!ok && (signal.stopped || signal.cancelled)) break
@@ -399,12 +415,17 @@ const processReplays = async (
         progress.encoded += 1
         emitStatus()
       }
+      workerStatuses[workerIndex] = {
+        replayPath: '',
+        phase: 'idle',
+        replayIndex: -1,
+      }
       replay = queue.shift()
     }
   }
 
   const workers = []
-  for (let i = 0; i < config.numProcesses; i++) workers.push(worker())
+  for (let i = 0; i < config.numProcesses; i++) workers.push(worker(i))
   await Promise.all(workers)
 
   // Concatenate all output clips into a single video
@@ -709,6 +730,15 @@ const slpToVideo = (
     activeProcesses: new Set(),
   }
 
+  const workerStatuses: VideoWorkerStatus[] = Array.from(
+    { length: config.numProcesses },
+    () => ({
+      replayPath: '',
+      phase: 'idle' as const,
+      replayIndex: -1,
+    }),
+  )
+
   const promise = (async () => {
     await fsPromises
       .access(config.ssbmIsoPath)
@@ -732,7 +762,9 @@ const slpToVideo = (
         }
       })
       .then(() => configureDolphin(config, eventEmitter))
-      .then(() => processReplays(replays, config, eventEmitter, signal))
+      .then(() =>
+        processReplays(replays, config, eventEmitter, signal, workerStatuses),
+      )
       .catch((err) => {
         logMain('slpToVideo: error', err)
         eventEmitter(`${err} — Check ${getLogPath()}/main.log`)
@@ -764,6 +796,7 @@ const slpToVideo = (
       signal.activeProcesses.clear()
     },
     promise,
+    getWorkerStatus: () => workerStatuses,
   }
 }
 

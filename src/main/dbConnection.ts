@@ -27,5 +27,12 @@ export function closeDb(): void {
     }
     currentDb = null
     currentDbPath = null
+    // Clear schema cache when DB is closed
+    if (onCloseCallback) onCloseCallback()
   }
+}
+
+let onCloseCallback: (() => void) | null = null
+export function setOnCloseCallback(cb: () => void) {
+  onCloseCallback = cb
 }

@@ -25,6 +25,15 @@ export default function ZipWizard({
     onDismiss()
   }
 
+  const handleSkip = () => {
+    window.electron.ipcRenderer.sendMessage('zipWizardResponse', {
+      outputDir: '',
+      deleteOriginal: false,
+      skip: true,
+    })
+    onDismiss()
+  }
+
   const handleCancel = () => {
     window.electron.ipcRenderer.sendMessage('zipWizardResponse', null)
     onDismiss()
@@ -90,6 +99,9 @@ export default function ZipWizard({
             onClick={handleCancel}
           >
             Cancel
+          </button>
+          <button type="button" className="slpz-skip-btn" onClick={handleSkip}>
+            Skip .zip files
           </button>
           <button
             type="button"

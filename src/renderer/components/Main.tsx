@@ -5,10 +5,13 @@ import { FiTerminal, FiAlertTriangle } from 'react-icons/fi'
 import ipcBridge from 'renderer/ipcBridge'
 import { videoConfig } from 'constants/config'
 import Tooltip from './Tooltip'
+import AppConsole from './AppConsole'
 import {
   ConfigInterface,
   ShallowArchiveInterface,
   RecentProject,
+  ConsoleSnapshot,
+  ConsoleLogEntry,
 } from '../../constants/types'
 import Filters from './Filters'
 import Top from './Top'
@@ -165,7 +168,6 @@ export default function Main({
   const [selectionDuration, setSelectionDuration] = useState<number | null>(
     null,
   )
-  const [isCalculatingDuration, _setIsCalculatingDuration] = useState(false)
 
   // Playback state
   const [isPlaying, setIsPlaying] = useState(false)
@@ -174,32 +176,15 @@ export default function Main({
   const [isGenerating, setIsGenerating] = useState(false)
   const [videoMsg, setVideoMsg] = useState('')
   const [videoOutputPaths, setVideoOutputPaths] = useState<string[]>([])
-  const [videoLog, setVideoLog] = useState<string[]>([])
+  const [consoleLogCount, setConsoleLogCount] = useState(0)
+  const [consoleHasError, setConsoleHasError] = useState(false)
   const [consoleOpen, setConsoleOpen] = useState(false)
   const [consoleHeight, setConsoleHeight] = useState(200)
-  const consoleEndRef = useRef<HTMLDivElement>(null)
-  const consoleDragRef = useRef<{ startY: number; startH: number } | null>(null)
-
-  // Import state - track whether files are being imported
-  const [_isImporting, setIsImporting] = useState(false)
-
-  useEffect(() => {
-    const applyStatus = (status: any) => {
-      if (!status || typeof status !== 'object') return
-      setIsImporting(!!status.isImporting)
-    }
-
-    const removeListener = window.electron.ipcRenderer.on(
-      'importStatus',
-      (status) => applyStatus(status),
-    )
-
-    ipcBridge.getImportStatus((status) => applyStatus(status))
-
-    return () => {
-      removeListener()
-    }
-  }, [])
+  const [consoleLogEntries, setConsoleLogEntries] = useState<ConsoleLogEntry[]>(
+    [],
+  )
+  const [consoleSnapshot, setConsoleSnapshot] =
+    useState<ConsoleSnapshot | null>(null)
 
   // Clear selection when filter changes
   useEffect(() => {
@@ -234,9 +219,6 @@ export default function Main({
       'videoMsg',
       (msg: string) => {
         setVideoMsg(msg)
-        if (msg) {
-          setVideoLog((prev) => [...prev, msg])
-        }
       },
     )
     const removeOutputPath = window.electron.ipcRenderer.on(
@@ -266,32 +248,33 @@ export default function Main({
     }
   }, [])
 
-  // Auto-scroll console to bottom
+  // Track console log entries, count, error state, and snapshot
   useEffect(() => {
-    consoleEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [videoLog])
-
-  // Console resize drag
-  useEffect(() => {
-    const onMouseMove = (e: MouseEvent) => {
-      if (!consoleDragRef.current) return
-      const delta = consoleDragRef.current.startY - e.clientY
-      const newH = Math.min(
-        Math.max(80, consoleDragRef.current.startH + delta),
-        500,
-      )
-      setConsoleHeight(newH)
-    }
-    const onMouseUp = () => {
-      consoleDragRef.current = null
-      document.body.style.cursor = ''
-      document.body.style.userSelect = ''
-    }
-    window.addEventListener('mousemove', onMouseMove)
-    window.addEventListener('mouseup', onMouseUp)
+    const removeConsoleLog = window.electron.ipcRenderer.on(
+      'consoleLog',
+      (entries: ConsoleLogEntry[]) => {
+        if (Array.isArray(entries)) {
+          setConsoleLogCount((prev) => prev + entries.length)
+          setConsoleLogEntries((prev) => {
+            const next = [...prev, ...entries]
+            return next.length > 2000 ? next.slice(-1500) : next
+          })
+          if (entries.some((e) => e.level === 'error')) {
+            setConsoleHasError(true)
+            setConsoleOpen(true)
+          }
+        }
+      },
+    )
+    const removeSnapshot = window.electron.ipcRenderer.on(
+      'consoleSnapshot',
+      (data: ConsoleSnapshot) => {
+        setConsoleSnapshot(data)
+      },
+    )
     return () => {
-      window.removeEventListener('mousemove', onMouseMove)
-      window.removeEventListener('mouseup', onMouseUp)
+      removeConsoleLog()
+      removeSnapshot()
     }
   }, [])
 
@@ -482,25 +465,23 @@ export default function Main({
 
   const startResizing = (e: React.MouseEvent<HTMLDivElement, MouseEvent>) => {
     e.preventDefault()
-    document.addEventListener('mousemove', resize)
-    document.addEventListener('mouseup', stopResizing)
-  }
-
-  const resize = (e: MouseEvent) => {
-    e.preventDefault()
-    const newLeftWidth = e.clientX
-    const maxLeftWidth = Math.max(
-      minLeftWidth,
-      window.innerWidth - minRightWidth - dividerWidth,
-    )
-    if (newLeftWidth > minLeftWidth && newLeftWidth < maxLeftWidth) {
-      setLeftWidth(newLeftWidth)
+    const onResize = (ev: MouseEvent) => {
+      ev.preventDefault()
+      const newLW = ev.clientX
+      const maxLW = Math.max(
+        minLeftWidth,
+        window.innerWidth - minRightWidth - dividerWidth,
+      )
+      if (newLW > minLeftWidth && newLW < maxLW) {
+        setLeftWidth(newLW)
+      }
     }
-  }
-
-  const stopResizing = () => {
-    document.removeEventListener('mousemove', resize)
-    document.removeEventListener('mouseup', stopResizing)
+    const onStop = () => {
+      document.removeEventListener('mousemove', onResize)
+      document.removeEventListener('mouseup', onStop)
+    }
+    document.addEventListener('mousemove', onResize)
+    document.addEventListener('mouseup', onStop)
   }
 
   useEffect(() => {
@@ -550,7 +531,8 @@ export default function Main({
       triggerSetupWizard('record')
       return
     }
-    setVideoLog([])
+    setConsoleLogCount(0)
+    setConsoleHasError(false)
     setIsGenerating(true)
     ipcBridge.generateVideo({
       filterId: activeFilterId,
@@ -558,12 +540,17 @@ export default function Main({
     })
   }
 
+  const playClipsRef = useRef(playClips)
+  playClipsRef.current = playClips
+  const generateVideoRef = useRef(generateVideo)
+  generateVideoRef.current = generateVideo
+
   useEffect(() => {
     if (!pendingAction) return
     clearPendingAction()
-    if (pendingAction === 'play') playClips()
-    else if (pendingAction === 'record') generateVideo()
-  }, [pendingAction]) // eslint-disable-line react-hooks/exhaustive-deps
+    if (pendingAction === 'play') playClipsRef.current()
+    else if (pendingAction === 'record') generateVideoRef.current()
+  }, [pendingAction, clearPendingAction])
 
   function handleClipPlay(payload: {
     path: string
@@ -583,7 +570,8 @@ export default function Main({
       triggerSetupWizard('record')
       return
     }
-    setVideoLog([])
+    setConsoleLogCount(0)
+    setConsoleHasError(false)
     setIsGenerating(true)
     ipcBridge.generateVideo({
       filterId: activeFilterId,
@@ -637,7 +625,7 @@ export default function Main({
           </div>
         </div>
       ) : null}
-      <Top archive={archive} config={config} setConfig={setConfig} />
+      <Top config={config} setConfig={setConfig} />
       <div className="mid">
         <div className="sidebar" style={{ width: `${leftWidth}px` }}>
           <Filters
@@ -668,16 +656,16 @@ export default function Main({
           type="button"
           className={`footer-console-btn${consoleOpen ? ' footer-console-btn--active' : ''}`}
           onClick={() => setConsoleOpen((v) => !v)}
-          title="Toggle recording console"
+          title="Toggle console"
         >
           <FiTerminal />
-          {videoLog.some((m) => m.startsWith('Error:')) ? (
+          {consoleHasError ? (
             <span className="footer-console-error">
               <FiAlertTriangle />
             </span>
           ) : (
-            videoLog.length > 0 && (
-              <span className="footer-console-badge">{videoLog.length}</span>
+            consoleLogCount > 0 && (
+              <span className="footer-console-badge">{consoleLogCount}</span>
             )
           )}
         </button>
@@ -894,11 +882,7 @@ export default function Main({
                     </span>
                     {selectionDuration !== null && selectionDuration > 0 && (
                       <span className="footer-selection-duration">
-                        {isCalculatingDuration ? (
-                          <span className="footer-spinner" />
-                        ) : (
-                          formatDuration(selectionDuration)
-                        )}
+                        {formatDuration(selectionDuration)}
                       </span>
                     )}
                   </div>
@@ -906,22 +890,18 @@ export default function Main({
                   <span className="footer-no-selection">No clips selected</span>
                 )}
               </div>
-              {videoLog.length > 0 &&
-                videoLog.some((m) => m.startsWith('Error:')) && (
-                  <div
-                    className="footer-error"
-                    title={videoLog.find((m) => m.startsWith('Error:'))}
+              {consoleHasError && (
+                <div className="footer-error" title="Check console for details">
+                  <FiAlertTriangle /> Error — check console
+                  <button
+                    type="button"
+                    className="footer-error-dismiss"
+                    onClick={() => setConsoleHasError(false)}
                   >
-                    <FiAlertTriangle /> Error — check console
-                    <button
-                      type="button"
-                      className="footer-error-dismiss"
-                      onClick={() => setVideoLog([])}
-                    >
-                      &times;
-                    </button>
-                  </div>
-                )}
+                    &times;
+                  </button>
+                </div>
+              )}
               <div className="footer-action-group">
                 <button
                   type="button"
@@ -985,56 +965,18 @@ export default function Main({
           </div>
         )}
         {consoleOpen && (
-          <div className="footer-console" style={{ height: consoleHeight }}>
-            {/* eslint-disable-next-line jsx-a11y/no-static-element-interactions */}
-            <div
-              className="footer-console-drag"
-              onMouseDown={(e) => {
-                consoleDragRef.current = {
-                  startY: e.clientY,
-                  startH: consoleHeight,
-                }
-                document.body.style.cursor = 'ns-resize'
-                document.body.style.userSelect = 'none'
-              }}
-            />
-            <div className="footer-console-header">
-              <span className="footer-console-title">Recording Console</span>
-              <div className="footer-console-actions">
-                <button
-                  type="button"
-                  className="footer-console-clear"
-                  onClick={() => setVideoLog([])}
-                >
-                  Clear
-                </button>
-                <button
-                  type="button"
-                  className="footer-console-close"
-                  onClick={() => setConsoleOpen(false)}
-                >
-                  ✕
-                </button>
-              </div>
-            </div>
-            <div className="footer-console-body">
-              {videoLog.length === 0 ? (
-                <div className="footer-console-empty">
-                  No recording activity yet.
-                </div>
-              ) : (
-                videoLog.map((msg, i) => (
-                  <div
-                    key={i} // eslint-disable-line react/no-array-index-key
-                    className={`footer-console-line${msg.startsWith('Error') ? ' footer-console-line--error' : ''}`}
-                  >
-                    {msg}
-                  </div>
-                ))
-              )}
-              <div ref={consoleEndRef} />
-            </div>
-          </div>
+          <AppConsole
+            consoleHeight={consoleHeight}
+            setConsoleHeight={setConsoleHeight}
+            onClose={() => setConsoleOpen(false)}
+            logEntries={consoleLogEntries}
+            onClearLogs={() => {
+              setConsoleLogEntries([])
+              setConsoleLogCount(0)
+              setConsoleHasError(false)
+            }}
+            snapshot={consoleSnapshot}
+          />
         )}
       </div>
     </div>

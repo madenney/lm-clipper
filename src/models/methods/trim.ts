@@ -1,10 +1,12 @@
-export default (prevResults: any[], params: any) => {
+import { ClipInterface, TrimParams } from '../../constants/types'
+
+export default (prevResults: ClipInterface[], params: TrimParams) => {
   const addStart = parseInt(params.addStartFrames, 10) || 0
   const addEnd = parseInt(params.addEndFrames, 10) || 0
 
   if (addStart === 0 && addEnd === 0) return prevResults
 
-  return prevResults.map((clip: any) => {
+  return prevResults.map((clip) => {
     const startFrame =
       typeof clip.startFrame === 'number'
         ? clip.startFrame

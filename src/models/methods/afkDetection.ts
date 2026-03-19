@@ -1,9 +1,18 @@
 import { SlippiGame } from '@slippi/slippi-js'
+import {
+  ClipInterface,
+  EventEmitterInterface,
+  AfkDetectionParams,
+} from '../../constants/types'
 
 const JOYSTICK_DEADZONE = 0.3
 const FPS = 60
 
-export default (prevResults, params, eventEmitter) => {
+export default (
+  prevResults: ClipInterface[],
+  params: AfkDetectionParams,
+  eventEmitter: EventEmitterInterface,
+) => {
   const maxInputsPerSec = parseFloat(params.maxInputsPerSec) || 2
   const exclude = params.exclude !== false
 

@@ -129,3 +129,19 @@
   border-color: #666;
   color: #ccc;
 }
+
+.slpz-skip-btn {
+  padding: 8px 20px;
+  background: none;
+  border: 1px solid #555;
+  border-radius: 6px;
+  color: #aaa;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 120ms ease;
+}
+
+.slpz-skip-btn:hover {
+  border-color: #777;
+  color: #ddd;
+}

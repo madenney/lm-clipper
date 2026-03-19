@@ -1,4 +1,168 @@
 /* eslint-disable no-unused-vars */
+
+// ---------------------------------------------------------------------------
+// Filter Param Types
+// ---------------------------------------------------------------------------
+
+export type FilesFilterParams = {
+  stage?: (string | number)[]
+  char1?: (string | number)[]
+  char2?: (string | number)[]
+  player1?: string[] | string
+  player2?: string[] | string
+  player1CC?: string[] | string
+  player2CC?: string[] | string
+  maxFiles?: string
+}
+
+export type SlpParserParams = {
+  minHits?: string
+  maxHits?: string
+  maxFiles?: string
+  comboTimeout?: string
+  comboerChar?: (string | number)[]
+  comboeeChar?: (string | number)[]
+  comboerTag?: string[] | string
+  comboerCC?: string[] | string
+  comboeeTag?: string[] | string
+  comboeeCC?: string[] | string
+  didKill?: boolean
+}
+
+export type ComboFilterParams = {
+  minHits?: string
+  maxHits?: string
+  minDamage?: string
+  comboerChar?: (string | number)[]
+  comboerTag?: string[] | string
+  comboerCC?: string[] | string
+  comboeeChar?: (string | number)[]
+  comboeeTag?: string[] | string
+  comboeeCC?: string[] | string
+  comboStage?: (string | number)[]
+  didKill?: boolean
+  countPummels?: boolean
+  nthMoves?: NthMoveDef[]
+}
+
+export type NthMoveDef = {
+  n: string
+  moveId?: (string | number)[]
+  t?: string
+  tMin?: string
+  d?: string
+  dMax?: string
+}
+
+export type ActionStateFilterParams = {
+  maxFiles?: string
+  startFrom?: string
+  searchRange?: string
+  startFromNthMove?: string
+  offset?: string
+  comboerActionState?: (string | number)[]
+  comboeeActionState?: (string | number)[]
+  comboerCustomIds?: string
+  comboeeCustomIds?: string
+  exclude?: boolean
+  comboerMinX?: string
+  comboerMaxX?: string
+  comboerMinY?: string
+  comboerMaxY?: string
+  comboeeMinX?: string
+  comboeeMaxX?: string
+  comboeeMinY?: string
+  comboeeMaxY?: string
+}
+
+export type EdgeguardParams = {
+  comboerChar?: (string | number)[]
+  comboeeChar?: (string | number)[]
+  comboerTag?: string[] | string
+  comboerCC?: string[] | string
+  comboeeTag?: string[] | string
+  comboeeCC?: string[] | string
+  stageFilter?: (string | number)[]
+}
+
+export type ZeroToDeathsParams = {
+  startThreshold?: string
+}
+
+export type AfkDetectionParams = {
+  maxInputsPerSec?: string
+  exclude?: boolean
+}
+
+export type KoDirectionParams = {
+  maxFiles?: string
+  direction?: string[]
+}
+
+export type RemoveStarKOFramesParams = {
+  maxFiles?: string
+}
+
+export type DeduplicateParams = Record<string, never>
+
+export type TrimParams = {
+  addStartFrames?: string
+  addEndFrames?: string
+}
+
+export type ReverseParams = {
+  maxFiles?: string
+  n?: string
+}
+
+export type SortParams = {
+  sortFunction?: string
+  reverse?: boolean
+}
+
+export type CustomParams = Record<string, any>
+
+export type FilterParams =
+  | FilesFilterParams
+  | SlpParserParams
+  | ComboFilterParams
+  | ActionStateFilterParams
+  | EdgeguardParams
+  | ZeroToDeathsParams
+  | AfkDetectionParams
+  | KoDirectionParams
+  | RemoveStarKOFramesParams
+  | DeduplicateParams
+  | TrimParams
+  | ReverseParams
+  | SortParams
+  | CustomParams
+
+// ---------------------------------------------------------------------------
+// DB Row Types (used by Worker.ts and Archive.ts parseRows)
+// ---------------------------------------------------------------------------
+
+export type FilesTableRow = {
+  id: number
+  path: string
+  players: string
+  winner: number
+  stage: number
+  startedAt: number
+  lastFrame: number
+  isProcessed: number
+  info: string
+}
+
+export type FilterTableRow = {
+  id: number
+  JSON: string
+}
+
+// ---------------------------------------------------------------------------
+// Core Interfaces
+// ---------------------------------------------------------------------------
+
 export interface RecentProject {
   name: string
   path: string
@@ -52,6 +216,16 @@ export interface ConfigInterface {
   includeDefaultFilters: boolean
   savedCustomFilters: SavedCustomFilter[]
   testMode?: boolean
+  warnOnParserDelete?: boolean
+  advancedMode?: boolean
+  fullscreen?: boolean
+  widescreen?: boolean
+  freezeFD?: boolean
+  centerHud?: boolean
+  developMode?: boolean
+  flashRedLCancel?: boolean
+  // Dynamic access escape hatch — used by SettingsModal, SetupWizard, controller
+  // TODO: remove once all dynamic config[key] access is refactored
   [key: string]: any
 }
 
@@ -123,7 +297,7 @@ export interface FilterInterface {
   type: string
   label: string
   isProcessed: boolean
-  params: { [key: string]: any }
+  params: Record<string, any>
   results: number
   resumable?: boolean
   run3?(
@@ -134,11 +308,6 @@ export interface FilterInterface {
     abortSignal?: AbortSignal,
     options?: { resume?: boolean },
   ): void
-  // run?(
-  //   arg1: ClipInterface[] | FileInterface[],
-  //   numFilterThreads: number,
-  //   arg2: EventEmitterInterface
-  // ): boolean
   delete?(dbPath: string): Promise<void>
   generateJSON?(): void
 }
@@ -148,7 +317,7 @@ export interface ShallowFilterInterface {
   type: string
   label: string
   isProcessed: boolean
-  params: { [key: string]: any }
+  params: Record<string, any>
   results: number
   resumable?: boolean
 }
@@ -181,6 +350,7 @@ export interface ShallowArchiveInterface {
   createdAt: number
   files: number
   filters: ShallowFilterInterface[]
+  savedCustomFilters?: SavedCustomFilter[]
 }
 
 export interface ArchiveInterface {
@@ -189,6 +359,7 @@ export interface ArchiveInterface {
   createdAt: number
   files: number
   filters: FilterInterface[]
+  savedCustomFilters?: SavedCustomFilter[]
   // save?(): void
   runFilter?(
     filterId: string,
@@ -251,10 +422,31 @@ export interface ReplayInterface {
   }
 }
 
+export type ConsoleWorkerStatus = {
+  id: number
+  label: string
+  progress?: string
+  startedAt: number
+}
+
+export type ConsoleLogEntry = {
+  ts: number
+  level: 'info' | 'warn' | 'error'
+  message: string
+}
+
+export type ConsoleSnapshot = {
+  operation: 'idle' | 'import' | 'filter' | 'recording'
+  operationLabel: string
+  workers: ConsoleWorkerStatus[]
+  aggregate: { current: number; total: number }
+}
+
 export type WorkerMessage =
   | WorkerMessageProgress
   | WorkerMessageDone
   | WorkerMessageError
+  | WorkerMessageLogs
 
 interface WorkerMessageProgress {
   type: 'progress'
@@ -273,4 +465,9 @@ interface WorkerMessageError {
   message: string
   filterType: string
   itemIndex?: number
+}
+
+interface WorkerMessageLogs {
+  type: 'logs'
+  logs: string[]
 }

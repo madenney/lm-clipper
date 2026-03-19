@@ -1,10 +1,16 @@
 /* eslint-disable eqeqeq */
-import { ClipInterface, EventEmitterInterface } from 'constants/types'
+import {
+  ClipInterface,
+  EventEmitterInterface,
+  ComboFilterParams,
+  NthMoveDef,
+} from 'constants/types'
 import matchesAny from './matchesAny'
+import { matchesPlayer, safeInt } from '../../lib/filterHelpers'
 
 export default (
   prevResults: ClipInterface[],
-  params: { [key: string]: any },
+  params: ComboFilterParams,
   eventEmitter: EventEmitterInterface,
 ) => {
   return prevResults.filter((clip, index) => {
@@ -42,50 +48,16 @@ export default (
     }
     if (minDamage && !(moves.reduce((n, m) => n + m.damage, 0) >= minDamage))
       return false
-    if (!matchesAny(comboer.characterId, comboerChar)) return false
-    if (comboerTag && (!Array.isArray(comboerTag) || comboerTag.length > 0)) {
-      const tags = Array.isArray(comboerTag)
-        ? comboerTag.map((t: string) => t.toLowerCase())
-        : comboerTag.toLowerCase().split(';')
-      const name = (comboer.displayName || '').toLowerCase()
-      if (tags.indexOf(name) == -1) {
-        return false
-      }
-    }
-    if (comboerCC && (!Array.isArray(comboerCC) || comboerCC.length > 0)) {
-      const codes = Array.isArray(comboerCC)
-        ? comboerCC.map((t: string) => t.toLowerCase())
-        : comboerCC.toLowerCase().split(';')
-      const code = (comboer.connectCode || '').toLowerCase()
-      if (codes.indexOf(code) == -1) {
-        return false
-      }
-    }
-    if (!matchesAny(comboee.characterId, comboeeChar)) return false
-    if (comboeeTag && (!Array.isArray(comboeeTag) || comboeeTag.length > 0)) {
-      const tags = Array.isArray(comboeeTag)
-        ? comboeeTag.map((t: string) => t.toLowerCase())
-        : comboeeTag.toLowerCase().split(';')
-      const name = (comboee.displayName || '').toLowerCase()
-      if (tags.indexOf(name) == -1) {
-        return false
-      }
-    }
-    if (comboeeCC && (!Array.isArray(comboeeCC) || comboeeCC.length > 0)) {
-      const codes = Array.isArray(comboeeCC)
-        ? comboeeCC.map((t: string) => t.toLowerCase())
-        : comboeeCC.toLowerCase().split(';')
-      const code = (comboee.connectCode || '').toLowerCase()
-      if (codes.indexOf(code) == -1) {
-        return false
-      }
-    }
+    if (!matchesPlayer(comboer, comboerChar, comboerTag, comboerCC))
+      return false
+    if (!matchesPlayer(comboee, comboeeChar, comboeeTag, comboeeCC))
+      return false
     if (!matchesAny(stage, comboStage)) return false
     if (didKill && !clip.combo.didKill) return false
     if (nthMoves && nthMoves.length > 0) {
       const checkIndex = (
         idx: number,
-        nthMove: any,
+        nthMove: NthMoveDef,
         t: number,
         d: number,
         dMax: number,
@@ -106,11 +78,11 @@ export default (
       }
 
       if (
-        !nthMoves.every((nthMove: any) => {
-          const t = parseInt(nthMove.t, 10)
-          const d = parseInt(nthMove.d, 10)
-          const dMax = parseInt(nthMove.dMax, 10)
-          const tMin = parseInt(nthMove.tMin, 10)
+        !nthMoves.every((nthMove: NthMoveDef) => {
+          const t = safeInt(nthMove.t, 0, 0)
+          const d = safeInt(nthMove.d, 0, 0)
+          const dMax = safeInt(nthMove.dMax, 0, 0)
+          const tMin = safeInt(nthMove.tMin, 0, 0)
           const nStr = String(nthMove.n).trim()
 
           // 'e' for every

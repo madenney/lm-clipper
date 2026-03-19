@@ -6,39 +6,23 @@ import {
   IpcMainEvent,
   BrowserWindow,
 } from 'electron'
-import { spawn, execFileSync, execSync, ChildProcess } from 'child_process'
 import { Worker } from 'worker_threads'
-import crypto from 'crypto'
 import os from 'os'
 import path from 'path'
 import fs, { promises as fsPromises } from 'fs'
-import { shuffleArray } from '../lib'
+import { getWorkerExecArgv } from '../lib'
 import { config as defaultConfig } from '../constants/defaults'
-import { characters } from '../constants/characters'
-import { stages } from '../constants/stages'
 import { filtersConfig } from '../constants/config'
 import {
   ArchiveInterface,
-  ClipInterface,
-  FileInterface,
   ConfigInterface,
   FilterInterface,
-  ShallowArchiveInterface,
   ShallowFilterInterface,
-  ReplayInterface,
 } from '../constants/types'
 import Archive from '../models/Archive'
 import Filter from '../models/Filter'
-import slpToVideo, {
-  VideoJobController,
-  setFFMPEGPathOverride,
-} from './slpToVideo'
-import {
-  resolveHtmlPath,
-  updateEfbScale,
-  createOutputDirectory,
-  getSlpzPath,
-} from './util'
+import { setFFMPEGPathOverride } from './slpToVideo'
+import { resolveHtmlPath } from './util'
 import {
   getMetaData,
   createDB,
@@ -53,84 +37,16 @@ import {
 import { closeDb, getDb } from './dbConnection'
 import { appendPerfEvents } from './perfLogger'
 import { logMain, logRenderer, getLogPath } from './logger'
-
-type ClipPayload = {
-  path?: string
-  startFrame?: number
-  endFrame?: number
-  lastFrame?: number
-}
-
-type RequestEnvelope<T> = {
-  requestId?: string
-  payload?: T
-}
-
-type ImportStatus = {
-  isImporting: boolean
-  current: number
-  total: number | null
-  queueLength: number
-}
-
-const unpackRequest = <T>(
-  data: unknown,
-): { requestId?: string; payload: T } => {
-  if (data && typeof data === 'object') {
-    const record = data as { requestId?: string; payload?: T }
-    if ('requestId' in record && 'payload' in record) {
-      return { requestId: record.requestId, payload: record.payload as T }
-    }
-  }
-  return { requestId: undefined, payload: data as T }
-}
-
-const reply = (
-  event: IpcMainEvent,
-  channel: string,
-  requestId: string | undefined,
-  payload?: unknown,
-) => {
-  if (requestId) {
-    event.reply(channel, { requestId, payload })
-  } else {
-    event.reply(channel, payload)
-  }
-}
-
-const resolveClipFrames = (payload: ClipPayload) => {
-  const hasStart =
-    typeof payload.startFrame === 'number' && payload.startFrame !== 0
-  const hasEnd = typeof payload.endFrame === 'number' && payload.endFrame !== 0
-  const startFrame = hasStart ? payload.startFrame : -123
-  const endFrame = hasEnd
-    ? payload.endFrame
-    : typeof payload.lastFrame === 'number' && payload.lastFrame > 0
-      ? payload.lastFrame
-      : 99999
-  return { startFrame, endFrame }
-}
-
-const buildShallowArchive = (
-  archive: ArchiveInterface | null,
-): ShallowArchiveInterface | null => {
-  if (!archive) return null
-  return {
-    path: archive.path,
-    name: archive.name,
-    createdAt: archive.createdAt,
-    files: archive.files || 0,
-    filters: (archive.filters || []).map((filter) => ({
-      id: filter.id,
-      type: filter.type,
-      label: filter.label,
-      isProcessed: filter.isProcessed,
-      params: filter.params,
-      results: filter.results,
-      ...(filter.resumable ? { resumable: true } : {}),
-    })),
-  }
-}
+import {
+  RequestEnvelope,
+  unpackRequest,
+  reply,
+  buildShallowArchive,
+} from './ipcUtils'
+import ConsoleManager from './managers/ConsoleManager'
+import ImportManager from './managers/ImportManager'
+import FilterExecutor from './managers/FilterExecutor'
+import VideoManager from './managers/VideoManager'
 
 function getDefaultProjectDir(): string {
   if (process.platform === 'linux') {
@@ -141,40 +57,26 @@ function getDefaultProjectDir(): string {
   return path.resolve(app.getPath('documents'), 'LM Clipper')
 }
 
-const getWorkerExecArgv = () => {
-  const mode = process.env.LM_CLIPPER_WORKER_TS_NODE
-  if (!mode) return undefined
-  if (mode === 'esm') return ['--loader', 'ts-node/esm']
-  return ['-r', 'ts-node/register/transpile-only']
-}
-
 export default class Controller {
   mainWindow: BrowserWindow
   configDir: string
   configPath: string
   archive: ArchiveInterface | null
   config: ConfigInterface
-  runningFilterControllers: Map<string, AbortController>
-  runningFilterIndices: Set<number>
-  filterCancelIds: Set<string>
-  currentImportAbortController: AbortController | null
-  pendingSlpzSourceDir: string
-  importQueue: string[][]
-  importInProgress: boolean
-  currentCountWorker: Worker | null
   nameCountWorker: Worker | null
-  countWorkerExecArgv?: string[]
-  importStatus: ImportStatus
-  activeVideoJob: VideoJobController | null
-  activePlaybackProcess: ChildProcess | null
-  playbackAborted: boolean
-  activeTmpDirs: Set<string>
   codeEditorWindow: BrowserWindow | null
   codeEditorContext: {
     filterIndex: number
     filterId: string
   } | null
-  private filterCompletionLock: Promise<void>
+  private _cleanupCodeEditorListeners: (() => void) | null
+  private countWorkerExecArgv?: string[]
+
+  // Managers
+  consoleManager: ConsoleManager
+  importManager: ImportManager
+  filterExecutor: FilterExecutor
+  videoManager: VideoManager
 
   constructor(mainWindow: BrowserWindow) {
     this.mainWindow = mainWindow
@@ -238,81 +140,71 @@ export default class Controller {
       setFFMPEGPathOverride(this.config.ffmpegPath)
     }
     this.archive = null
-    this.runningFilterControllers = new Map()
-    this.runningFilterIndices = new Set()
-    this.filterCancelIds = new Set()
-    this.currentImportAbortController = null
-    this.pendingSlpzSourceDir = ''
-    this.importQueue = []
-    this.importInProgress = false
-    this.currentCountWorker = null
     this.nameCountWorker = null
-    this.activeVideoJob = null
-    this.activePlaybackProcess = null
-    this.playbackAborted = false
-    this.activeTmpDirs = new Set()
     this.codeEditorWindow = null
     this.codeEditorContext = null
-    this.filterCompletionLock = Promise.resolve()
+    this._cleanupCodeEditorListeners = null
     this.countWorkerExecArgv = getWorkerExecArgv()
-    this.importStatus = {
-      isImporting: false,
-      current: 0,
-      total: null,
-      queueLength: 0,
-    }
+
+    // Initialize managers
+    this.consoleManager = new ConsoleManager(mainWindow, {
+      getActiveFilter: () => this.filterExecutor.activeFilter,
+      getActiveVideoJob: () => this.videoManager.activeVideoJob,
+      getActiveImportArchive: () => this.importManager.activeImportArchive,
+      getImportStatus: () => this.importManager.importStatus,
+    })
+
+    this.importManager = new ImportManager(mainWindow, {
+      getConfig: () => this.config,
+      getConfigPath: () => this.configPath,
+      getArchive: () => this.archive,
+      setArchive: (a) => {
+        this.archive = a
+      },
+      autoCreateUntitledProject: () => this.autoCreateUntitledProject(),
+      consoleManager: this.consoleManager,
+    })
+
+    this.filterExecutor = new FilterExecutor(mainWindow, {
+      getArchive: () => this.archive,
+      setArchive: (a) => {
+        this.archive = a
+      },
+      getConfig: () => this.config,
+      consoleManager: this.consoleManager,
+    })
+
+    this.videoManager = new VideoManager(mainWindow, {
+      getArchive: () => this.archive,
+      setArchive: (a) => {
+        this.archive = a
+      },
+      getConfig: () => this.config,
+      consoleManager: this.consoleManager,
+    })
   }
 
   cleanup() {
-    // Kill active video job (Dolphin + ffmpeg processes)
-    if (this.activeVideoJob) {
-      this.activeVideoJob.cancel()
-      this.activeVideoJob = null
-    }
+    // Stop console polling
+    this.consoleManager.cleanup()
 
-    // Kill playback Dolphin process
-    this.playbackAborted = true
-    if (this.activePlaybackProcess) {
-      try {
-        this.activePlaybackProcess.kill()
-      } catch (_) {
-        // empty
-      }
-      this.activePlaybackProcess = null
-    }
+    // Kill active video/playback
+    this.videoManager.cleanup()
 
-    // Abort running filters (terminates worker threads)
-    for (const controller of this.runningFilterControllers.values()) {
-      controller.abort()
-    }
-    this.runningFilterControllers.clear()
-    this.runningFilterIndices.clear()
-    this.filterCancelIds.clear()
+    // Abort running filters
+    this.filterExecutor.cleanup()
 
-    // Abort running import (terminates import worker pool)
-    this.importQueue = []
-    if (this.currentImportAbortController) {
-      this.currentImportAbortController.abort()
-      this.currentImportAbortController = null
-    }
-
-    // Kill count worker
-    this.stopCountWorker()
+    // Abort running import
+    this.importManager.cleanup()
 
     // Kill name count worker
     this.stopNameCountWorker()
 
-    // Clean up temp directories
-    for (const dir of this.activeTmpDirs) {
-      try {
-        fs.rmSync(dir, { recursive: true, force: true })
-      } catch (_) {
-        // empty
-      }
+    // Close code editor window and clean up its IPC listeners
+    if (this._cleanupCodeEditorListeners) {
+      this._cleanupCodeEditorListeners()
+      this._cleanupCodeEditorListeners = null
     }
-    this.activeTmpDirs.clear()
-
-    // Close code editor window
     if (this.codeEditorWindow && !this.codeEditorWindow.isDestroyed()) {
       this.codeEditorWindow.destroy()
       this.codeEditorWindow = null
@@ -482,11 +374,6 @@ export default class Controller {
     }
   }
 
-  async getImportStatus(event: IpcMainEvent, data?: RequestEnvelope<null>) {
-    const { requestId } = unpackRequest<null>(data)
-    return reply(event, 'getImportStatus', requestId, this.importStatus)
-  }
-
   async createNewArchive(
     event: IpcMainEvent,
     data: RequestEnvelope<{ name?: string; location?: string }>,
@@ -565,569 +452,6 @@ export default class Controller {
     }
   }
 
-  private setImportStatus(next: Partial<ImportStatus>) {
-    this.importStatus = { ...this.importStatus, ...next }
-    if (this.mainWindow?.isDestroyed?.()) return
-    this.mainWindow.webContents.send('importStatus', this.importStatus)
-  }
-
-  private stopCountWorker() {
-    if (!this.currentCountWorker) return
-    const worker = this.currentCountWorker
-    this.currentCountWorker = null
-    worker.terminate().catch(() => {})
-  }
-
-  private startCountWorker(filePaths: string[]) {
-    this.stopCountWorker()
-    if (!filePaths || filePaths.length === 0) return
-    console.log('[CountWorker] starting, paths:', filePaths.length)
-    const worker = new Worker(
-      new URL('./ImportCountWorker.ts', import.meta.url),
-      {
-        ...(this.countWorkerExecArgv
-          ? { execArgv: this.countWorkerExecArgv }
-          : {}),
-      },
-    )
-    this.currentCountWorker = worker
-    console.log('[CountWorker] worker created, threadId:', worker.threadId)
-    this.mainWindow.webContents.send('importingFileTotal', { total: null })
-    this.setImportStatus({ total: null })
-
-    worker.on(
-      'message',
-      (message: { type?: string; total?: number; error?: string }) => {
-        console.log(
-          '[CountWorker] message:',
-          JSON.stringify(message),
-          'still current:',
-          worker === this.currentCountWorker,
-        )
-        if (worker !== this.currentCountWorker) return
-        if (message?.type === 'done') {
-          if (typeof message.total === 'number') {
-            this.mainWindow.webContents.send('importingFileTotal', {
-              total: message.total,
-            })
-            this.setImportStatus({ total: message.total })
-          }
-          this.stopCountWorker()
-          return
-        }
-        if (message?.type === 'error') {
-          console.error('[CountWorker] error:', message.error)
-          this.stopCountWorker()
-        }
-      },
-    )
-
-    worker.on('error', (error) => {
-      console.error('[CountWorker] worker error event:', error)
-      if (worker !== this.currentCountWorker) return
-      this.stopCountWorker()
-    })
-
-    worker.on('exit', (code) => {
-      console.log(
-        '[CountWorker] exit code:',
-        code,
-        'still current:',
-        worker === this.currentCountWorker,
-      )
-      if (worker !== this.currentCountWorker) return
-      this.currentCountWorker = null
-    })
-
-    worker.postMessage({ type: 'count', paths: filePaths })
-    console.log('[CountWorker] message posted')
-  }
-
-  private enqueueImport(filePaths: string[]) {
-    if (!filePaths || filePaths.length === 0) return
-    this.importQueue.push(filePaths)
-    this.setImportStatus({ queueLength: this.importQueue.length })
-    this.processImportQueue()
-  }
-
-  private processImportQueue() {
-    if (this.importInProgress) return
-    const next = this.importQueue.shift()
-    if (!next) return
-    this.importInProgress = true
-    this.setImportStatus({
-      isImporting: true,
-      current: 0,
-      total: null,
-      queueLength: this.importQueue.length,
-    })
-    this.runImport(next)
-      .catch((error) => {
-        console.error('Import failed:', error)
-      })
-      .finally(() => {
-        this.importInProgress = false
-        if (this.importQueue.length === 0) {
-          this.setImportStatus({
-            isImporting: false,
-            current: 0,
-            total: null,
-            queueLength: 0,
-          })
-        }
-        this.processImportQueue()
-      })
-  }
-
-  private async runImport(filePaths: string[]) {
-    if (!this.archive || !this.archive.addFiles) {
-      this.currentImportAbortController = null
-      this.stopCountWorker()
-      this.setImportStatus({
-        isImporting: false,
-        current: 0,
-        total: null,
-        queueLength: this.importQueue.length,
-      })
-      this.mainWindow.webContents.send('importingFileUpdate', {
-        finished: true,
-        cancelled: true,
-      })
-      return
-    }
-
-    // Extract zip files before import
-    const zipFiles = filePaths.filter(
-      (p) => path.extname(p).toLowerCase() === '.zip',
-    )
-    const nonZipFiles = filePaths.filter(
-      (p) => path.extname(p).toLowerCase() !== '.zip',
-    )
-
-    if (zipFiles.length > 0) {
-      const zipChoice = await this.promptZipWizard(zipFiles)
-      if (!zipChoice) {
-        this.setImportStatus({
-          isImporting: false,
-          current: 0,
-          total: null,
-          queueLength: this.importQueue.length,
-        })
-        this.mainWindow.webContents.send('importingFileUpdate', {
-          finished: true,
-          cancelled: true,
-        })
-        return
-      }
-
-      const extractedDirs: string[] = []
-      for (const zipFile of zipFiles) {
-        try {
-          const zipName = path.basename(zipFile, '.zip')
-          const extractDir = path.join(zipChoice.outputDir, zipName)
-          fs.mkdirSync(extractDir, { recursive: true })
-          this.extractZip(zipFile, extractDir)
-          extractedDirs.push(extractDir)
-          if (zipChoice.deleteOriginal) {
-            try {
-              fs.unlinkSync(zipFile)
-            } catch {
-              // Non-fatal
-            }
-          }
-        } catch (error) {
-          console.error(`Failed to extract ${zipFile}:`, error)
-        }
-      }
-
-      // Replace zip paths with extracted directories
-      filePaths = [...nonZipFiles, ...extractedDirs]
-      if (filePaths.length === 0) return
-    }
-
-    const fileCountBefore = this.archive.files || 0
-    const detectDuplicates = this.config.detectDuplicatesOnImport !== false
-    const maxWorkers = Math.max(1, this.config.numFilterThreads || 1)
-    const importAbortController = new AbortController()
-    this.currentImportAbortController = importAbortController
-
-    // Check if batch may contain .slpz files and resolve decompression config
-    const mayHaveSlpz = filePaths.some((p) => {
-      const ext = path.extname(p).toLowerCase()
-      return ext === '.slpz' || ext === '' // directories may contain .slpz
-    })
-
-    let slpzConfig:
-      | {
-          slpzBinaryPath: string
-          slpzMode: 'extract' | 'replace'
-          slpzOutputDir: string
-        }
-      | undefined
-
-    if (mayHaveSlpz) {
-      // Determine source directory for default extract path
-      const slpzFiles = filePaths.filter(
-        (p) => path.extname(p).toLowerCase() === '.slpz',
-      )
-      this.pendingSlpzSourceDir = slpzFiles.length
-        ? path.dirname(slpzFiles[0])
-        : path.dirname(filePaths[0])
-
-      const resolvedMode = this.config.slpzMode || 'ask'
-      if (resolvedMode === 'ask') {
-        const userChoice = await this.promptSlpzWizard()
-        if (!userChoice) {
-          // User cancelled
-          this.currentImportAbortController = null
-          this.setImportStatus({
-            isImporting: false,
-            current: 0,
-            total: null,
-            queueLength: this.importQueue.length,
-          })
-          this.mainWindow.webContents.send('importingFileUpdate', {
-            finished: true,
-            cancelled: true,
-          })
-          return
-        }
-        slpzConfig = {
-          slpzBinaryPath: this.config.slpzPath || getSlpzPath(),
-          slpzMode: userChoice.mode,
-          slpzOutputDir: userChoice.outputDir || '',
-        }
-        if (userChoice.remember) {
-          this.config.slpzMode = userChoice.mode
-          if (userChoice.outputDir) {
-            this.config.slpzOutputDir = userChoice.outputDir
-          }
-          fs.writeFileSync(
-            this.configPath,
-            JSON.stringify(this.config, null, 2),
-          )
-          this.mainWindow.webContents.send('config', this.config)
-        }
-      } else {
-        slpzConfig = {
-          slpzBinaryPath: this.config.slpzPath || getSlpzPath(),
-          slpzMode: resolvedMode,
-          slpzOutputDir: this.config.slpzOutputDir || '',
-        }
-      }
-    }
-
-    this.startCountWorker(filePaths)
-    this.mainWindow.webContents.send('importingFileUpdate', {
-      current: 0,
-      total: 0,
-    })
-
-    const result = await this.archive.addFiles!(
-      filePaths,
-      ({ current, total }) => {
-        this.mainWindow.webContents.send('importingFileUpdate', {
-          total,
-          current,
-        })
-        if (typeof current === 'number') {
-          this.setImportStatus({ current })
-        }
-      },
-      {
-        detectDuplicates,
-        abortSignal: importAbortController.signal,
-        maxWorkers,
-        slpzConfig,
-      },
-    )
-    const { terminated, failed } = result
-
-    if (this.currentImportAbortController === importAbortController) {
-      this.currentImportAbortController = null
-    }
-    this.stopCountWorker()
-
-    if (failed > 0) {
-      console.log(`Import finished with ${failed} failed file(s)`)
-    }
-
-    // Refresh archive from DB to get the real file count
-    try {
-      const metadata = await getMetaData(this.archive.path)
-      this.archive = new Archive(metadata)
-    } catch (error) {
-      console.error('Error refreshing archive after import:', error)
-    }
-
-    // First import (0 → N files): auto-run the game filter
-    if (
-      fileCountBefore === 0 &&
-      !terminated &&
-      this.archive &&
-      this.archive.files > 0
-    ) {
-      const gameFilter = this.archive.filters.find((f) => f.type === 'files')
-      if (gameFilter) {
-        const filter = new Filter(gameFilter)
-        const numThreads = this.config.numFilterThreads || 1
-        await filter.run3(this.archive.path, 'files', numThreads, () => {})
-        try {
-          const metadata = await getMetaData(this.archive.path)
-          this.archive = new Archive(metadata)
-        } catch (error) {
-          console.log(
-            'Error refreshing archive after auto-run game filter:',
-            error,
-          )
-        }
-      }
-    }
-
-    if (this.importQueue.length === 0) {
-      this.setImportStatus({
-        isImporting: false,
-        current: 0,
-        total: null,
-        queueLength: 0,
-      })
-    }
-    this.mainWindow.webContents.send('importingFileUpdate', {
-      finished: true,
-      cancelled: terminated,
-      failed,
-      archive: buildShallowArchive(this.archive),
-    })
-  }
-
-  private cancelSlpzWizard: (() => void) | null = null
-
-  private promptSlpzWizard(): Promise<{
-    mode: 'extract' | 'replace'
-    outputDir: string
-    remember: boolean
-  } | null> {
-    return new Promise((resolve) => {
-      let resolved = false
-      let timer: ReturnType<typeof setTimeout> | null = null
-
-      const cleanup = () => {
-        ipcMain.removeListener('slpzWizardResponse', handler)
-        this.cancelSlpzWizard = null
-        this.pendingSlpzSourceDir = ''
-        if (timer) {
-          clearTimeout(timer)
-          timer = null
-        }
-      }
-
-      const done = (
-        data: {
-          mode: 'extract' | 'replace'
-          outputDir: string
-          remember: boolean
-        } | null,
-      ) => {
-        if (resolved) return
-        resolved = true
-        cleanup()
-        resolve(data)
-      }
-
-      const handler = (
-        _event: IpcMainEvent,
-        data: {
-          mode: 'extract' | 'replace'
-          outputDir: string
-          remember: boolean
-        } | null,
-      ) => {
-        done(data)
-      }
-
-      this.cancelSlpzWizard = () => {
-        this.mainWindow.webContents.send('dismissSlpzWizard')
-        done(null)
-      }
-
-      timer = setTimeout(() => {
-        this.mainWindow.webContents.send('dismissSlpzWizard')
-        done(null)
-      }, 120000)
-
-      ipcMain.on('slpzWizardResponse', handler)
-
-      const defaultOutputDir = this.pendingSlpzSourceDir
-        ? path.join(this.pendingSlpzSourceDir, 'slp')
-        : ''
-      this.mainWindow.webContents.send('showSlpzWizard', {
-        defaultOutputDir,
-      })
-    })
-  }
-
-  private cancelZipWizard: (() => void) | null = null
-
-  private promptZipWizard(
-    zipFiles: string[],
-  ): Promise<{ outputDir: string; deleteOriginal: boolean } | null> {
-    return new Promise((resolve) => {
-      let resolved = false
-      let timer: ReturnType<typeof setTimeout> | null = null
-
-      const cleanup = () => {
-        ipcMain.removeListener('zipWizardResponse', handler)
-        this.cancelZipWizard = null
-        if (timer) {
-          clearTimeout(timer)
-          timer = null
-        }
-      }
-
-      const done = (
-        data: { outputDir: string; deleteOriginal: boolean } | null,
-      ) => {
-        if (resolved) return
-        resolved = true
-        cleanup()
-        resolve(data)
-      }
-
-      const handler = (
-        _event: IpcMainEvent,
-        data: { outputDir: string; deleteOriginal: boolean } | null,
-      ) => {
-        done(data)
-      }
-
-      this.cancelZipWizard = () => {
-        this.mainWindow.webContents.send('dismissZipWizard')
-        done(null)
-      }
-
-      timer = setTimeout(() => {
-        this.mainWindow.webContents.send('dismissZipWizard')
-        done(null)
-      }, 120000)
-
-      ipcMain.on('zipWizardResponse', handler)
-
-      const defaultOutputDir = path.dirname(zipFiles[0])
-      this.mainWindow.webContents.send('showZipWizard', {
-        zipFiles,
-        defaultOutputDir,
-      })
-    })
-  }
-
-  private extractZip(zipPath: string, outputDir: string) {
-    if (process.platform === 'win32') {
-      execSync(
-        `powershell -Command "Expand-Archive -LiteralPath '${zipPath.replace(/'/g, "''")}' -DestinationPath '${outputDir.replace(/'/g, "''")}' -Force"`,
-        { timeout: 300000 },
-      )
-    } else {
-      execFileSync('unzip', ['-o', '-q', zipPath, '-d', outputDir], {
-        timeout: 300000,
-      })
-    }
-  }
-
-  async addFilesManual(event: IpcMainEvent, data?: RequestEnvelope<null>) {
-    const { requestId } = unpackRequest<null>(data)
-    if (!this.archive) {
-      try {
-        await this.autoCreateUntitledProject()
-      } catch (error) {
-        console.error('Error auto-creating project for import:', error)
-        return reply(event, 'addFilesManual', requestId, {
-          error: 'Failed to create project',
-        })
-      }
-    }
-    if (!this.archive || !this.archive.addFiles || !this.archive.shallowCopy) {
-      return reply(event, 'addFilesManual', requestId, {
-        error: 'archive undefined',
-      })
-    }
-
-    const { canceled, filePaths } = await dialog.showOpenDialog({
-      properties: ['openFile', 'openDirectory', 'multiSelections'],
-      filters: [{ name: 'Slippi Replays', extensions: ['slp', 'slpz', 'zip'] }],
-    })
-    if (canceled || !filePaths || filePaths.length === 0) {
-      return reply(
-        event,
-        'addFilesManual',
-        requestId,
-        buildShallowArchive(this.archive),
-      )
-    }
-
-    reply(event, 'addFilesManual', requestId, buildShallowArchive(this.archive))
-    this.enqueueImport(filePaths)
-    return undefined
-  }
-
-  async addDroppedFiles(event: IpcMainEvent, data: RequestEnvelope<string[]>) {
-    const { requestId, payload } = unpackRequest<string[]>(data)
-    if (!this.archive) {
-      try {
-        await this.autoCreateUntitledProject()
-      } catch (error) {
-        console.error('Error auto-creating project for drop import:', error)
-        return reply(event, 'addDroppedFiles', requestId, {
-          error: 'Failed to create project',
-        })
-      }
-    }
-    if (!this.archive || !this.archive.addFiles || !this.archive.shallowCopy)
-      return reply(event, 'addDroppedFiles', requestId, {
-        error: 'archive undefined',
-      })
-    reply(
-      event,
-      'addDroppedFiles',
-      requestId,
-      buildShallowArchive(this.archive),
-    )
-    this.enqueueImport(payload || [])
-    return undefined
-  }
-
-  private _abortImport() {
-    this.importQueue = []
-    this.stopCountWorker()
-    if (this.cancelSlpzWizard) {
-      this.cancelSlpzWizard()
-    }
-    if (this.cancelZipWizard) {
-      this.cancelZipWizard()
-    }
-    if (this.currentImportAbortController) {
-      this.currentImportAbortController.abort()
-      this.currentImportAbortController = null
-    }
-    this.setImportStatus({
-      isImporting: false,
-      current: 0,
-      total: null,
-      queueLength: 0,
-    })
-  }
-
-  async cancelImport(event: IpcMainEvent, data?: RequestEnvelope<null>) {
-    const { requestId } = unpackRequest<null>(data)
-    this._abortImport()
-    return reply(event, 'cancelImport', requestId)
-  }
-
-  async stopImport(event: IpcMainEvent, data?: RequestEnvelope<null>) {
-    const { requestId } = unpackRequest<null>(data)
-    this._abortImport()
-    return reply(event, 'stopImport', requestId)
-  }
-
   async closeArchive(event: IpcMainEvent, data?: RequestEnvelope<null>) {
     const { requestId } = unpackRequest<null>(data)
     this.stopNameCountWorker()
@@ -1135,7 +459,7 @@ export default class Controller {
     this.archive = null
     this.config.lastArchivePath = null
     fs.writeFileSync(this.configPath, JSON.stringify(this.config, null, 2))
-    this.setImportStatus({
+    this.importManager.setImportStatus({
       isImporting: false,
       current: 0,
       total: null,
@@ -1391,7 +715,7 @@ export default class Controller {
     return reply(event, 'removeFilter', requestId, metadata)
   }
 
-  removeGame(
+  async removeGame(
     event: IpcMainEvent,
     data: RequestEnvelope<{ fileIds: number[] }>,
   ) {
@@ -1400,24 +724,21 @@ export default class Controller {
       return reply(event, 'removeGame', requestId, { error: 'invalid request' })
     }
     try {
+      const archivePath = this.archive.path
       // Look up file paths before deleting so we can cascade
-      const filePaths = getFilePathsByIds(this.archive.path, payload.fileIds)
-      deleteFiles(this.archive.path, payload.fileIds)
-      this.archive.files = getTableCount(this.archive.path, 'files')
+      const filePaths = getFilePathsByIds(archivePath, payload.fileIds)
+      deleteFiles(archivePath, payload.fileIds)
 
       // Cascade: remove derived rows from all filter tables by file path
       if (filePaths.length > 0) {
         for (const f of this.archive.filters) {
-          const cascaded = deleteRowsByFilePaths(
-            this.archive.path,
-            f.id,
-            filePaths,
-          )
-          if (cascaded > 0) {
-            f.results = getTableCount(this.archive.path, f.id)
-          }
+          deleteRowsByFilePaths(archivePath, f.id, filePaths)
         }
       }
+
+      // Refresh archive from DB to get accurate state
+      const metadata = await getMetaData(archivePath)
+      this.archive = new Archive(metadata)
 
       const removed = payload.fileIds.length
       this.mainWindow.webContents.send(
@@ -1431,7 +752,7 @@ export default class Controller {
     }
   }
 
-  removeResult(
+  async removeResult(
     event: IpcMainEvent,
     data: RequestEnvelope<{ filterId: string; rowIds: number[] }>,
   ) {
@@ -1445,11 +766,12 @@ export default class Controller {
       })
     }
     try {
+      const archivePath = this.archive.path
       const filter = this.archive.filters.find((f) => f.id === payload.filterId)
 
       // If this is the game filter, also delete from the files table + cascade
       if (filter?.type === 'files') {
-        const db = getDb(this.archive.path)
+        const db = getDb(archivePath)
         const placeholders = payload.rowIds.map(() => '?').join(',')
         const rows = db
           .prepare(
@@ -1461,29 +783,23 @@ export default class Controller {
           .map((r) => r.filePath)
           .filter((p) => p && p.length > 0)
         if (fileIds.length > 0) {
-          deleteFiles(this.archive.path, fileIds)
-          this.archive.files = getTableCount(this.archive.path, 'files')
+          deleteFiles(archivePath, fileIds)
         }
         // Cascade: remove derived rows from downstream filters by file path
         if (filePaths.length > 0) {
           for (const f of this.archive.filters) {
             if (f.id === payload.filterId) continue
-            const cascaded = deleteRowsByFilePaths(
-              this.archive.path,
-              f.id,
-              filePaths,
-            )
-            if (cascaded > 0) {
-              f.results = getTableCount(this.archive.path, f.id)
-            }
+            deleteRowsByFilePaths(archivePath, f.id, filePaths)
           }
         }
       }
 
-      deleteRows(this.archive.path, payload.filterId, payload.rowIds)
-      if (filter) {
-        filter.results = getTableCount(this.archive.path, payload.filterId)
-      }
+      deleteRows(archivePath, payload.filterId, payload.rowIds)
+
+      // Refresh archive from DB to get accurate state
+      const metadata = await getMetaData(archivePath)
+      this.archive = new Archive(metadata)
+
       this.mainWindow.webContents.send(
         'archiveUpdated',
         buildShallowArchive(this.archive),
@@ -1880,372 +1196,6 @@ export default class Controller {
     }
   }
 
-  private broadcastRunningFilters() {
-    if (this.mainWindow?.isDestroyed?.()) return
-    this.mainWindow.webContents.send('currentlyRunningFilter', {
-      running: Array.from(this.runningFilterIndices),
-    })
-  }
-
-  private async _executeFilter(
-    event: IpcMainEvent,
-    requestId: string | undefined,
-    replyChannel: string,
-    filterId: string,
-    resume: boolean,
-  ) {
-    if (!this.archive) {
-      return reply(event, replyChannel, requestId, {
-        error: 'archive undefined',
-      })
-    }
-
-    const filterJSON = this.archive.filters.find(
-      (filter) => filter.id === filterId,
-    )
-    if (!filterJSON) {
-      return reply(event, replyChannel, requestId, {
-        error: `no filter with id: '${filterId}' found`,
-      })
-    }
-
-    const filterIndex = this.archive.filters.indexOf(filterJSON)
-    const filter = new Filter(filterJSON)
-    if (!filter.run3) {
-      return reply(event, replyChannel, requestId, {
-        error: `filter creation error: '${filterId}'`,
-      })
-    }
-
-    const prevResultsTableId =
-      filterIndex === 0 ? 'files' : this.archive.filters[filterIndex - 1].id
-
-    // If this filter is already running, abort it first
-    const existingController = this.runningFilterControllers.get(filterId)
-    if (existingController) {
-      existingController.abort()
-      this.runningFilterControllers.delete(filterId)
-    }
-
-    // Fresh run: delete any existing run record
-    if (!resume) {
-      deleteFilterRun(this.archive.path, filterId)
-    }
-
-    const abortController = new AbortController()
-    this.runningFilterControllers.set(filterId, abortController)
-    this.runningFilterIndices.add(filterIndex)
-    this.broadcastRunningFilters()
-
-    const numFilterThreads = this.config.numFilterThreads || 1
-
-    const filterResult = await filter.run3(
-      this.archive.path,
-      prevResultsTableId,
-      numFilterThreads,
-      (eventUpdate: {
-        current: number
-        total: number
-        newItemCount?: number
-      }) => {
-        const { total, current, newItemCount } = eventUpdate
-        this.mainWindow.webContents.send('filterUpdate', {
-          filterId,
-          filterIndex,
-          total,
-          current,
-          results: newItemCount,
-        })
-      },
-      abortController.signal,
-      resume ? { resume: true } : undefined,
-    )
-    const { terminated, errors: filterErrors, logs: filterLogs } = filterResult
-
-    if (filterErrors.length > 0) {
-      this.mainWindow.webContents.send('filterError', {
-        filterId,
-        filterLabel: filterJSON.label,
-        errors: filterErrors,
-      })
-    }
-
-    if (filterLogs && filterLogs.length > 0) {
-      this.mainWindow.webContents.send('filterLogs', {
-        filterId,
-        filterLabel: filterJSON.label,
-        logs: filterLogs,
-      })
-    }
-
-    // Check if upstream filter is still running (before cleanup)
-    let filterMessage = ''
-    if (filterIndex > 0) {
-      const prevFilterId = this.archive.filters[filterIndex - 1]?.id
-      if (prevFilterId && this.runningFilterControllers.has(prevFilterId)) {
-        try {
-          const prevCount = getTableCount(this.archive.path, prevFilterId)
-          filterMessage =
-            prevCount === 0
-              ? 'Previous filter has no results yet'
-              : `Ran on ${prevCount.toLocaleString()} partial results`
-        } catch (_) {
-          filterMessage = 'Previous filter has no results yet'
-        }
-      }
-    }
-
-    // Clean up this filter's controller
-    this.runningFilterControllers.delete(filterId)
-    this.runningFilterIndices.delete(filterIndex)
-
-    if (terminated && this.filterCancelIds.has(filterId)) {
-      // Cancel: drop partial results, reset filter, delete run record
-      this.filterCancelIds.delete(filterId)
-      deleteFilterRun(this.archive.path, filterId)
-      if (this.archive.resetFiltersFrom) {
-        await this.archive.resetFiltersFrom(filterIndex)
-      }
-      const metadata = await getMetaData(this.archive.path)
-      this.archive = new Archive(metadata)
-      this.broadcastRunningFilters()
-      return reply(event, replyChannel, requestId, metadata)
-    }
-
-    // Stop or normal completion: keep results, mark processed
-    this.filterCancelIds.delete(filterId)
-
-    // Serialize concurrent filter completions to prevent race conditions
-    this.filterCompletionLock = this.filterCompletionLock.then(async () => {
-      try {
-        // Re-read archive from DB since another filter may have finished concurrently
-        const freshMetadata = await getMetaData(this.archive!.path)
-        this.archive = new Archive(freshMetadata)
-
-        // Find the filter again in the refreshed archive and mark it processed
-        const refreshedFilter = this.archive.filters.find(
-          (f) => f.id === filterId,
-        )
-        if (refreshedFilter) {
-          refreshedFilter.isProcessed = true
-        }
-
-        // Reset downstream filters that are NOT currently running
-        const refreshedIndex = this.archive.filters.findIndex(
-          (f) => f.id === filterId,
-        )
-        if (
-          refreshedIndex >= 0 &&
-          refreshedIndex + 1 < this.archive.filters.length
-        ) {
-          const downstream = this.archive.filters.slice(refreshedIndex + 1)
-          for (const df of downstream) {
-            if (!this.runningFilterControllers.has(df.id)) {
-              df.isProcessed = false
-              df.results = 0
-            }
-          }
-        }
-
-        if (this.archive.saveMetaData) await this.archive.saveMetaData()
-
-        const metadata = await getMetaData(this.archive.path)
-        this.archive = new Archive(metadata)
-
-        const replyData = filterMessage
-          ? { ...metadata, filterMessage: { [filterId]: filterMessage } }
-          : metadata
-        // Reply first so UI has correct results before isRunning flips to false
-        reply(event, replyChannel, requestId, replyData)
-        this.broadcastRunningFilters()
-      } catch (error) {
-        console.error('Error finalizing filter run:', error)
-        try {
-          const metadata = await getMetaData(this.archive!.path)
-          this.archive = new Archive(metadata)
-          reply(event, replyChannel, requestId, metadata)
-        } catch (innerError) {
-          console.error('Error reading metadata in recovery:', innerError)
-          reply(event, replyChannel, requestId, {
-            error: 'Filter completed but failed to read results',
-          })
-        }
-        this.broadcastRunningFilters()
-      }
-    })
-    await this.filterCompletionLock
-  }
-
-  async runFilter(event: IpcMainEvent, data: RequestEnvelope<string>) {
-    const { requestId, payload } = unpackRequest<string>(data)
-    return this._executeFilter(event, requestId, 'runFilter', payload!, false)
-  }
-
-  async resumeFilter(event: IpcMainEvent, data: RequestEnvelope<string>) {
-    const { requestId, payload } = unpackRequest<string>(data)
-    return this._executeFilter(event, requestId, 'resumeFilter', payload!, true)
-  }
-
-  async dismissFilterResume(
-    event: IpcMainEvent,
-    data: RequestEnvelope<string>,
-  ) {
-    const { requestId, payload: filterId } = unpackRequest<string>(data)
-    if (!this.archive || !filterId) {
-      return reply(event, 'dismissFilterResume', requestId, {
-        error: 'archive undefined',
-      })
-    }
-
-    // Delete the run record (keep partial results)
-    deleteFilterRun(this.archive.path, filterId)
-
-    // Refresh archive
-    const metadata = await getMetaData(this.archive.path)
-    this.archive = new Archive(metadata)
-    return reply(event, 'dismissFilterResume', requestId, metadata)
-  }
-
-  async runFilters(event: IpcMainEvent, data?: RequestEnvelope<null>) {
-    const { requestId } = unpackRequest<null>(data)
-    if (!this.archive || !this.archive.shallowCopy) {
-      return reply(event, 'runFilters', requestId, {
-        error: 'archive undefined',
-      })
-    }
-
-    const numFilterThreads = this.config.numFilterThreads || 1
-    const batchAbort = new AbortController()
-
-    let prevResultsTableId = 'files'
-    for (let i = 0; i < this.archive.filters.length; i += 1) {
-      const filterJSON = this.archive.filters[i]
-      const filter = new Filter(filterJSON)
-
-      this.runningFilterControllers.set(filterJSON.id, batchAbort)
-      this.runningFilterIndices.add(i)
-      this.broadcastRunningFilters()
-
-      const filterResult = await filter.run3(
-        this.archive.path,
-        prevResultsTableId,
-        numFilterThreads,
-        (eventUpdate: { current: number; total: number }) => {
-          const { total, current } = eventUpdate
-          this.mainWindow.webContents.send('filterUpdate', {
-            filterId: filterJSON.id,
-            filterIndex: i,
-            total,
-            current,
-          })
-        },
-        batchAbort.signal,
-      )
-      const {
-        terminated,
-        errors: filterErrors,
-        logs: filterLogs,
-      } = filterResult
-
-      if (filterErrors.length > 0) {
-        this.mainWindow.webContents.send('filterError', {
-          filterId: filterJSON.id,
-          filterLabel: filterJSON.label,
-          errors: filterErrors,
-        })
-      }
-
-      if (filterLogs && filterLogs.length > 0) {
-        this.mainWindow.webContents.send('filterLogs', {
-          filterId: filterJSON.id,
-          filterLabel: filterJSON.label,
-          logs: filterLogs,
-        })
-      }
-
-      this.runningFilterControllers.delete(filterJSON.id)
-      this.runningFilterIndices.delete(i)
-      this.broadcastRunningFilters()
-
-      if (terminated || batchAbort.signal.aborted) {
-        if (this.archive.resetFiltersFrom) {
-          await this.archive.resetFiltersFrom(i)
-        }
-        break
-      }
-
-      filterJSON.isProcessed = true
-      filterJSON.results = 0
-      prevResultsTableId = filterJSON.id
-    }
-
-    if (this.archive.saveMetaData) await this.archive.saveMetaData()
-
-    const metadata = await getMetaData(this.archive.path)
-    this.archive = new Archive(metadata)
-
-    return reply(event, 'runFilters', requestId, metadata)
-  }
-
-  async cancelRunningFilters(
-    event: IpcMainEvent,
-    data?: RequestEnvelope<null>,
-  ) {
-    const { requestId } = unpackRequest<null>(data)
-    for (const [filterId, controller] of this.runningFilterControllers) {
-      this.filterCancelIds.add(filterId)
-      controller.abort()
-    }
-    this.runningFilterControllers.clear()
-    this.runningFilterIndices.clear()
-    this.broadcastRunningFilters()
-    return reply(event, 'cancelRunningFilters', requestId)
-  }
-
-  async stopRunningFilters(event: IpcMainEvent, data?: RequestEnvelope<null>) {
-    const { requestId } = unpackRequest<null>(data)
-    for (const controller of this.runningFilterControllers.values()) {
-      controller.abort()
-    }
-    this.runningFilterControllers.clear()
-    this.runningFilterIndices.clear()
-    this.broadcastRunningFilters()
-    return reply(event, 'stopRunningFilters', requestId)
-  }
-
-  async stopFilter(event: IpcMainEvent, data: RequestEnvelope<string>) {
-    const { requestId, payload: filterId } = unpackRequest<string>(data)
-    if (filterId) {
-      const controller = this.runningFilterControllers.get(filterId)
-      if (controller) {
-        controller.abort()
-        this.runningFilterControllers.delete(filterId)
-      }
-      if (this.archive) {
-        const filterIndex = this.archive.filters.findIndex(
-          (f) => f.id === filterId,
-        )
-        if (filterIndex >= 0) {
-          this.runningFilterIndices.delete(filterIndex)
-        }
-      }
-      this.broadcastRunningFilters()
-    }
-    return reply(event, 'stopFilter', requestId)
-  }
-
-  async cancelFilter(event: IpcMainEvent, data: RequestEnvelope<string>) {
-    const { requestId, payload: filterId } = unpackRequest<string>(data)
-    if (filterId) {
-      this.filterCancelIds.add(filterId)
-      const controller = this.runningFilterControllers.get(filterId)
-      if (controller) {
-        controller.abort()
-      }
-    }
-    return reply(event, 'cancelFilter', requestId)
-  }
-
   async getPath(
     event: IpcMainEvent,
     data: RequestEnvelope<
@@ -2281,179 +1231,6 @@ export default class Controller {
     return reply(event, 'getPath', requestId, filePaths[0])
   }
 
-  async detectDolphinPath(event: IpcMainEvent, data: RequestEnvelope<null>) {
-    const { requestId } = unpackRequest<null>(data)
-    const candidates: string[] = []
-    const platform = os.platform()
-
-    if (platform === 'linux') {
-      candidates.push(
-        path.join(
-          app.getPath('appData'),
-          'Slippi Launcher',
-          'playback',
-          'Slippi_Playback-x86_64.AppImage',
-        ),
-      )
-    } else if (platform === 'win32') {
-      candidates.push(
-        path.join(
-          app.getPath('appData'),
-          'Slippi Launcher',
-          'playback',
-          'Slippi Dolphin.exe',
-        ),
-      )
-    } else if (platform === 'darwin') {
-      candidates.push(
-        path.join(
-          app.getPath('appData'),
-          'Slippi Launcher',
-          'playback',
-          'Slippi Dolphin.app',
-        ),
-      )
-    }
-
-    for (const candidate of candidates) {
-      try {
-        await fsPromises.access(candidate)
-        return reply(event, 'detectDolphinPath', requestId, candidate)
-      } catch {
-        // not found, try next
-      }
-    }
-
-    return reply(event, 'detectDolphinPath', requestId, null)
-  }
-
-  async validateDolphinPath(
-    event: IpcMainEvent,
-    data: RequestEnvelope<string>,
-  ) {
-    const { requestId, payload: dolphinPath } = unpackRequest<string>(data)
-
-    if (!dolphinPath) {
-      return reply(event, 'validateDolphinPath', requestId, {
-        valid: false,
-        message: 'No path provided.',
-      })
-    }
-
-    try {
-      await fsPromises.access(dolphinPath)
-    } catch {
-      return reply(event, 'validateDolphinPath', requestId, {
-        valid: false,
-        message: 'File does not exist at this path.',
-      })
-    }
-
-    try {
-      const output = await new Promise<string>((resolve, reject) => {
-        const proc = spawn(dolphinPath, ['-h'], { timeout: 10000 })
-        let out = ''
-        proc.stdout?.on('data', (chunk: Buffer) => {
-          out += chunk.toString()
-        })
-        proc.stderr?.on('data', (chunk: Buffer) => {
-          out += chunk.toString()
-        })
-        proc.on('close', () => resolve(out))
-        proc.on('error', (err) => reject(err))
-      })
-
-      if (output.includes('--hide-seekbar')) {
-        return reply(event, 'validateDolphinPath', requestId, {
-          valid: true,
-          message: 'Slippi Dolphin Playback detected.',
-        })
-      }
-
-      // Has Slippi flags but not playback-specific ones — likely the netplay build
-      if (output.includes('slippi') || output.includes('Slippi')) {
-        return reply(event, 'validateDolphinPath', requestId, {
-          valid: false,
-          message:
-            'This appears to be Slippi Dolphin Online/Netplay, not the Playback build. LM Clipper requires the Playback build.',
-        })
-      }
-
-      return reply(event, 'validateDolphinPath', requestId, {
-        valid: false,
-        message:
-          'This does not appear to be Slippi Dolphin Playback. Make sure you select the Playback build, not regular Dolphin.',
-      })
-    } catch {
-      return reply(event, 'validateDolphinPath', requestId, {
-        valid: false,
-        message:
-          'Could not run this file. Make sure it is an executable Dolphin binary.',
-      })
-    }
-  }
-
-  async validateIsoPath(event: IpcMainEvent, data: RequestEnvelope<string>) {
-    const { requestId, payload: isoPath } = unpackRequest<string>(data)
-
-    if (!isoPath) {
-      return reply(event, 'validateIsoPath', requestId, {
-        valid: false,
-        message: 'No path provided.',
-      })
-    }
-
-    try {
-      await fsPromises.access(isoPath)
-    } catch {
-      return reply(event, 'validateIsoPath', requestId, {
-        valid: false,
-        message: 'File does not exist at this path.',
-      })
-    }
-
-    try {
-      const fd = await fsPromises.open(isoPath, 'r')
-      const buf = Buffer.alloc(6)
-      await fd.read(buf, 0, 6, 0)
-      await fd.close()
-      const gameId = buf.toString('ascii')
-
-      if (gameId === 'GALE01') {
-        return reply(event, 'validateIsoPath', requestId, {
-          valid: true,
-          message: 'NTSC Melee ISO detected (GALE01).',
-        })
-      }
-
-      if (gameId === 'GALP01') {
-        return reply(event, 'validateIsoPath', requestId, {
-          valid: false,
-          message:
-            'This is a PAL Melee ISO (GALP01). Slippi requires the NTSC version (GALE01).',
-        })
-      }
-
-      if (gameId === 'GALJ01') {
-        return reply(event, 'validateIsoPath', requestId, {
-          valid: false,
-          message:
-            'This is a Japanese Melee ISO (GALJ01). Slippi requires the NTSC version (GALE01).',
-        })
-      }
-
-      return reply(event, 'validateIsoPath', requestId, {
-        valid: false,
-        message: `This does not appear to be a Melee ISO (got game ID "${gameId}"). Select an NTSC SSBM ISO (GALE01).`,
-      })
-    } catch {
-      return reply(event, 'validateIsoPath', requestId, {
-        valid: false,
-        message: 'Could not read this file. Make sure it is a valid .iso file.',
-      })
-    }
-  }
-
   async logPerfEvents(_event: IpcMainEvent, data: RequestEnvelope<any>) {
     try {
       const { payload } = unpackRequest<any>(data)
@@ -2486,554 +1263,6 @@ export default class Controller {
     const { requestId, payload } = unpackRequest<any>(data)
     logRenderer(payload)
     reply(event, 'rendererError', requestId)
-  }
-
-  async playClips(
-    event: IpcMainEvent,
-    data: RequestEnvelope<{ filterId: string; selectedIds: string[] }>,
-  ) {
-    const { payload } = unpackRequest<{
-      filterId: string
-      selectedIds: string[]
-    }>(data)
-    if (!this.archive || !payload?.selectedIds?.length) return
-
-    const numericIds = payload.selectedIds
-      .map((id) => parseInt(id, 10))
-      .filter((n) => !Number.isNaN(n))
-    if (numericIds.length === 0) return
-
-    const items = await this.archive.getItemsByIds(payload.filterId, numericIds)
-    if (!items || items.length === 0) return
-
-    const playable = items.filter(
-      (item) => 'path' in item && Boolean(item.path),
-    )
-    if (playable.length === 0) return
-
-    this.playbackAborted = false
-    this.mainWindow.webContents.send('playbackStarted')
-
-    for (const item of playable) {
-      if (this.playbackAborted) break
-      const clipPayload: ClipPayload = {
-        path: item.path as string,
-        startFrame:
-          'startFrame' in item ? (item.startFrame as number) : undefined,
-        endFrame: 'endFrame' in item ? (item.endFrame as number) : undefined,
-        lastFrame: 'lastFrame' in item ? (item.lastFrame as number) : undefined,
-      }
-      await this.playClipAsync(clipPayload)
-    }
-
-    this.mainWindow.webContents.send('playbackDone')
-  }
-
-  stopPlayback() {
-    this.playbackAborted = true
-    if (this.activePlaybackProcess) {
-      try {
-        this.activePlaybackProcess.kill()
-      } catch (_) {
-        // empty
-      }
-    }
-  }
-
-  private async playClipAsync(
-    payload: ClipPayload,
-    reportError?: (_msg: string) => void,
-  ): Promise<void> {
-    const { dolphinPath, ssbmIsoPath } = this.config
-    if (!dolphinPath || !ssbmIsoPath) {
-      reportError?.('Error: dolphinPath or ssbmIsoPath not set.')
-      return
-    }
-
-    try {
-      await fsPromises.access(dolphinPath)
-    } catch {
-      reportError?.(`Error: Could not open Dolphin from path ${dolphinPath}. `)
-      logMain('playClipAsync: Dolphin not found', { dolphinPath })
-      return
-    }
-
-    try {
-      await fsPromises.access(ssbmIsoPath)
-    } catch {
-      reportError?.(`Error: Could not access ISO from path ${ssbmIsoPath}. `)
-      logMain('playClipAsync: ISO not found', { ssbmIsoPath })
-      return
-    }
-
-    try {
-      await fsPromises.access(payload.path)
-    } catch {
-      reportError?.(`Error: Could not access replay ${payload.path}. `)
-      logMain('playClipAsync: replay file not found', {
-        path: payload.path,
-      })
-      return
-    }
-
-    const { startFrame, endFrame } = resolveClipFrames(payload)
-    const { addStartFrames, addEndFrames, playbackResolution } = this.config
-    const adjustedStart = startFrame - addStartFrames
-    const adjustedEnd = endFrame + addEndFrames
-    const dolphinConfig = {
-      mode: 'normal',
-      replay: payload.path,
-      startFrame: adjustedStart,
-      endFrame: adjustedEnd,
-      isRealTimeMode: false,
-      commandId: crypto.randomBytes(12).toString('hex'),
-    }
-
-    await updateEfbScale(dolphinPath, playbackResolution ?? 2)
-
-    const tmpDir = await fsPromises.mkdtemp(
-      path.join(os.tmpdir(), 'lm-clipper-'),
-    )
-    this.activeTmpDirs.add(tmpDir)
-    const filePath = path.resolve(tmpDir, 'dolphinConfig.json')
-    await fsPromises.writeFile(filePath, JSON.stringify(dolphinConfig))
-
-    const args = [
-      '-i',
-      filePath,
-      ...(this.config.fullscreen !== false ? ['-b'] : []),
-      '-e',
-      path.resolve(ssbmIsoPath),
-      '--cout',
-    ]
-
-    logMain('playClipAsync: spawning Dolphin', {
-      dolphinPath: path.resolve(dolphinPath),
-      args,
-      configJson: dolphinConfig,
-    })
-
-    try {
-      if (this.activePlaybackProcess) {
-        try {
-          this.activePlaybackProcess.kill()
-        } catch (_) {
-          // empty
-        }
-      }
-
-      const dolphinProcess = spawn(path.resolve(dolphinPath), args)
-      this.activePlaybackProcess = dolphinProcess
-
-      let dolphinStderr = ''
-      dolphinProcess.stderr.setEncoding('utf8')
-      dolphinProcess.stderr.on('data', (chunk: string) => {
-        dolphinStderr += chunk
-      })
-
-      dolphinProcess.on('error', (err) => {
-        logMain('playClipAsync: Dolphin spawn error', err)
-        reportError?.(
-          `Error launching Dolphin: ${err.message}. Check ${getLogPath()}/main.log`,
-        )
-      })
-
-      await new Promise<void>((resolve) => {
-        let targetEndFrame: number = Infinity
-        let staleTimer: ReturnType<typeof setTimeout> | null = null
-        const stdoutLines: string[] = []
-        let killedReason = ''
-        const resetStaleTimer = () => {
-          if (staleTimer) clearTimeout(staleTimer)
-          staleTimer = setTimeout(() => {
-            killedReason = 'stale timer (no CURRENT_FRAME for 1s)'
-            dolphinProcess.kill()
-          }, 1000)
-        }
-
-        dolphinProcess.stdout.setEncoding('utf8')
-        dolphinProcess.stdout.on('data', (chunk: string) => {
-          const lines = chunk.split('\r\n')
-          lines.forEach((line: string) => {
-            if (stdoutLines.length < 50 && line.trim()) {
-              stdoutLines.push(line)
-            }
-            if (line.includes('[PLAYBACK_END_FRAME]')) {
-              const match = /\[PLAYBACK_END_FRAME\] ([0-9]+)/.exec(line)
-              if (match?.[1])
-                targetEndFrame = Math.min(
-                  targetEndFrame,
-                  parseInt(match[1], 10),
-                )
-            } else if (line.includes('[GAME_END_FRAME]')) {
-              const match = /\[GAME_END_FRAME\] ([0-9]+)/.exec(line)
-              if (match?.[1])
-                targetEndFrame = Math.min(
-                  targetEndFrame,
-                  parseInt(match[1], 10),
-                )
-            } else if (
-              targetEndFrame !== Infinity &&
-              line.includes(`[CURRENT_FRAME] ${targetEndFrame}`)
-            ) {
-              killedReason = `reached target end frame ${targetEndFrame}`
-              dolphinProcess.kill()
-            } else if (line.includes('[CURRENT_FRAME]')) {
-              resetStaleTimer()
-            }
-          })
-        })
-
-        dolphinProcess.on('exit', (code, signal) => {
-          logMain('playClipAsync: Dolphin exited', {
-            code,
-            signal,
-            killedReason: killedReason || 'unknown',
-            stdoutLines,
-            stderr: dolphinStderr.slice(-2000),
-          })
-          if (code !== 0 && code !== null) {
-            reportError?.(
-              `Dolphin exited with code ${code}. Check ${getLogPath()}/main.log`,
-            )
-          }
-          if (this.activePlaybackProcess === dolphinProcess) {
-            this.activePlaybackProcess = null
-          }
-          if (staleTimer) clearTimeout(staleTimer)
-          fsPromises.unlink(filePath).catch(() => {})
-          fsPromises.rmdir(tmpDir).catch(() => {})
-          this.activeTmpDirs.delete(tmpDir)
-          resolve()
-        })
-      })
-    } catch (err) {
-      logMain('playClipAsync: spawn failed', err)
-      reportError?.('Error: Failed to launch Dolphin.')
-    }
-  }
-
-  async playClip(event: IpcMainEvent, data: RequestEnvelope<ClipPayload>) {
-    const { requestId, payload } = unpackRequest<ClipPayload>(data)
-    if (!payload?.path) {
-      this.mainWindow.webContents.send('videoMsg', 'No clip selected.')
-      return reply(event, 'playClip', requestId)
-    }
-
-    this.playbackAborted = false
-    this.mainWindow.webContents.send('playbackStarted')
-
-    await this.playClipAsync(payload, (msg) => {
-      this.mainWindow.webContents.send('videoMsg', msg)
-    })
-
-    this.mainWindow.webContents.send('playbackDone')
-    return reply(event, 'playClip', requestId)
-  }
-
-  async recordClip(event: IpcMainEvent, data: RequestEnvelope<ClipPayload>) {
-    const { requestId, payload } = unpackRequest<ClipPayload>(data)
-    if (!payload?.path) {
-      this.mainWindow.webContents.send('videoMsg', 'No clip selected.')
-      return reply(event, 'recordClip', requestId)
-    }
-
-    const {
-      numCPUs,
-      dolphinPath,
-      ssbmIsoPath,
-      gameMusic,
-      hideHud,
-      hideTags,
-      hideNames,
-      fixedCamera,
-      enableChants,
-      bitrateKbps,
-      resolution,
-      outputPath,
-      addStartFrames,
-      addEndFrames,
-      lastClipOffset,
-      dolphinCutoff,
-      disableScreenShake,
-      noElectricSFX,
-      noCrowdNoise,
-      disableMagnifyingGlass,
-      overlaySource,
-    } = this.config
-
-    const effectiveNumCPUs = numCPUs || 1
-
-    try {
-      await fsPromises.access(payload.path)
-    } catch {
-      this.mainWindow.webContents.send(
-        'videoMsg',
-        `Error: Replay file not found: ${payload.path}`,
-      )
-      return reply(event, 'recordClip', requestId)
-    }
-
-    try {
-      await fsPromises.mkdir(outputPath, { recursive: true })
-    } catch (err) {
-      this.mainWindow.webContents.send(
-        'videoMsg',
-        `Error: Could not create output directory ${outputPath} `,
-      )
-      return reply(event, 'recordClip', requestId)
-    }
-
-    const outputDirectory = createOutputDirectory(outputPath)
-
-    const config = {
-      ...this.config,
-      outputPath: outputDirectory,
-      numProcesses: effectiveNumCPUs,
-      dolphinPath: path.resolve(dolphinPath),
-      ssbmIsoPath: path.resolve(ssbmIsoPath),
-      gameMusicOn: gameMusic,
-      hideHud,
-      hideTags,
-      hideNames,
-      overlaySource,
-      disableScreenShake,
-      disableChants: !enableChants,
-      noElectricSFX,
-      noCrowdNoise,
-      disableMagnifyingGlass,
-      fixedCamera,
-      bitrateKbps,
-      resolution,
-      dolphinCutoff,
-    }
-
-    const { startFrame, endFrame } = resolveClipFrames(payload)
-    const adjustedStart = startFrame - addStartFrames
-    const adjustedEnd = endFrame + addEndFrames
-    const replay: ReplayInterface = {
-      index: 0,
-      path: payload.path,
-      startFrame: adjustedStart < -123 ? -123 : adjustedStart,
-      endFrame: adjustedEnd,
-    }
-
-    if (lastClipOffset) {
-      replay.endFrame += lastClipOffset
-    }
-
-    const job = slpToVideo([replay], config, (msg: string) => {
-      this.mainWindow.webContents.send('videoMsg', msg)
-    })
-    await job.promise
-
-    return reply(event, 'recordClip', requestId)
-  }
-
-  async generateVideo(
-    event: IpcMainEvent,
-    data?: RequestEnvelope<{ filterId: string; selectedIds: string[] }>,
-  ) {
-    const { requestId, payload } = unpackRequest<{
-      filterId: string
-      selectedIds: string[]
-    }>(data)
-    if (!this.archive || !this.archive.getAllItems) {
-      this.mainWindow.webContents.send('videoMsg', 'No archive loaded.')
-      return reply(event, 'generateVideo', requestId)
-    }
-
-    const {
-      numCPUs,
-      dolphinPath,
-      ssbmIsoPath,
-      gameMusic,
-      hideHud,
-      hideTags,
-      hideNames,
-      fixedCamera,
-      enableChants,
-      bitrateKbps,
-      resolution,
-      outputPath,
-      addStartFrames,
-      addEndFrames,
-      slice,
-      shuffle,
-      lastClipOffset,
-      dolphinCutoff,
-      disableScreenShake,
-      noElectricSFX,
-      noCrowdNoise,
-      disableMagnifyingGlass,
-      overlaySource,
-    } = this.config
-
-    const effectiveNumCPUs = numCPUs || 1
-
-    try {
-      await fsPromises.mkdir(outputPath, { recursive: true })
-    } catch (err) {
-      this.mainWindow.webContents.send(
-        'videoMsg',
-        `Error: Could not create output directory ${outputPath} `,
-      )
-      return reply(event, 'generateVideo', requestId)
-    }
-
-    const outputDirectory = createOutputDirectory(outputPath)
-
-    const config = {
-      ...this.config,
-      outputPath: outputDirectory,
-      numProcesses: effectiveNumCPUs,
-      dolphinPath: path.resolve(dolphinPath),
-      ssbmIsoPath: path.resolve(ssbmIsoPath),
-      gameMusicOn: gameMusic,
-      hideHud,
-      hideTags,
-      hideNames,
-      overlaySource,
-      disableScreenShake,
-      disableChants: !enableChants,
-      noElectricSFX,
-      noCrowdNoise,
-      disableMagnifyingGlass,
-      fixedCamera,
-      bitrateKbps,
-      resolution,
-      dolphinCutoff,
-    }
-
-    const metadata = await getMetaData(this.archive.path)
-    this.archive = new Archive(metadata)
-
-    const filterId = payload?.filterId || 'files'
-    const selectedIds = payload?.selectedIds || []
-
-    let finalResults: any[]
-    if (selectedIds.length > 0) {
-      const numericIds = selectedIds
-        .map((id) => parseInt(id, 10))
-        .filter((n) => !Number.isNaN(n))
-      finalResults = await this.archive.getItemsByIds(filterId, numericIds)
-    } else {
-      finalResults = await this.archive.getAllItems(filterId)
-    }
-
-    if (!finalResults || finalResults.length === 0) {
-      this.mainWindow.webContents.send('videoMsg', 'No clips to generate.')
-      return reply(event, 'generateVideo', requestId)
-    }
-
-    if (shuffle) finalResults = shuffleArray(finalResults)
-    if (slice) finalResults = finalResults.slice(0, slice)
-
-    const replays: ReplayInterface[] = []
-    finalResults.forEach(
-      (result: ClipInterface | FileInterface, index: number) => {
-        const hasStart =
-          typeof result.startFrame === 'number' && result.startFrame !== 0
-        const hasEnd =
-          typeof result.endFrame === 'number' && result.endFrame !== 0
-        const startFrame = hasStart ? result.startFrame : -123
-        const endFrame = hasEnd
-          ? result.endFrame
-          : (result as FileInterface).lastFrame || 99999
-
-        const adjustedStart = startFrame - addStartFrames
-        const adjustedEnd = endFrame + addEndFrames
-
-        // Extract metadata for filename pattern
-        const p1 =
-          ('comboer' in result && result.comboer) ||
-          ('players' in result && result.players?.[0]) ||
-          undefined
-        const p2 =
-          ('comboee' in result && result.comboee) ||
-          ('players' in result && result.players?.[1]) ||
-          undefined
-        const stageInfo = stages[result.stage as keyof typeof stages] as
-          | { shortName?: string; name?: string }
-          | undefined
-        const combo = 'combo' in result ? result.combo : undefined
-        const startedAt = result.startedAt
-          ? new Date(result.startedAt * 1000)
-          : undefined
-
-        replays.push({
-          index,
-          path: result.path,
-          startFrame: adjustedStart < -123 ? -123 : adjustedStart,
-          endFrame: adjustedEnd,
-          meta: {
-            character1: p1
-              ? characters[p1.characterId]?.shortName ||
-                characters[p1.characterId]?.name
-              : undefined,
-            character2: p2
-              ? characters[p2.characterId]?.shortName ||
-                characters[p2.characterId]?.name
-              : undefined,
-            player1:
-              p1?.displayName || p1?.connectCode || p1?.nametag || undefined,
-            player2:
-              p2?.displayName || p2?.connectCode || p2?.nametag || undefined,
-            stage: stageInfo?.shortName || stageInfo?.name || undefined,
-            date: startedAt
-              ? `${startedAt.getFullYear()}-${String(startedAt.getMonth() + 1).padStart(2, '0')}-${String(startedAt.getDate()).padStart(2, '0')}`
-              : undefined,
-            time: startedAt
-              ? `${String(startedAt.getHours()).padStart(2, '0')}${String(startedAt.getMinutes()).padStart(2, '0')}`
-              : undefined,
-            didKill: combo?.didKill,
-            damage:
-              combo &&
-              typeof combo.startPercent === 'number' &&
-              typeof combo.endPercent === 'number'
-                ? Math.round(combo.endPercent - combo.startPercent)
-                : undefined,
-            moves: combo?.moves?.length,
-          },
-        })
-      },
-    )
-    if (lastClipOffset && replays.length > 0) {
-      replays[replays.length - 1].endFrame += lastClipOffset
-    }
-
-    console.log('Replays: ', replays)
-    console.log('Config: ', config)
-    this.mainWindow.webContents.send(
-      'videoOutputPath',
-      config.outputPath.replace(/\/+$/, ''),
-    )
-    this.activeVideoJob = slpToVideo(replays, config, (msg: string) => {
-      this.mainWindow.webContents.send('videoMsg', msg)
-    })
-    try {
-      await this.activeVideoJob.promise
-    } finally {
-      this.activeVideoJob = null
-      this.mainWindow.webContents.send('videoJobFinished')
-    }
-    return reply(event, 'generateVideo', requestId)
-  }
-
-  stopVideo(event: IpcMainEvent, data?: RequestEnvelope<null>) {
-    const { requestId } = unpackRequest<null>(data)
-    if (this.activeVideoJob) {
-      this.activeVideoJob.stop()
-    }
-    return reply(event, 'stopVideo', requestId)
-  }
-
-  cancelVideo(event: IpcMainEvent, data?: RequestEnvelope<null>) {
-    const { requestId } = unpackRequest<null>(data)
-    if (this.activeVideoJob) {
-      this.activeVideoJob.cancel()
-    }
-    return reply(event, 'cancelVideo', requestId)
   }
 
   openCodeEditor(
@@ -3127,6 +1356,12 @@ export default class Controller {
       initData.mode === 'template'
         ? `LM Clipper Code Editor - ${initData.filterName}`
         : `LM Clipper Custom Code Editor - ${initData.filterName}`
+
+    // Clean up any stale IPC listeners from a previous code editor session
+    if (this._cleanupCodeEditorListeners) {
+      this._cleanupCodeEditorListeners()
+      this._cleanupCodeEditorListeners = null
+    }
 
     // If window already open, focus it and send new init data
     if (this.codeEditorWindow && !this.codeEditorWindow.isDestroyed()) {
@@ -3432,12 +1667,18 @@ export default class Controller {
     }
     ipcMain.on('code-editor-close', onClose)
 
-    editorWindow.on('closed', () => {
+    const cleanupListeners = () => {
       ipcMain.removeListener('code-editor-save', onSave)
       ipcMain.removeListener('code-editor-save-template', onSaveTemplate)
       ipcMain.removeListener('code-editor-delete-template', onDeleteTemplate)
       ipcMain.removeListener('code-editor-test-run', onTestRun)
       ipcMain.removeListener('code-editor-close', onClose)
+    }
+    this._cleanupCodeEditorListeners = cleanupListeners
+
+    editorWindow.on('closed', () => {
+      cleanupListeners()
+      this._cleanupCodeEditorListeners = null
       this.codeEditorWindow = null
       this.codeEditorContext = null
     })
@@ -3451,17 +1692,32 @@ export default class Controller {
     ipcMain.on('setDefaultOutputPath', this.setDefaultOutputPath.bind(this))
     ipcMain.on('getDirectory', this.getDirectory.bind(this))
     ipcMain.on('getArchive', this.getArchive.bind(this))
-    ipcMain.on('getImportStatus', this.getImportStatus.bind(this))
+    ipcMain.on(
+      'getImportStatus',
+      this.importManager.getImportStatusHandler.bind(this.importManager),
+    )
     ipcMain.on('createNewArchive', this.createNewArchive.bind(this))
     ipcMain.on('openExistingArchive', this.openExistingArchive.bind(this))
     ipcMain.on('newProject', this.newProject.bind(this))
     ipcMain.on('saveAsArchive', this.saveAsArchive.bind(this))
     ipcMain.on('getRecentProjects', this.getRecentProjects.bind(this))
     ipcMain.on('openRecentProject', this.openRecentProject.bind(this))
-    ipcMain.on('addFilesManual', this.addFilesManual.bind(this))
-    ipcMain.on('addDroppedFiles', this.addDroppedFiles.bind(this))
-    ipcMain.on('cancelImport', this.cancelImport.bind(this))
-    ipcMain.on('stopImport', this.stopImport.bind(this))
+    ipcMain.on(
+      'addFilesManual',
+      this.importManager.addFilesManual.bind(this.importManager),
+    )
+    ipcMain.on(
+      'addDroppedFiles',
+      this.importManager.addDroppedFiles.bind(this.importManager),
+    )
+    ipcMain.on(
+      'cancelImport',
+      this.importManager.cancelImport.bind(this.importManager),
+    )
+    ipcMain.on(
+      'stopImport',
+      this.importManager.stopImport.bind(this.importManager),
+    )
     ipcMain.on('closeArchive', this.closeArchive.bind(this))
     ipcMain.on('addFilter', this.addFilter.bind(this))
     ipcMain.on('updateFilter', this.updateFilter.bind(this))
@@ -3474,25 +1730,67 @@ export default class Controller {
     ipcMain.on('getTableDuration', this.getTableDuration.bind(this))
     ipcMain.on('getNames', this.getNames.bind(this))
     ipcMain.on('getConnectCodes', this.getConnectCodes.bind(this))
-    ipcMain.on('runFilter', this.runFilter.bind(this))
-    ipcMain.on('resumeFilter', this.resumeFilter.bind(this))
-    ipcMain.on('dismissFilterResume', this.dismissFilterResume.bind(this))
-    ipcMain.on('runFilters', this.runFilters.bind(this))
-    ipcMain.on('cancelRunningFilters', this.cancelRunningFilters.bind(this))
-    ipcMain.on('stopRunningFilters', this.stopRunningFilters.bind(this))
-    ipcMain.on('stopFilter', this.stopFilter.bind(this))
-    ipcMain.on('cancelFilter', this.cancelFilter.bind(this))
+    ipcMain.on(
+      'runFilter',
+      this.filterExecutor.runFilter.bind(this.filterExecutor),
+    )
+    ipcMain.on(
+      'resumeFilter',
+      this.filterExecutor.resumeFilter.bind(this.filterExecutor),
+    )
+    ipcMain.on(
+      'dismissFilterResume',
+      this.filterExecutor.dismissFilterResume.bind(this.filterExecutor),
+    )
+    ipcMain.on(
+      'runFilters',
+      this.filterExecutor.runFilters.bind(this.filterExecutor),
+    )
+    ipcMain.on(
+      'cancelRunningFilters',
+      this.filterExecutor.cancelRunningFilters.bind(this.filterExecutor),
+    )
+    ipcMain.on(
+      'stopRunningFilters',
+      this.filterExecutor.stopRunningFilters.bind(this.filterExecutor),
+    )
+    ipcMain.on(
+      'stopFilter',
+      this.filterExecutor.stopFilter.bind(this.filterExecutor),
+    )
+    ipcMain.on(
+      'cancelFilter',
+      this.filterExecutor.cancelFilter.bind(this.filterExecutor),
+    )
     ipcMain.on('getPath', this.getPath.bind(this))
-    ipcMain.on('detectDolphinPath', this.detectDolphinPath.bind(this))
-    ipcMain.on('validateDolphinPath', this.validateDolphinPath.bind(this))
-    ipcMain.on('validateIsoPath', this.validateIsoPath.bind(this))
-    ipcMain.on('generateVideo', this.generateVideo.bind(this))
-    ipcMain.on('stopVideo', this.stopVideo.bind(this))
-    ipcMain.on('cancelVideo', this.cancelVideo.bind(this))
-    ipcMain.on('playClips', this.playClips.bind(this))
-    ipcMain.on('playClip', this.playClip.bind(this))
-    ipcMain.on('stopPlayback', () => this.stopPlayback())
-    ipcMain.on('recordClip', this.recordClip.bind(this))
+    ipcMain.on(
+      'detectDolphinPath',
+      this.videoManager.detectDolphinPath.bind(this.videoManager),
+    )
+    ipcMain.on(
+      'validateDolphinPath',
+      this.videoManager.validateDolphinPath.bind(this.videoManager),
+    )
+    ipcMain.on(
+      'validateIsoPath',
+      this.videoManager.validateIsoPath.bind(this.videoManager),
+    )
+    ipcMain.on(
+      'generateVideo',
+      this.videoManager.generateVideo.bind(this.videoManager),
+    )
+    ipcMain.on('stopVideo', this.videoManager.stopVideo.bind(this.videoManager))
+    ipcMain.on(
+      'cancelVideo',
+      this.videoManager.cancelVideo.bind(this.videoManager),
+    )
+    ipcMain.on('playClips', this.videoManager.playClips.bind(this.videoManager))
+    ipcMain.on('playClip', this.videoManager.playClip.bind(this.videoManager))
+    ipcMain.on('stopPlayback', () => this.videoManager.stopPlayback())
+    ipcMain.on(
+      'recordClip',
+      this.videoManager.recordClip.bind(this.videoManager),
+    )
     ipcMain.on('removeGame', this.removeGame.bind(this))
     ipcMain.on('removeResult', this.removeResult.bind(this))
     ipcMain.on('reorderClips', this.reorderClips.bind(this))
@@ -3567,162 +1865,14 @@ export default class Controller {
       }
     })
     ipcMain.on('rendererError', this.logRendererError.bind(this))
-    ipcMain.on('testDolphin', this.testDolphin.bind(this))
+    ipcMain.on(
+      'testDolphin',
+      this.videoManager.testDolphin.bind(this.videoManager),
+    )
     ipcMain.on('openCodeEditor', this.openCodeEditor.bind(this))
     ipcMain.on(
       'openCodeEditorForTemplate',
       this.openCodeEditorForTemplate.bind(this),
     )
-  }
-
-  async testDolphin() {
-    const { dolphinPath, ssbmIsoPath } = this.config
-    if (!dolphinPath || !ssbmIsoPath) {
-      this.mainWindow.webContents.send(
-        'videoMsg',
-        'Error: Set Dolphin and ISO paths first.',
-      )
-      return
-    }
-
-    try {
-      await fsPromises.access(dolphinPath)
-    } catch {
-      this.mainWindow.webContents.send(
-        'videoMsg',
-        `Error: Dolphin not found at ${dolphinPath}`,
-      )
-      return
-    }
-
-    try {
-      await fsPromises.access(ssbmIsoPath)
-    } catch {
-      this.mainWindow.webContents.send(
-        'videoMsg',
-        `Error: ISO not found at ${ssbmIsoPath}`,
-      )
-      return
-    }
-
-    // Resolve test .slp from assets
-    const RESOURCES_PATH = app.isPackaged
-      ? path.join(process.resourcesPath, 'assets')
-      : path.join(__dirname, '../../assets')
-    const testSlp = path.join(RESOURCES_PATH, 'test.slp')
-
-    try {
-      await fsPromises.access(testSlp)
-    } catch {
-      this.mainWindow.webContents.send(
-        'videoMsg',
-        `Error: test.slp not found at ${testSlp}`,
-      )
-      return
-    }
-
-    const dolphinConfig = {
-      mode: 'normal',
-      replay: testSlp,
-      startFrame: -123,
-      endFrame: 3600,
-      isRealTimeMode: true,
-      commandId: crypto.randomBytes(12).toString('hex'),
-    }
-
-    const tmpDir = await fsPromises.mkdtemp(
-      path.join(os.tmpdir(), 'lm-clipper-test-'),
-    )
-    this.activeTmpDirs.add(tmpDir)
-    const configFile = path.resolve(tmpDir, 'testDolphinConfig.json')
-    await fsPromises.writeFile(configFile, JSON.stringify(dolphinConfig))
-
-    this.mainWindow.webContents.send('videoMsg', 'Launching Dolphin test...')
-
-    try {
-      const dolphinProcess = spawn(path.resolve(dolphinPath), [
-        '-i',
-        configFile,
-        ...(this.config.fullscreen !== false ? ['-b'] : []),
-        '-e',
-        path.resolve(ssbmIsoPath),
-        '--cout',
-      ])
-
-      const logLines: string[] = []
-      const addLog = (line: string) => {
-        logLines.push(line)
-        console.log('[Dolphin test]', line)
-      }
-
-      dolphinProcess.stdout?.on('data', (data: Buffer) => {
-        data
-          .toString()
-          .split('\n')
-          .forEach((l) => {
-            if (l.trim()) addLog(`stdout: ${l.trim()}`)
-          })
-      })
-
-      dolphinProcess.stderr?.on('data', (data: Buffer) => {
-        data
-          .toString()
-          .split('\n')
-          .forEach((l) => {
-            if (l.trim()) addLog(`stderr: ${l.trim()}`)
-          })
-      })
-
-      dolphinProcess.on('error', (err) => {
-        addLog(`spawn error: ${err.message}`)
-        this.mainWindow.webContents.send(
-          'videoMsg',
-          `Dolphin error: ${err.message}`,
-        )
-      })
-
-      dolphinProcess.on('exit', (code) => {
-        fsPromises.unlink(configFile).catch(() => {})
-        fsPromises.rmdir(tmpDir).catch(() => {})
-        this.activeTmpDirs.delete(tmpDir)
-        const logPath = path.join(os.tmpdir(), 'lm-clipper-dolphin-test.log')
-        const logContent = [
-          `Dolphin test log - ${new Date().toISOString()}`,
-          `Exit code: ${code}`,
-          `Dolphin path: ${dolphinPath}`,
-          `ISO path: ${ssbmIsoPath}`,
-          `Test replay: ${testSlp}`,
-          '',
-          ...logLines,
-        ].join('\n')
-        fs.writeFileSync(logPath, logContent)
-
-        if (code !== 0 && logLines.length > 0) {
-          const lastErr = logLines[logLines.length - 1]
-          this.mainWindow.webContents.send(
-            'videoMsg',
-            `Dolphin failed (code ${code}): ${lastErr} — Log: ${logPath}`,
-          )
-        } else if (code !== 0) {
-          this.mainWindow.webContents.send(
-            'videoMsg',
-            `Dolphin exited with code ${code}. Log: ${logPath}`,
-          )
-        } else {
-          this.mainWindow.webContents.send(
-            'videoMsg',
-            `Dolphin test finished. Log: ${logPath}`,
-          )
-          setTimeout(() => {
-            this.mainWindow.webContents.send('videoMsg', '')
-          }, 5000)
-        }
-      })
-    } catch (err: any) {
-      this.mainWindow.webContents.send(
-        'videoMsg',
-        `Failed to launch Dolphin: ${err.message}`,
-      )
-    }
   }
 }
