@@ -1,8 +1,12 @@
-import { ClipInterface, EventEmitterInterface } from 'constants/types'
+import {
+  ClipInterface,
+  EventEmitterInterface,
+  ZeroToDeathsParams,
+} from 'constants/types'
 
 export default (
   prevResults: ClipInterface[],
-  params: { [key: string]: any },
+  params: ZeroToDeathsParams,
   eventEmitter: EventEmitterInterface,
 ) => {
   const threshold = parseInt(params.startThreshold, 10) || 0

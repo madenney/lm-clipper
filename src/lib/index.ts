@@ -30,3 +30,10 @@ export const asyncForEach = async (array: any[], callback: any) => {
     await callback(array[index], index, array)
   }
 }
+
+export function getWorkerExecArgv(): string[] | undefined {
+  const mode = process.env.LM_CLIPPER_WORKER_TS_NODE
+  if (!mode) return undefined
+  if (mode === 'esm') return ['--loader', 'ts-node/esm']
+  return ['-r', 'ts-node/register/transpile-only']
+}

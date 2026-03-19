@@ -2,10 +2,19 @@
 /* eslint-disable no-plusplus */
 /* eslint-disable no-underscore-dangle */
 import { SlippiGame } from '@slippi/slippi-js'
+import {
+  ClipInterface,
+  EventEmitterInterface,
+  RemoveStarKOFramesParams,
+} from '../../constants/types'
 
 const starKOIDs = [3, 4, 5, 6, 7, 8, 9, 10]
 
-export default (prevResults, params, eventEmitter) => {
+export default (
+  prevResults: ClipInterface[],
+  params: RemoveStarKOFramesParams,
+  eventEmitter: EventEmitterInterface,
+) => {
   return prevResults.map((clip, index) => {
     const { path, comboee, startFrame, endFrame } = clip
     const { maxFiles } = params

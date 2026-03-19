@@ -1,8 +1,12 @@
-import { FileInterface, EventEmitterInterface } from '../../constants/types'
+import {
+  FileInterface,
+  EventEmitterInterface,
+  FilesFilterParams,
+} from '../../constants/types'
 
 export default (
   prevResults: FileInterface[],
-  params: { [key: string]: any },
+  params: FilesFilterParams,
   eventEmitter: EventEmitterInterface,
 ) => {
   return prevResults.filter((file: FileInterface, index) => {

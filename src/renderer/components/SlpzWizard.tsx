@@ -25,6 +25,15 @@ export default function SlpzWizard({
     onDismiss()
   }
 
+  const handleSkip = () => {
+    window.electron.ipcRenderer.sendMessage('slpzWizardResponse', {
+      mode: 'skip',
+      outputDir: '',
+      remember: false,
+    })
+    onDismiss()
+  }
+
   const handleCancel = () => {
     window.electron.ipcRenderer.sendMessage('slpzWizardResponse', null)
     onDismiss()
@@ -120,6 +129,9 @@ export default function SlpzWizard({
             onClick={handleCancel}
           >
             Cancel
+          </button>
+          <button type="button" className="slpz-skip-btn" onClick={handleSkip}>
+            Skip .slpz files
           </button>
           <button
             type="button"

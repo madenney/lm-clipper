@@ -12,6 +12,11 @@ import deduplicate from './deduplicate'
 import zeroToDeaths from './zerotoDeaths'
 import afkDetection from './afkDetection'
 
+/**
+ * Filter method signature. Each method takes data + params (+ optional emitter)
+ * and returns filtered results. Uses `any` at the dispatch boundary because
+ * Worker.ts calls methods generically; individual methods have strict types.
+ */
 type FilterMethod = (..._args: any[]) => any
 
 const methods: Record<string, FilterMethod> = {

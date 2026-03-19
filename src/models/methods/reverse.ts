@@ -1,7 +1,20 @@
 /* eslint-disable eqeqeq */
 import { SlippiGame } from '@slippi/slippi-js'
+import {
+  ClipInterface,
+  EventEmitterInterface,
+  PlayerInterface,
+  ReverseParams,
+} from '../../constants/types'
 
-const isReverseHit = (frames: any, move: any, comboer: any, comboee: any) => {
+type MoveData = { frame: number; moveId: number }
+
+const isReverseHit = (
+  frames: Record<string, any>,
+  move: MoveData,
+  comboer: PlayerInterface,
+  comboee: PlayerInterface,
+) => {
   const currentFrame = frames[move.frame]
   if (!currentFrame?.players) return false
   const _comboer = currentFrame.players.find(
@@ -31,10 +44,18 @@ const isReverseHit = (frames: any, move: any, comboer: any, comboee: any) => {
   return comboerFacing == 1
 }
 
-export default (prevResults: any[], params: any, eventEmitter: any) => {
+export default (
+  prevResults: ClipInterface[],
+  params: ReverseParams,
+  eventEmitter: EventEmitterInterface,
+) => {
   const { maxFiles, n } = params
-  const limit =
+  const parsedLimit =
     maxFiles === '' || maxFiles == null ? undefined : parseInt(maxFiles, 10)
+  const limit =
+    parsedLimit !== undefined && !Number.isNaN(parsedLimit) && parsedLimit >= 0
+      ? parsedLimit
+      : undefined
   const total = limit ? Math.min(limit, prevResults.length) : prevResults.length
 
   return prevResults.slice(0, limit).filter((clip, index) => {
@@ -46,7 +67,7 @@ export default (prevResults: any[], params: any, eventEmitter: any) => {
     const { moves } = combo
 
     const game = new SlippiGame(path)
-    let frames: any
+    let frames: Record<string, any>
     try {
       frames = game.getFrames()
     } catch (e) {
@@ -62,14 +83,14 @@ export default (prevResults: any[], params: any, eventEmitter: any) => {
       .filter((s: string) => s !== '__custom__' && s !== '')
 
     // Collect target moves to check
-    const targetMoves: any[] = []
+    const targetMoves: MoveData[] = []
 
     if (cleaned.length === 0) {
       // No position specified: check all moves
       targetMoves.push(...moves)
     } else if (cleaned.includes('e')) {
       // 'e' = every move must be a reverse hit
-      return moves.every((move: any) =>
+      return moves.every((move: MoveData) =>
         isReverseHit(frames, move, comboer, comboee),
       )
     } else {
@@ -87,7 +108,7 @@ export default (prevResults: any[], params: any, eventEmitter: any) => {
     if (targetMoves.length === 0) return false
 
     // Any target move being a reverse hit qualifies
-    return targetMoves.some((move: any) =>
+    return targetMoves.some((move: MoveData) =>
       isReverseHit(frames, move, comboer, comboee),
     )
   })

@@ -7,9 +7,86 @@ import {
   webUtils,
 } from 'electron'
 
+const SEND_CHANNELS = new Set([
+  'getConfig',
+  'updateConfig',
+  'setDefaultOutputPath',
+  'getArchive',
+  'getImportStatus',
+  'getDirectory',
+  'createNewArchive',
+  'openExistingArchive',
+  'newProject',
+  'saveAsArchive',
+  'getRecentProjects',
+  'openRecentProject',
+  'addFilesManual',
+  'addDroppedFiles',
+  'cancelImport',
+  'stopImport',
+  'closeArchive',
+  'addFilter',
+  'updateFilter',
+  'reorderFilter',
+  'removeFilter',
+  'saveCustomFilter',
+  'deleteCustomFilter',
+  'getResults',
+  'getAllResultIds',
+  'getTableDuration',
+  'getNames',
+  'getConnectCodes',
+  'runFilter',
+  'resumeFilter',
+  'dismissFilterResume',
+  'runFilters',
+  'cancelRunningFilters',
+  'stopRunningFilters',
+  'stopFilter',
+  'cancelFilter',
+  'getPath',
+  'detectDolphinPath',
+  'validateDolphinPath',
+  'validateIsoPath',
+  'openDolphinFolder',
+  'generateVideo',
+  'stopVideo',
+  'cancelVideo',
+  'playClips',
+  'playClip',
+  'stopPlayback',
+  'recordClip',
+  'removeGame',
+  'removeResult',
+  'reorderClips',
+  'logPerfEvents',
+  'debugLog',
+  'testDolphin',
+  'openCodeEditor',
+  'openCodeEditorForTemplate',
+  'openFolder',
+  'openExternal',
+  'getLogsPath',
+  'getAppVersion',
+  'resetConfig',
+  'rendererError',
+  'slpzWizardResponse',
+  'zipWizardResponse',
+  'code-editor-save',
+  'code-editor-save-template',
+  'code-editor-delete-template',
+  'code-editor-test-run',
+  'code-editor-close',
+  'code-editor-ready',
+])
+
 const electronHandler = {
   ipcRenderer: {
     sendMessage(channel: string, args: any) {
+      if (!SEND_CHANNELS.has(channel)) {
+        console.warn(`[preload] Blocked send to unknown channel: ${channel}`)
+        return
+      }
       ipcRenderer.send(channel, args)
     },
     on(channel: string, func: (...args: any[]) => void) {
@@ -23,9 +100,6 @@ const electronHandler = {
     },
     once(channel: string, func: (...args: any[]) => void) {
       ipcRenderer.once(channel, (_event, ...args) => func(...args))
-    },
-    removeListener(channel: string, func: (...args: any[]) => void) {
-      ipcRenderer.removeListener(channel, (_event, ...args) => func(...args))
     },
   },
 }

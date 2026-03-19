@@ -293,13 +293,14 @@ export function Tray({
     }
 
     // Nothing to fetch — clear everything immediately (e.g. new empty project)
-    if (totalClips === 0 && !isActiveFilterRunning) {
+    const currentTotal = totalClipsRef.current
+    if (currentTotal === 0 && !isActiveFilterRunning) {
       setClips([])
       setLightData([])
       setFetchedTotal(0)
       setIsLoading(false)
       prevFilterIdRef.current = activeFilterId
-      prevTotalClipsRef.current = totalClips
+      prevTotalClipsRef.current = currentTotal
       return
     }
 
@@ -307,9 +308,9 @@ export function Tray({
     // Don't clear during file import — the files count increases gradually and clearing causes blipping
     const filterChanged = prevFilterIdRef.current !== activeFilterId
     const resultsChanged =
-      prevTotalClipsRef.current !== totalClips && !isGameFilter
+      prevTotalClipsRef.current !== currentTotal && !isGameFilter
     prevFilterIdRef.current = activeFilterId
-    prevTotalClipsRef.current = totalClips
+    prevTotalClipsRef.current = currentTotal
     if (filterChanged || resultsChanged) {
       setClips([])
       setLightData([])
@@ -324,14 +325,14 @@ export function Tray({
 
     const doFetch = () => {
       const currentFetchId = ++fetchIdRef.current
-      const currentTotal = totalClipsRef.current
+      const fetchTotal = totalClipsRef.current
 
       // Fetch visible + buffer for both modes
       // When viewing a running filter or importing into game filter, don't cap by totalClips — just fetch what we can
       const isLiveUpdating = isActiveFilterRunning
       const targetCount = isLiveUpdating
         ? numPerPage
-        : Math.min(numPerPage, currentTotal)
+        : Math.min(numPerPage, fetchTotal)
       const limit = isDom
         ? Math.min(targetCount, clipDisplayConfig.limits.maxDomElements)
         : targetCount
@@ -401,7 +402,6 @@ export function Tray({
   }, [
     archive,
     activeFilterId,
-    totalClips,
     zoomCapacity,
     isDom,
     isGpu,
@@ -411,7 +411,7 @@ export function Tray({
     previewTick,
     numPerPage,
     dataPage,
-  ])
+  ]) // eslint-disable-line react-hooks/exhaustive-deps -- totalClips tracked via ref to avoid import churn
 
   // Get zoom step based on current size
   const getZoomStep = useCallback((currentSize: number) => {

@@ -28,7 +28,7 @@ import {
   getPlayerNameCounts,
   getConnectCodeCounts,
 } from '../main/db'
-import { asyncForEach } from '../lib'
+import { asyncForEach, getWorkerExecArgv } from '../lib'
 
 export default class Archive {
   path: string
@@ -38,13 +38,15 @@ export default class Archive {
   filters: FilterInterface[]
   savedCustomFilters: SavedCustomFilter[]
 
+  activeImportPool: ImportWorkerPool | null = null
+
   constructor(archiveJSON: ArchiveInterface) {
     this.path = archiveJSON.path
     this.name = archiveJSON.name
     this.createdAt = archiveJSON.createdAt
     this.files = archiveJSON.files || 0
     this.filters = archiveJSON.filters || []
-    this.savedCustomFilters = (archiveJSON as any).savedCustomFilters || []
+    this.savedCustomFilters = archiveJSON.savedCustomFilters || []
   }
 
   async addFiles(
@@ -66,6 +68,7 @@ export default class Archive {
     const abortSignal = options?.abortSignal
     const maxWorkers = Math.max(1, options?.maxWorkers || 1)
     const workerPool = new ImportWorkerPool(maxWorkers, options?.slpzConfig)
+    this.activeImportPool = workerPool
     const progressThrottleMs = 200
     const maxInFlight = Math.max(4, maxWorkers * 2)
     const batchThreshold = 50
@@ -222,6 +225,7 @@ export default class Archive {
       }
 
       workerPool.terminate()
+      this.activeImportPool = null
     }
 
     return { terminated, failed }
@@ -259,7 +263,28 @@ export default class Archive {
   }
 
   async saveMetaData() {
-    const objToSave: any = {
+    // Build cached counts from current filter results
+    const cachedCounts: Record<string, number> = {}
+    for (const filter of this.filters) {
+      if (filter.isProcessed) {
+        cachedCounts[filter.id] = filter.results
+      }
+    }
+    const objToSave: {
+      name: string
+      path: string
+      createdAt: number
+      filters: {
+        id: string
+        type: string
+        label: string
+        isProcessed: boolean
+        params: Record<string, any>
+        results: number
+      }[]
+      savedCustomFilters?: SavedCustomFilter[]
+      cachedCounts?: Record<string, number>
+    } = {
       name: this.name,
       path: this.path,
       createdAt: this.createdAt,
@@ -271,6 +296,7 @@ export default class Archive {
         params: filter.params,
         results: filter.results,
       })),
+      cachedCounts,
     }
     if (this.savedCustomFilters && this.savedCustomFilters.length > 0) {
       objToSave.savedCustomFilters = this.savedCustomFilters
@@ -348,7 +374,11 @@ export default class Archive {
     return getConnectCodeCounts(this.path)
   }
 
-  private parseRows(filterId: string, response: any[], lite?: boolean) {
+  private parseRows(
+    filterId: string,
+    response: Record<string, any>[],
+    lite?: boolean,
+  ) {
     const items: Array<FileInterface | ClipInterface | LiteItem> = []
 
     if (!response || response.length === 0) {
@@ -475,6 +505,14 @@ class ImportWorkerPool {
     })
   }
 
+  getWorkerStatus(): Array<{ workerId: number; filePath: string | null }> {
+    return this.workers.map((worker, i) => {
+      const taskId = this.activeByWorker.get(worker)
+      const task = taskId !== undefined ? this.pending.get(taskId) : undefined
+      return { workerId: i, filePath: task?.filePath ?? null }
+    })
+  }
+
   terminate() {
     if (this.terminated) return
     this.terminated = true
@@ -569,11 +607,4 @@ class ImportWorkerPool {
       })
     }
   }
-}
-
-function getWorkerExecArgv() {
-  const mode = process.env.LM_CLIPPER_WORKER_TS_NODE
-  if (!mode) return undefined
-  if (mode === 'esm') return ['--loader', 'ts-node/esm']
-  return ['-r', 'ts-node/register/transpile-only']
 }

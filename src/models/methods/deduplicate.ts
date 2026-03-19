@@ -1,8 +1,12 @@
-import { ClipInterface, EventEmitterInterface } from 'constants/types'
+import {
+  ClipInterface,
+  EventEmitterInterface,
+  DeduplicateParams,
+} from 'constants/types'
 
 export default (
   prevResults: ClipInterface[],
-  _params: { [key: string]: any },
+  _params: DeduplicateParams,
   eventEmitter: EventEmitterInterface,
 ) => {
   const seen = new Set<string>()

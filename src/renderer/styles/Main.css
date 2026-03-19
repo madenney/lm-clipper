@@ -719,6 +719,69 @@
   color: #e06060;
 }
 
+.footer-console-line--warn {
+  color: #d4a843;
+}
+
+/* Console Aggregate */
+
+.console-aggregate {
+  font-size: 11px;
+  color: #888;
+  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+}
+
+/* Console Workers Zone */
+
+.console-workers {
+  padding: 4px 12px;
+  border-bottom: 1px solid #2a2a2a;
+  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+  font-size: 11px;
+  flex-shrink: 0;
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+.console-worker-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 1px 0;
+  color: #c0c0c0;
+}
+
+.console-worker-row--idle {
+  color: #555;
+}
+
+.console-worker-id {
+  color: #666;
+  width: 24px;
+  flex-shrink: 0;
+}
+
+.console-worker-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.console-worker-progress {
+  color: #888;
+  flex-shrink: 0;
+}
+
+/* Console Log Timestamp */
+
+.console-log-ts {
+  color: #555;
+  margin-right: 8px;
+  flex-shrink: 0;
+}
+
 /* Empty State */
 
 .empty-state {

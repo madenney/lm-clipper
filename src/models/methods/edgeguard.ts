@@ -2,6 +2,14 @@
 import { SlippiGame } from '@slippi/slippi-js'
 import rectangles from '../../constants/rectangles'
 import matchesAny from './matchesAny'
+import { matchesPlayer } from '../../lib/filterHelpers'
+import {
+  FileInterface,
+  ClipInterface,
+  EdgeguardParams,
+  EventEmitterInterface,
+  PlayerInterface,
+} from '../../constants/types'
 
 const damageStates = [
   0x4b, 0x4c, 0x4d, 0x4e, 0x4f, 0x50, 0x51, 0x52, 0x53, 0x54, 0x55, 0x56, 0x57,
@@ -24,10 +32,10 @@ function areCoordsInMirroredRectangle(
 }
 
 function detectEdgeguard(
-  stock: any,
+  stock: { endFrame: number | null; playerIndex: number },
   playerIndex: number,
-  frames: any,
-  stageRects: any,
+  frames: Record<string, any>,
+  stageRects: { bz: Rect; edge: Rect },
 ): { startFrame: number; endFrame: number } | null {
   if (stock.endFrame == null) return null
 
@@ -126,8 +134,12 @@ function detectEdgeguard(
   return null
 }
 
-export default (prevResults: any[], params: any, _eventEmitter: any) => {
-  const results: any[] = []
+export default (
+  prevResults: (FileInterface | ClipInterface)[],
+  params: EdgeguardParams,
+  _eventEmitter: EventEmitterInterface,
+) => {
+  const results: ClipInterface[] = []
   const {
     comboerChar,
     comboeeChar,
@@ -148,8 +160,8 @@ export default (prevResults: any[], params: any, _eventEmitter: any) => {
     if (!stageRects) continue
 
     let game: SlippiGame
-    let stats: any
-    let frames: any
+    let stats: ReturnType<SlippiGame['getStats']>
+    let frames: ReturnType<SlippiGame['getFrames']>
     try {
       game = new SlippiGame(path)
       stats = game.getStats()
@@ -166,59 +178,19 @@ export default (prevResults: any[], params: any, _eventEmitter: any) => {
       if (!comboer || !comboee) continue
 
       // Character filters
-      if (!matchesAny(comboer.characterId, comboerChar)) continue
-      if (!matchesAny(comboee.characterId, comboeeChar)) continue
-      if (
-        !matchesAny(
-          (comboer.displayName || '').toLowerCase(),
-          comboerTag &&
-            (Array.isArray(comboerTag) ? comboerTag : [comboerTag]).map(
-              (t: string) => t.toLowerCase(),
-            ),
-        )
-      )
-        continue
-      if (
-        !matchesAny(
-          (comboee.displayName || '').toLowerCase(),
-          comboeeTag &&
-            (Array.isArray(comboeeTag) ? comboeeTag : [comboeeTag]).map(
-              (t: string) => t.toLowerCase(),
-            ),
-        )
-      )
-        continue
-      if (
-        !matchesAny(
-          (comboer.connectCode || '').toLowerCase(),
-          comboerCC &&
-            (Array.isArray(comboerCC) ? comboerCC : [comboerCC]).map(
-              (t: string) => t.toLowerCase(),
-            ),
-        )
-      )
-        continue
-      if (
-        !matchesAny(
-          (comboee.connectCode || '').toLowerCase(),
-          comboeeCC &&
-            (Array.isArray(comboeeCC) ? comboeeCC : [comboeeCC]).map(
-              (t: string) => t.toLowerCase(),
-            ),
-        )
-      )
-        continue
+      if (!matchesPlayer(comboer, comboerChar, comboerTag, comboerCC)) continue
+      if (!matchesPlayer(comboee, comboeeChar, comboeeTag, comboeeCC)) continue
 
       // Find the matching stock for this combo's kill
       const clipEnd = parseInt(item.endFrame, 10)
-      const matchingStock = stats.stocks
+      const matchingStock = stats!.stocks
         .filter(
-          (s: any) =>
+          (s) =>
             s.playerIndex == comboee.playerIndex &&
             s.endFrame != null &&
             s.endFrame >= clipEnd,
         )
-        .sort((a: any, b: any) => a.endFrame - b.endFrame)[0]
+        .sort((a, b) => (a.endFrame ?? 0) - (b.endFrame ?? 0))[0]
 
       if (!matchingStock) continue
 
@@ -239,58 +211,20 @@ export default (prevResults: any[], params: any, _eventEmitter: any) => {
       // Files mode: scan all stocks
       if (!stats?.stocks?.length) continue
 
-      for (const stock of stats.stocks) {
+      for (const stock of stats!.stocks) {
         if (stock.endFrame == null) continue
         const comboer = players.find(
-          (p: any) => p.playerIndex != stock.playerIndex,
+          (p: PlayerInterface) => p.playerIndex != stock.playerIndex,
         )
         const comboee = players.find(
-          (p: any) => p.playerIndex == stock.playerIndex,
+          (p: PlayerInterface) => p.playerIndex == stock.playerIndex,
         )
         if (!comboer || !comboee) continue
 
         // Character filters
-        if (!matchesAny(comboer.characterId, comboerChar)) continue
-        if (!matchesAny(comboee.characterId, comboeeChar)) continue
-        if (
-          !matchesAny(
-            (comboer.displayName || '').toLowerCase(),
-            comboerTag &&
-              (Array.isArray(comboerTag) ? comboerTag : [comboerTag]).map(
-                (t: string) => t.toLowerCase(),
-              ),
-          )
-        )
+        if (!matchesPlayer(comboer, comboerChar, comboerTag, comboerCC))
           continue
-        if (
-          !matchesAny(
-            (comboee.displayName || '').toLowerCase(),
-            comboeeTag &&
-              (Array.isArray(comboeeTag) ? comboeeTag : [comboeeTag]).map(
-                (t: string) => t.toLowerCase(),
-              ),
-          )
-        )
-          continue
-        if (
-          !matchesAny(
-            (comboer.connectCode || '').toLowerCase(),
-            comboerCC &&
-              (Array.isArray(comboerCC) ? comboerCC : [comboerCC]).map(
-                (t: string) => t.toLowerCase(),
-              ),
-          )
-        )
-          continue
-        if (
-          !matchesAny(
-            (comboee.connectCode || '').toLowerCase(),
-            comboeeCC &&
-              (Array.isArray(comboeeCC) ? comboeeCC : [comboeeCC]).map(
-                (t: string) => t.toLowerCase(),
-              ),
-          )
-        )
+        if (!matchesPlayer(comboee, comboeeChar, comboeeTag, comboeeCC))
           continue
 
         const eg = detectEdgeguard(
