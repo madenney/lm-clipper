@@ -4,7 +4,7 @@ import ipcBridge from '../ipcBridge'
 import '../styles/SetupWizard.css'
 
 type Step = {
-  key: keyof ConfigInterface
+  key: string & keyof ConfigInterface
   title: string
   description: string
   dialogType: 'openFile' | 'openDirectory'
