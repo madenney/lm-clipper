@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { Component, useState, useEffect, ReactNode } from 'react'
 
 import './styles/App.css'
 import Main from './components/Main'
@@ -16,6 +16,50 @@ import { initPerfObservers } from './perfLogger'
 
 import ipcBridge from './ipcBridge'
 
+class ErrorBoundary extends Component<
+  { children: ReactNode },
+  { hasError: boolean }
+> {
+  constructor(props: { children: ReactNode }) {
+    super(props)
+    this.state = { hasError: false }
+  }
+
+  static getDerivedStateFromError() {
+    return { hasError: true }
+  }
+
+  render() {
+    const { hasError } = this.state
+    const { children } = this.props
+    if (hasError) {
+      return (
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            height: '100vh',
+            gap: 12,
+            color: '#ccc',
+          }}
+        >
+          <p>Something went wrong.</p>
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            style={{ padding: '6px 16px', cursor: 'pointer' }}
+          >
+            Reload
+          </button>
+        </div>
+      )
+    }
+    return children
+  }
+}
+
 export default function App() {
   const [archive, setArchive] = useState<ShallowArchiveInterface | null>(null)
   const [config, setConfig] = useState<ConfigInterface | null>(null)
@@ -23,6 +67,7 @@ export default function App() {
     | { state: 'available'; version: string }
     | { state: 'downloading'; percent: number }
     | { state: 'ready' }
+    | { state: 'error'; message: string }
     | null
   >(null)
 
@@ -150,6 +195,13 @@ export default function App() {
       },
     )
 
+    const removeUpdateError = window.electron.ipcRenderer.on(
+      'update-error',
+      (message: string) => {
+        setUpdateStatus({ state: 'error', message })
+      },
+    )
+
     const removeTemplatesUpdated = window.electron.ipcRenderer.on(
       'config-templates-updated',
       (templates: SavedCustomFilter[]) => {
@@ -171,6 +223,7 @@ export default function App() {
       removeUpdateAvailable()
       removeUpdateProgress()
       removeUpdateDownloaded()
+      removeUpdateError()
       removeTemplatesUpdated()
     }
   }, [])
@@ -316,15 +369,17 @@ export default function App() {
           }}
         />
       )}
-      <Main
-        archive={archive}
-        setArchive={setArchive}
-        config={config}
-        setConfig={setConfig}
-        triggerSetupWizard={triggerSetupWizard}
-        pendingAction={pendingAction}
-        clearPendingAction={() => setPendingAction(null)}
-      />
+      <ErrorBoundary>
+        <Main
+          archive={archive}
+          setArchive={setArchive}
+          config={config}
+          setConfig={setConfig}
+          triggerSetupWizard={triggerSetupWizard}
+          pendingAction={pendingAction}
+          clearPendingAction={() => setPendingAction(null)}
+        />
+      </ErrorBoundary>
     </>
   )
 }

@@ -31,6 +31,7 @@ export const config = {
   outputPath: '',
   concatenate: false,
   convertToMp4: false,
+  autoOpenOutputFolder: false,
   outputFilenamePattern: '{index}',
   defaultProjectDirectory: '',
   ffmpegPath: '',

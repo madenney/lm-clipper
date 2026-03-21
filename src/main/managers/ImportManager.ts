@@ -1,6 +1,6 @@
 import { ipcMain, dialog, BrowserWindow, IpcMainEvent } from 'electron'
 import { Worker } from 'worker_threads'
-import { execFileSync, execSync } from 'child_process'
+import { execFileSync } from 'child_process'
 import path from 'path'
 import fs from 'fs'
 import { getWorkerExecArgv } from '../../lib'
@@ -585,8 +585,12 @@ export default class ImportManager {
 
   extractZip(zipPath: string, outputDir: string) {
     if (process.platform === 'win32') {
-      execSync(
-        `powershell -Command "Expand-Archive -LiteralPath '${zipPath.replace(/'/g, "''")}' -DestinationPath '${outputDir.replace(/'/g, "''")}' -Force"`,
+      execFileSync(
+        'powershell',
+        [
+          '-Command',
+          `Expand-Archive -LiteralPath '${zipPath.replace(/'/g, "''")}' -DestinationPath '${outputDir.replace(/'/g, "''")}' -Force`,
+        ],
         { timeout: 300000 },
       )
     } else {

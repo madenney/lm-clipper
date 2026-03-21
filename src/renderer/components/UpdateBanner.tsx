@@ -4,6 +4,7 @@ type UpdateStatus =
   | { state: 'available'; version: string }
   | { state: 'downloading'; percent: number }
   | { state: 'ready' }
+  | { state: 'error'; message: string }
 
 type Props = {
   status: UpdateStatus
@@ -22,6 +23,11 @@ const bannerStyle: CSSProperties = {
   fontFamily: 'sans-serif',
   cursor: 'default',
   flexShrink: 0,
+}
+
+const errorBannerStyle: CSSProperties = {
+  ...bannerStyle,
+  background: '#c0392b',
 }
 
 const btnStyle: CSSProperties = {
@@ -59,6 +65,17 @@ export default function UpdateBanner({ status, onDismiss }: Props) {
     return (
       <div style={bannerStyle}>
         <span>Downloading update... {status.percent}%</span>
+      </div>
+    )
+  }
+
+  if (status.state === 'error') {
+    return (
+      <div style={errorBannerStyle}>
+        <span>Update failed: {status.message}</span>
+        <button type="button" style={btnStyle} onClick={onDismiss}>
+          Dismiss
+        </button>
       </div>
     )
   }

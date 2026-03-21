@@ -184,11 +184,45 @@ const createWindow = async () => {
       autoUpdater.on('update-downloaded', () => {
         mainWindow?.webContents.send('update-downloaded')
       })
+      autoUpdater.on('error', (err) => {
+        logMain('updater-error', err?.message ?? err)
+        mainWindow?.webContents.send(
+          'update-error',
+          err?.message ?? 'Update failed',
+        )
+      })
       ipcMain.on('download-update', () => {
-        autoUpdater.downloadUpdate()
+        autoUpdater.downloadUpdate().catch((err) => {
+          logMain('updater-download-failed', err?.message ?? err)
+          mainWindow?.webContents.send(
+            'update-error',
+            err?.message ?? 'Download failed',
+          )
+        })
       })
       ipcMain.on('install-update', () => {
         autoUpdater.quitAndInstall()
+      })
+      ipcMain.on('check-for-updates', () => {
+        mainWindow?.webContents.send('update-checking')
+        autoUpdater
+          .checkForUpdates()
+          .then((result) => {
+            if (
+              !result ||
+              !result.updateInfo ||
+              result.updateInfo.version === app.getVersion()
+            ) {
+              mainWindow?.webContents.send('update-not-available')
+            }
+          })
+          .catch((err) => {
+            logMain('updater-check-failed', err?.message ?? err)
+            mainWindow?.webContents.send(
+              'update-error',
+              err?.message ?? 'Check failed',
+            )
+          })
       })
       autoUpdater.checkForUpdates().catch((err) => {
         logMain('updater-check-failed', err?.message ?? err)

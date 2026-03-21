@@ -391,11 +391,17 @@ function parseRows(
     rows.forEach((rawRow) => {
       const row = rawRow as FilesTableRow
       if (!row.id) return
+      let players: any[] = []
+      try {
+        players = row.players ? JSON.parse(row.players) : []
+      } catch {
+        // corrupt players JSON — use empty array
+      }
       results.push({
         id: row.id,
         _sourceId: row.id,
         path: row.path,
-        players: row.players ? JSON.parse(row.players) : [],
+        players,
         winner: row.winner,
         stage: row.stage,
         startedAt: row.startedAt,
@@ -408,6 +414,7 @@ function parseRows(
       })
     })
   } else {
+    let parseErrors = 0
     rows.forEach((rawRow) => {
       const row = rawRow as FilterTableRow
       if (!row.JSON) return
@@ -415,10 +422,12 @@ function parseRows(
         const obj = JSON.parse(row.JSON)
         obj._sourceId = row.id
         results.push(obj)
-      } catch (error) {
-        console.error('Error parsing row JSON:', error)
+      } catch {
+        parseErrors++
       }
     })
+    if (parseErrors > 0)
+      console.warn(`Skipped ${parseErrors} rows with corrupt JSON`)
   }
 
   return results

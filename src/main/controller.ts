@@ -33,6 +33,7 @@ import {
   getFilePathsByIds,
   deleteRows,
   updateSortOrder,
+  validateTableId,
 } from './db'
 import { closeDb, getDb } from './dbConnection'
 import { appendPerfEvents } from './perfLogger'
@@ -86,7 +87,12 @@ export default class Controller {
     if (!fs.existsSync(this.configPath))
       fs.writeFileSync(this.configPath, JSON.stringify(defaultConfig, null, 2))
 
-    const loadedConfig = JSON.parse(fs.readFileSync(this.configPath).toString())
+    let loadedConfig: any
+    try {
+      loadedConfig = JSON.parse(fs.readFileSync(this.configPath).toString())
+    } catch {
+      loadedConfig = {}
+    }
     this.config = { ...defaultConfig, ...loadedConfig }
     // Always merge built-in templates from defaults + keep user templates
     const userTemplates = (this.config.savedCustomFilters || []).filter(
@@ -767,6 +773,7 @@ export default class Controller {
     }
     try {
       const archivePath = this.archive.path
+      validateTableId(payload.filterId)
       const filter = this.archive.filters.find((f) => f.id === payload.filterId)
 
       // If this is the game filter, also delete from the files table + cascade

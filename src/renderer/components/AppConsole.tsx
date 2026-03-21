@@ -105,7 +105,7 @@ export default function AppConsole({
               key={w.id}
               className={`console-worker-row${w.label ? '' : ' console-worker-row--idle'}`}
             >
-              <span className="console-worker-id">W{w.id}</span>
+              <span className="console-worker-id">Worker {w.id}</span>
               <span className="console-worker-label">
                 {w.label || '(idle)'}
               </span>

@@ -128,7 +128,8 @@ export default function SetupWizard({
     })
   }
 
-  // Auto-detect or auto-validate on mount
+  // Auto-detect or auto-validate on mount — runs once intentionally
+  // (auto-detect should only fire on initial render, not on every re-render)
   useEffect(() => {
     if (isDolphinStep && !config.dolphinPath) {
       ipcBridge.detectDolphinPath((detected) => {
@@ -151,7 +152,7 @@ export default function SetupWizard({
       runValidation(step.key, currentValue)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentValue])
+  }, [currentValue, step.key, needsValidation])
 
   // Close on Escape
   useEffect(() => {

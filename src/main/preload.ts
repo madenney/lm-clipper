@@ -78,6 +78,9 @@ const SEND_CHANNELS = new Set([
   'code-editor-test-run',
   'code-editor-close',
   'code-editor-ready',
+  'download-update',
+  'install-update',
+  'check-for-updates',
 ])
 
 const electronHandler = {

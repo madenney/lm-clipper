@@ -205,7 +205,8 @@ export default class FilterExecutor {
         try {
           // Re-read archive from DB since another filter may have finished concurrently
           const freshArchive = this.getArchive()
-          const freshMetadata = await getMetaData(freshArchive!.path)
+          if (!freshArchive) return
+          const freshMetadata = await getMetaData(freshArchive.path)
           const newArchive = new Archive(freshMetadata)
           this.setArchive(newArchive)
 

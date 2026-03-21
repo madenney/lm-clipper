@@ -61,6 +61,9 @@ export default function SettingsModal({
   const [appVersion, setAppVersion] = useState('')
   const [logsPath, setLogsPath] = useState('')
   const [expandedGeckoIdx, setExpandedGeckoIdx] = useState<number | null>(null)
+  const [updateCheckStatus, setUpdateCheckStatus] = useState<
+    'idle' | 'checking' | 'up-to-date' | 'available' | 'error'
+  >('idle')
 
   useEffect(() => {
     const removeVersionListener = window.electron.ipcRenderer.on(
@@ -77,12 +80,33 @@ export default function SettingsModal({
       },
     )
 
+    const removeUpdateChecking = window.electron.ipcRenderer.on(
+      'update-checking',
+      () => setUpdateCheckStatus('checking'),
+    )
+    const removeUpdateAvailable = window.electron.ipcRenderer.on(
+      'update-available',
+      () => setUpdateCheckStatus('available'),
+    )
+    const removeUpdateNotAvailable = window.electron.ipcRenderer.on(
+      'update-not-available',
+      () => setUpdateCheckStatus('up-to-date'),
+    )
+    const removeUpdateError = window.electron.ipcRenderer.on(
+      'update-error',
+      () => setUpdateCheckStatus('error'),
+    )
+
     window.electron.ipcRenderer.sendMessage('getAppVersion', null)
     window.electron.ipcRenderer.sendMessage('getLogsPath', null)
 
     return () => {
       removeVersionListener()
       removeLogsListener()
+      removeUpdateChecking()
+      removeUpdateAvailable()
+      removeUpdateNotAvailable()
+      removeUpdateError()
     }
   }, [])
 
@@ -474,6 +498,38 @@ export default function SettingsModal({
                 </button>
               </div>
             </div>
+            <div className="settings-item">
+              <div className="settings-item-info">
+                <span className="settings-item-label">Check for Updates</span>
+                <span className="settings-item-desc">
+                  {updateCheckStatus === 'checking'
+                    ? 'Checking...'
+                    : updateCheckStatus === 'up-to-date'
+                      ? 'You\u2019re on the latest version.'
+                      : updateCheckStatus === 'available'
+                        ? 'Update available! Close settings to download.'
+                        : updateCheckStatus === 'error'
+                          ? 'Could not check for updates.'
+                          : 'Check GitHub for a newer version.'}
+                </span>
+              </div>
+              <div className="settings-item-control">
+                <button
+                  type="button"
+                  className="settings-action-btn"
+                  disabled={updateCheckStatus === 'checking'}
+                  onClick={() => {
+                    setUpdateCheckStatus('checking')
+                    window.electron.ipcRenderer.sendMessage(
+                      'check-for-updates',
+                      null,
+                    )
+                  }}
+                >
+                  Check Now
+                </button>
+              </div>
+            </div>
             <div className="settings-item settings-item--danger">
               <div className="settings-item-info">
                 <span className="settings-item-label">Reset Settings</span>
@@ -519,6 +575,13 @@ export default function SettingsModal({
                 onClick={() => window.open('https://www.lunarmelee.com')}
               >
                 Lunar Database
+              </span>
+              <span className="settings-about-sep">&middot;</span>
+              <span
+                className="settings-about-link settings-about-link--clickable"
+                onClick={() => window.open('https://discord.gg/ThjMCW3F4R')}
+              >
+                Discord
               </span>
             </div>
           </div>
