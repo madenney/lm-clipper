@@ -5,7 +5,14 @@ import { archive as defaultArchive } from '../constants/defaults'
 // Cache table column info to avoid repeated PRAGMA calls
 const schemaCache = new Map<string, Set<string>>()
 
+export function validateTableId(id: string) {
+  if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(id)) {
+    throw new Error(`Invalid table/filter ID: ${id}`)
+  }
+}
+
 function getTableColumns(path: string, tableId: string): Set<string> {
+  validateTableId(tableId)
   const key = `${path}:${tableId}`
   const cached = schemaCache.get(key)
   if (cached) return cached
@@ -134,7 +141,12 @@ function migrateMetadataIfNeeded(db: ReturnType<typeof getDb>) {
       | undefined
     if (!row) return
 
-    const old = JSON.parse(row.JSON)
+    let old: any
+    try {
+      old = JSON.parse(row.JSON)
+    } catch {
+      return // skip migration if metadata is corrupt
+    }
     db.exec('ALTER TABLE metadata RENAME TO metadata_old')
     db.exec(`
       CREATE TABLE metadata (

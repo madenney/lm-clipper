@@ -55,24 +55,28 @@ export default (
   }
 
   // Capture console output from user code
+  const MAX_LOGS = 10000
   const logs: string[] = []
   const fakeConsole = {
     log: (...args: any[]) => {
-      logs.push(
-        args
-          .map((a) => (typeof a === 'object' ? JSON.stringify(a) : String(a)))
-          .join(' '),
-      )
+      if (logs.length < MAX_LOGS)
+        logs.push(
+          args
+            .map((a) => (typeof a === 'object' ? JSON.stringify(a) : String(a)))
+            .join(' '),
+        )
     },
     warn: (...args: any[]) => {
-      logs.push(
-        `[warn] ${args.map((a) => (typeof a === 'object' ? JSON.stringify(a) : String(a))).join(' ')}`,
-      )
+      if (logs.length < MAX_LOGS)
+        logs.push(
+          `[warn] ${args.map((a) => (typeof a === 'object' ? JSON.stringify(a) : String(a))).join(' ')}`,
+        )
     },
     error: (...args: any[]) => {
-      logs.push(
-        `[error] ${args.map((a) => (typeof a === 'object' ? JSON.stringify(a) : String(a))).join(' ')}`,
-      )
+      if (logs.length < MAX_LOGS)
+        logs.push(
+          `[error] ${args.map((a) => (typeof a === 'object' ? JSON.stringify(a) : String(a))).join(' ')}`,
+        )
     },
   }
 

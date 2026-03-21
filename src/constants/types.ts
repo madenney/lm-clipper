@@ -205,6 +205,7 @@ export interface ConfigInterface {
   dolphinPath: string
   concatenate: boolean
   convertToMp4: boolean
+  autoOpenOutputFolder: boolean
   outputFilenamePattern: string
   defaultProjectDirectory: string
   ffmpegPath: string

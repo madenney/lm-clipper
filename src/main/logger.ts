@@ -81,7 +81,9 @@ const writeLog = (fileName: string, entry: string) => {
   }
   const filePath = path.join(logRoot, fileName)
   rotateIfNeeded(filePath)
-  fsPromises.appendFile(filePath, `${entry}\n`).catch(() => {})
+  fsPromises.appendFile(filePath, `${entry}\n`).catch((err) => {
+    process.stderr.write(`Log write failed: ${err?.message}\n`)
+  })
 }
 
 const formatLine = (label: string, detail?: any) => {

@@ -47,9 +47,11 @@ export default (
     const metadata = game.getMetadata()
     lastFrame = metadata?.lastFrame ?? undefined
     if (!lastFrame || lastFrame <= 0) {
-      const frameKeys = Object.keys(frames)
-      if (frameKeys.length > 0) {
-        lastFrame = Math.max(...frameKeys.map(Number))
+      const numericKeys = Object.keys(frames)
+        .map(Number)
+        .filter((n) => !Number.isNaN(n))
+      if (numericKeys.length > 0) {
+        lastFrame = Math.max(...numericKeys)
       }
     }
   } catch (e) {

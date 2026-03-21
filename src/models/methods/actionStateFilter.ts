@@ -103,6 +103,9 @@ export default (
     const _offset = parseInt(offset, 10)
     if (_offset) _startFrame += _offset
 
+    if (_startFrame < -123) _startFrame = -123
+    if (lastFrame && _startFrame > lastFrame) _startFrame = lastFrame - 1
+
     const p1CustomIds = comboerCustomIds
       ? String(comboerCustomIds)
           .split(',')

@@ -16,14 +16,8 @@ import {
 import Filters from './Filters'
 import Top from './Top'
 import { Tray } from './Tray/Tray'
+import useSelection from '../hooks/useSelection'
 import '../styles/Main.css'
-
-export type SelectionInfo = {
-  selectedIds: Set<string>
-  lastSelectedIndex: number | null
-  totalDuration: number | null // null = calculating
-  isCalculating: boolean
-}
 
 // Format duration in frames to Xd Xh Xm Xs format
 const formatDuration = (frames: number): string => {
@@ -40,6 +34,23 @@ const formatDuration = (frames: number): string => {
   if (seconds > 0 || parts.length === 0) parts.push(`${seconds}s`)
 
   return parts.join(' ')
+}
+
+const formatFileSize = (bytes: number): string => {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  if (bytes < 1024 * 1024 * 1024)
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`
+}
+
+const formatVideoDuration = (seconds: number): string => {
+  const h = Math.floor(seconds / 3600)
+  const m = Math.floor((seconds % 3600) / 60)
+  const s = Math.floor(seconds % 60)
+  if (h > 0)
+    return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+  return `${m}:${String(s).padStart(2, '0')}`
 }
 
 function EmptyState({
@@ -161,13 +172,14 @@ export default function Main({
   const dragDepthRef = useRef(0)
 
   // Selection state
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
-  const [lastSelectedIndex, setLastSelectedIndex] = useState<number | null>(
-    null,
-  )
-  const [selectionDuration, setSelectionDuration] = useState<number | null>(
-    null,
-  )
+  const {
+    selectedIds,
+    setSelectedIds,
+    lastSelectedIndex,
+    setLastSelectedIndex,
+    selectionDuration,
+    setSelectionDuration,
+  } = useSelection(activeFilterId)
 
   // Playback state
   const [isPlaying, setIsPlaying] = useState(false)
@@ -176,6 +188,13 @@ export default function Main({
   const [isGenerating, setIsGenerating] = useState(false)
   const [videoMsg, setVideoMsg] = useState('')
   const [videoOutputPaths, setVideoOutputPaths] = useState<string[]>([])
+  const [videoCompletedInfo, setVideoCompletedInfo] = useState<{
+    outputPath: string
+    files: string[]
+    totalSize: number
+    clipCount: number
+    duration: number | null
+  } | null>(null)
   const [consoleLogCount, setConsoleLogCount] = useState(0)
   const [consoleHasError, setConsoleHasError] = useState(false)
   const [consoleOpen, setConsoleOpen] = useState(false)
@@ -185,13 +204,6 @@ export default function Main({
   )
   const [consoleSnapshot, setConsoleSnapshot] =
     useState<ConsoleSnapshot | null>(null)
-
-  // Clear selection when filter changes
-  useEffect(() => {
-    setSelectedIds(new Set())
-    setLastSelectedIndex(null)
-    setSelectionDuration(null)
-  }, [activeFilterId])
 
   // Listen for video job completion
   useEffect(() => {
@@ -239,14 +251,37 @@ export default function Main({
       'playbackDone',
       () => setIsPlaying(false),
     )
+    const removeVideoCompleted = window.electron.ipcRenderer.on(
+      'videoCompleted',
+      (info: {
+        outputPath: string
+        files: string[]
+        totalSize: number
+        clipCount: number
+        duration: number | null
+      }) => {
+        setVideoCompletedInfo(info)
+      },
+    )
     return () => {
       removeFinished()
       removeMsg()
       removeOutputPath()
       removePlaybackStarted()
       removePlaybackDone()
+      removeVideoCompleted()
     }
   }, [])
+
+  // Close video completed modal on Escape
+  useEffect(() => {
+    if (!videoCompletedInfo) return undefined
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setVideoCompletedInfo(null)
+    }
+    window.addEventListener('keydown', handleKey)
+    return () => window.removeEventListener('keydown', handleKey)
+  }, [videoCompletedInfo])
 
   // Track console log entries, count, error state, and snapshot
   useEffect(() => {
@@ -428,10 +463,8 @@ export default function Main({
       }
       return
     }
-    const gameFilter =
-      archive.filters.find((filter) => filter.type === 'files') ||
-      archive.filters[0]
-    const fallbackId = gameFilter?.id ?? 'files'
+    const lastFilter = archive.filters[archive.filters.length - 1]
+    const fallbackId = lastFilter?.id ?? 'files'
     if (activeFilterId === 'files') {
       if (fallbackId !== 'files') {
         setActiveFilterId(fallbackId)
@@ -673,11 +706,15 @@ export default function Main({
           <div className="footer-setting" title="Bitrate (kbps)">
             <span className="footer-setting-label">Bitrate</span>
             <input
-              type="text"
+              type="number"
               className="footer-input footer-input--wide"
               value={config.bitrateKbps}
+              min={1000}
               onChange={(e) =>
-                handleConfigChange('bitrateKbps', e.target.value)
+                handleConfigChange(
+                  'bitrateKbps',
+                  parseInt(e.target.value, 10) || 50000,
+                )
               }
             />
           </div>
@@ -744,7 +781,7 @@ export default function Main({
             className="footer-setting"
             title="Number of Dolphin instances for recording"
           >
-            <span className="footer-setting-label">Inst</span>
+            <span className="footer-setting-label">Dolphins</span>
             <input
               type="number"
               className="footer-input"
@@ -979,6 +1016,99 @@ export default function Main({
           />
         )}
       </div>
+      {videoCompletedInfo && (
+        /* eslint-disable jsx-a11y/no-static-element-interactions, jsx-a11y/click-events-have-key-events */
+        <div
+          className="video-done-overlay"
+          onClick={() => setVideoCompletedInfo(null)}
+        >
+          <div
+            className="video-done-modal"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="video-done-header">
+              <div className="video-done-title">Recording Complete</div>
+              <button
+                type="button"
+                className="video-done-close"
+                onClick={() => setVideoCompletedInfo(null)}
+              >
+                &#10005;
+              </button>
+            </div>
+            <div className="video-done-details">
+              <div className="video-done-row">
+                <span className="video-done-label">Clips</span>
+                <span>{videoCompletedInfo.clipCount}</span>
+              </div>
+              {videoCompletedInfo.duration != null && (
+                <div className="video-done-row">
+                  <span className="video-done-label">Length</span>
+                  <span>
+                    {formatVideoDuration(videoCompletedInfo.duration)}
+                  </span>
+                </div>
+              )}
+              <div className="video-done-row">
+                <span className="video-done-label">Size</span>
+                <span>{formatFileSize(videoCompletedInfo.totalSize)}</span>
+              </div>
+              <div className="video-done-row">
+                <span className="video-done-label">Location</span>
+                <span
+                  className="video-done-path"
+                  title={videoCompletedInfo.outputPath}
+                >
+                  {videoCompletedInfo.outputPath}
+                </span>
+              </div>
+            </div>
+            <div className="video-done-actions">
+              <button
+                type="button"
+                className="video-done-btn video-done-btn--play"
+                onClick={() => {
+                  const info = videoCompletedInfo
+                  if (info.files.length > 0) {
+                    const lastFile =
+                      info.files.find((f) => f.startsWith('final')) ||
+                      info.files[info.files.length - 1]
+                    window.electron.ipcRenderer.sendMessage(
+                      'openFolder',
+                      `${info.outputPath}/${lastFile}`,
+                    )
+                  }
+                }}
+              >
+                <FaPlay className="footer-icon footer-icon--play" /> Play
+              </button>
+              <button
+                type="button"
+                className="video-done-btn video-done-btn--folder"
+                onClick={() => {
+                  window.electron.ipcRenderer.sendMessage(
+                    'openFolder',
+                    videoCompletedInfo.outputPath,
+                  )
+                }}
+              >
+                <FaFolder className="footer-icon" /> Show Folder
+              </button>
+            </div>
+            <label className="video-done-auto-open">
+              <input
+                type="checkbox"
+                checked={!!config.autoOpenOutputFolder}
+                onChange={(e) =>
+                  handleConfigChange('autoOpenOutputFolder', e.target.checked)
+                }
+              />
+              <span>Auto-open folder when recording finishes</span>
+            </label>
+          </div>
+        </div>
+        /* eslint-enable jsx-a11y/no-static-element-interactions, jsx-a11y/click-events-have-key-events */
+      )}
     </div>
   )
 }

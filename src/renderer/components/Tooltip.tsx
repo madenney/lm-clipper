@@ -1,4 +1,4 @@
-import { useState, useRef, ReactNode } from 'react'
+import { useState, useRef, useEffect, ReactNode } from 'react'
 
 interface TooltipProps {
   text: string
@@ -10,6 +10,12 @@ export default function Tooltip({ text, offsetX = 0, children }: TooltipProps) {
   const [visible, setVisible] = useState(false)
   const [pos, setPos] = useState({ x: 0, y: 0 })
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (timer.current) clearTimeout(timer.current)
+    }
+  }, [])
 
   function onEnter(e: React.MouseEvent) {
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()

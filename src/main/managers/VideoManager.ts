@@ -1,5 +1,5 @@
 import { app, BrowserWindow, IpcMainEvent, shell } from 'electron'
-import { spawn, ChildProcess } from 'child_process'
+import { spawn, execFile, ChildProcess } from 'child_process'
 import crypto from 'crypto'
 import os from 'os'
 import path from 'path'
@@ -16,7 +16,7 @@ import {
 } from '../../constants/types'
 import Archive from '../../models/Archive'
 import slpToVideo, { VideoJobController } from '../slpToVideo'
-import { updateEfbScale, createOutputDirectory } from '../util'
+import { updateEfbScale, createOutputDirectory, getFFMPEGPath } from '../util'
 import { getMetaData } from '../db'
 import { logMain, getLogPath } from '../logger'
 import { RequestEnvelope, unpackRequest, reply } from '../ipcUtils'
@@ -272,9 +272,89 @@ export default class VideoManager {
       this.activeVideoJob = null
       this.mainWindow.webContents.send('videoJobFinished')
     }
-    // Auto-open output folder on successful completion
+    // Send completion details to renderer for the "recording complete" modal
     if (!stopped && videoConfig.outputPath) {
-      shell.openPath(videoConfig.outputPath).catch(() => {})
+      try {
+        const ext = videoConfig.convertToMp4 ? '.mp4' : '.avi'
+        const allFiles = fs
+          .readdirSync(videoConfig.outputPath)
+          .filter(
+            (f) =>
+              f.endsWith(ext) &&
+              !f.includes('-unmerged') &&
+              !f.includes('-merged'),
+          )
+          .sort()
+        const clips = allFiles.filter((f) => !f.startsWith('final'))
+        let totalSize = 0
+        for (const f of allFiles) {
+          try {
+            totalSize += fs.statSync(
+              path.resolve(videoConfig.outputPath, f),
+            ).size
+          } catch {
+            // skip
+          }
+        }
+
+        // Try to get video duration via ffprobe
+        let duration: number | null = null
+        const playFile =
+          allFiles.find((f) => f.startsWith('final')) ||
+          allFiles[allFiles.length - 1]
+        if (playFile) {
+          try {
+            const ffmpegDir = path.dirname(getFFMPEGPath())
+            const ffprobePath =
+              ffmpegDir === '.'
+                ? 'ffprobe'
+                : path.resolve(
+                    ffmpegDir,
+                    `ffprobe${process.platform === 'win32' ? '.exe' : ''}`,
+                  )
+            const probePath = path.resolve(videoConfig.outputPath, playFile)
+            duration = await new Promise<number | null>((resolve) => {
+              execFile(
+                ffprobePath,
+                [
+                  '-v',
+                  'quiet',
+                  '-print_format',
+                  'json',
+                  '-show_format',
+                  probePath,
+                ],
+                { timeout: 10000 },
+                (err, stdout) => {
+                  if (err) return resolve(null)
+                  try {
+                    const info = JSON.parse(stdout)
+                    const dur = parseFloat(info?.format?.duration)
+                    resolve(Number.isFinite(dur) ? dur : null)
+                  } catch {
+                    resolve(null)
+                  }
+                },
+              )
+            })
+          } catch {
+            // ffprobe not available, skip duration
+          }
+        }
+
+        this.mainWindow.webContents.send('videoCompleted', {
+          outputPath: videoConfig.outputPath,
+          files: allFiles,
+          totalSize,
+          clipCount: clips.length,
+          duration,
+        })
+      } catch {
+        // If we can't read the dir, just skip the modal
+      }
+      if (config.autoOpenOutputFolder) {
+        shell.openPath(videoConfig.outputPath).catch(() => {})
+      }
     }
     return reply(event, 'generateVideo', requestId)
   }

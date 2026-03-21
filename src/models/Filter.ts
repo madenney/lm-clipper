@@ -140,7 +140,7 @@ export default class Filter {
           'koDirection',
         ])
         const resourceLimits = slowIOTypes.has(this.type)
-          ? { maxOldGenerationSizeMb: 512 }
+          ? { maxOldGenerationSizeMb: 1024 }
           : undefined
 
         const worker = new Worker(new URL('./Worker.ts', import.meta.url), {
@@ -161,6 +161,8 @@ export default class Filter {
         workers.push(worker)
 
         return new Promise<void>((resolve) => {
+          let workerDone = false
+
           worker.on('message', (e: WorkerMessage) => {
             if (e.type === 'progress') {
               slices[i].completed = e.current
@@ -193,10 +195,9 @@ export default class Filter {
             }
 
             if (e.type === 'done') {
+              workerDone = true
               resolve()
-              worker.terminate().then(() => {
-                console.log('Worker terminated')
-              })
+              worker.terminate()
             }
           })
 
@@ -216,7 +217,7 @@ export default class Filter {
           })
 
           worker.on('exit', (code) => {
-            if (code !== 0) {
+            if (code !== 0 && !workerDone && !terminated) {
               console.log(
                 `Worker ${i} exited with code ${code}`,
                 workerStderr.slice(-500),

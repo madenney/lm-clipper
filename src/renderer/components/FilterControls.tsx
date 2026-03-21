@@ -720,7 +720,7 @@ export default function FilterControls({
     index: number,
   ) {
     return (
-      <div key={index} className="filter-nth-row">
+      <div key={`${move.n}-${index}`} className="filter-nth-row">
         <label className="filter-nth-field">
           <span className="filter-nth-field-label">N</span>
           <input
@@ -829,7 +829,7 @@ export default function FilterControls({
     const hasExtra = !!(move.tMin || move.t || move.d || move.dMax)
 
     return (
-      <div key={index} className="filter-nth-row-wrap">
+      <div key={`${move.n}-${index}`} className="filter-nth-row-wrap">
         <div className="filter-nth-row">
           <div className="filter-nth-field filter-nth-field-move">
             <span className="filter-nth-field-label">Position</span>
@@ -1538,7 +1538,7 @@ export default function FilterControls({
               )}
               {customParams.map((cp, cpIdx) => (
                 <div
-                  key={cpIdx}
+                  key={`${cp.name}-${cpIdx}`}
                   style={{
                     display: 'flex',
                     gap: 3,
@@ -1686,7 +1686,7 @@ export default function FilterControls({
               )}
               {outputFields.map((of, ofIdx) => (
                 <div
-                  key={ofIdx}
+                  key={`${of.name}-${ofIdx}`}
                   style={{
                     display: 'flex',
                     gap: 3,

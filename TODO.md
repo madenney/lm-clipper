@@ -39,8 +39,7 @@ Zip wizard, extraction, chained slpz wizard if zip contains .slpz. Needs a statu
 
 ### ~~Split Top.tsx~~ DONE — extracted SettingsModal.tsx + GeckoModal.tsx
 
-### Selection state lives in Main but only Tray uses it
-`selectedIds`, `lastSelectedIndex`, `selectionDuration` defined in Main, passed as props. Move to Tray or a shared hook. (Note: Main does use `selectedIds.size` for button disabling and sends IDs to play/record IPC — a hook that shares state would work, but current pattern is acceptable.)
+### ~~Selection state lives in Main but only Tray uses it~~ FIXED — extracted to `useSelection` hook in `src/renderer/hooks/`
 
 ### ~~Dead state: `_isImporting`~~ FIXED
 
@@ -92,7 +91,7 @@ Zip wizard, extraction, chained slpz wizard if zip contains .slpz. Needs a statu
 
 ## Nice-to-Have
 
-### ~~Auto-play video after recording~~ FIXED — auto-opens output folder via `shell.openPath` on successful completion
+### ~~Auto-play video after recording~~ FIXED — recording completion modal with Play, Show Folder, and auto-open toggle
 
 ### Stage rectangles visualizer
 `notes/stage-rectangles.html` — could be expanded for tuning edgeguard rectangle values.

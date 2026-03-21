@@ -80,6 +80,12 @@ export default function Filters({
   const dragAllowedRef = useRef(true)
 
   useEffect(() => {
+    return () => {
+      if (dragWarningTimer.current) clearTimeout(dragWarningTimer.current)
+    }
+  }, [])
+
+  useEffect(() => {
     const removeRunningListener = window.electron.ipcRenderer.on(
       'currentlyRunningFilter',
       (event: { running: number[] }) => {

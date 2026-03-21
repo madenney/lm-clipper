@@ -1,5 +1,6 @@
 import { useEffect, useState, Dispatch, SetStateAction } from 'react'
 import { IoSettingsSharp } from 'react-icons/io5'
+import { HiGlobeAlt } from 'react-icons/hi'
 
 import '../styles/Top.css'
 import { ConfigInterface } from '../../constants/types'
@@ -79,7 +80,7 @@ export default function Top({ config, setConfig }: TopProps) {
           className="top-control"
           title="Worker threads for filter processing"
         >
-          <span className="top-control-label">Threads</span>
+          <span className="top-control-label">CPU Threads</span>
           <input
             type="number"
             className="top-control-input"
@@ -139,6 +140,15 @@ export default function Top({ config, setConfig }: TopProps) {
             Reset SLPZ
           </button>
         )}
+        <button
+          type="button"
+          className="top-lunar-btn"
+          onClick={() => window.open('https://www.lunarmelee.com')}
+          title="Browse and download Slippi replays"
+        >
+          <HiGlobeAlt className="top-lunar-icon" />
+          <span>Lunar Database</span>
+        </button>
         <button
           type="button"
           className="top-gecko-btn"
