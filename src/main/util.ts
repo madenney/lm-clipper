@@ -65,6 +65,7 @@ export function getSlpzPath() {
     case 'Windows_NT':
       return path.resolve(resourcesPath, 'slpz', 'slpz-win32-x64.exe')
     case 'Darwin':
+      return path.resolve(resourcesPath, 'slpz', 'slpz-darwin-x64')
     default:
       throw new Error('no os?')
   }
@@ -83,6 +84,7 @@ export function getFFMPEGPath() {
     case 'Windows_NT':
       return path.resolve(resourcesPath, 'ffmpeg', 'ffmpeg-win32-x64.exe')
     case 'Darwin':
+      return path.resolve(resourcesPath, 'ffmpeg', 'ffmpeg-darwin-x64')
     default:
       throw new Error('no os?')
   }

@@ -196,17 +196,19 @@
     ],
     "afterSign": ".erb/scripts/notarize.js",
     "mac": {
-      "target": {
-        "target": "default",
-        "arch": [
-          "arm64",
-          "x64"
-        ]
-      },
-      "type": "distribution",
-      "hardenedRuntime": true,
-      "entitlements": "assets/entitlements.mac.plist",
-      "entitlementsInherit": "assets/entitlements.mac.plist",
+      "target": [
+        "dmg"
+      ],
+      "extraResources": [
+        {
+          "from": "release/app/ffmpeg/ffmpeg-darwin-x64",
+          "to": "ffmpeg/ffmpeg-darwin-x64"
+        },
+        {
+          "from": "release/app/slpz/slpz-darwin-x64",
+          "to": "slpz/slpz-darwin-x64"
+        }
+      ],
       "gatekeeperAssess": false
     },
     "dmg": {
