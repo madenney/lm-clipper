@@ -1,5 +1,6 @@
 import { app, BrowserWindow, IpcMainEvent, shell } from 'electron'
 import { spawn, execFile, ChildProcess } from 'child_process'
+import https from 'https'
 import crypto from 'crypto'
 import os from 'os'
 import path from 'path'
@@ -273,6 +274,8 @@ export default class VideoManager {
       this.mainWindow.webContents.send('videoJobFinished')
     }
     // Send completion details to renderer for the "recording complete" modal
+    let completedClipCount = 0
+    let completedDuration: number | null = null
     if (!stopped && videoConfig.outputPath) {
       try {
         const ext = videoConfig.convertToMp4 ? '.mp4' : '.avi'
@@ -342,6 +345,8 @@ export default class VideoManager {
           }
         }
 
+        completedClipCount = clips.length
+        completedDuration = duration
         this.mainWindow.webContents.send('videoCompleted', {
           outputPath: videoConfig.outputPath,
           files: allFiles,
@@ -355,8 +360,33 @@ export default class VideoManager {
       if (config.autoOpenOutputFolder) {
         shell.openPath(videoConfig.outputPath).catch(() => {})
       }
+      // Report anonymous usage stats
+      if (config.sendAnonymousUsage !== false) {
+        this.reportUsage(completedClipCount, completedDuration)
+      }
     }
     return reply(event, 'generateVideo', requestId)
+  }
+
+  private reportUsage(clips: number, durationSec: number | null) {
+    const body = JSON.stringify({
+      event: 'video_created',
+      data: {
+        clips,
+        durationSec: durationSec ?? 0,
+      },
+    })
+    const req = https.request('https://www.lunarmelee.com/api/app-usage', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(body),
+      },
+      timeout: 10000,
+    })
+    req.on('error', () => {}) // silently ignore failures
+    req.write(body)
+    req.end()
   }
 
   stopVideo(event: IpcMainEvent, data?: RequestEnvelope<null>) {

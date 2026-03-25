@@ -934,6 +934,15 @@ export const videoConfig = [
     category: 'general',
   },
   {
+    label: 'Send Anonymous Usage Data',
+    default: true,
+    id: 'sendAnonymousUsage',
+    type: 'checkbox',
+    category: 'general',
+    description:
+      'Sends anonymous stats to help improve LM Clipper. No personal data is collected.',
+  },
+  {
     label: 'Advanced Mode',
     default: false,
     id: 'advancedMode',

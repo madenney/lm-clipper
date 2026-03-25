@@ -134,7 +134,9 @@ export default function FilterCard({
         <div className="filter-meta">
           <div className="filter-results">
             Results:{' '}
-            {isRunning ? (liveResults ?? 0).toLocaleString() : resultsCount}
+            {isRunning
+              ? (liveResults ?? 0).toLocaleString()
+              : (liveResults ?? resultsCount ?? 0).toLocaleString()}
           </div>
           {filterMsg ? (
             <div className="filterMsg">
@@ -187,6 +189,14 @@ export default function FilterCard({
               }}
             >
               Resume
+              {filter.resumeProgress && (
+                <span className="filter-resume-progress">
+                  {' '}
+                  {filter.resumeProgress.processed.toLocaleString()}
+                  {' / '}
+                  {filter.resumeProgress.totalInput.toLocaleString()}
+                </span>
+              )}
             </button>
             <button
               type="button"

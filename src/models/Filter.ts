@@ -4,14 +4,12 @@ import {
   EventEmitterInterface,
   WorkerMessage,
 } from '../constants/types'
+import { createFilter, deleteFilter, upsertFilterRun } from '../main/db'
 import {
-  getTableLength,
-  createFilter,
-  deleteFilter,
-  upsertFilterRun,
-  deleteFilterRun,
-  getProcessedSourceIds,
-} from '../main/db'
+  getTableCountAsync,
+  getProcessedSourceIdsAsync,
+  deleteFilterRunAsync,
+} from '../main/dbAsync'
 import { getWorkerExecArgv } from '../lib'
 
 type Slice = {
@@ -66,10 +64,15 @@ export default class Filter {
     numFilterThreads: number,
     eventEmitter: EventEmitterInterface,
     abortSignal?: AbortSignal,
-    options?: { resume?: boolean },
-  ): Promise<{ terminated: boolean; errors: string[]; logs?: string[] }> {
+    options?: { resume?: boolean; resumeFromProgress?: number },
+  ): Promise<{
+    terminated: boolean
+    errors: string[]
+    logs?: string[]
+    lastProgress?: number
+  }> {
     const resume = options?.resume === true
-    const prevResultsLength = await getTableLength(dbPath, prevTableId)
+    const prevResultsLength = await getTableCountAsync(dbPath, prevTableId)
     let maxFiles = prevResultsLength
 
     if (this.params.maxFiles !== undefined && this.params.maxFiles !== '') {
@@ -82,7 +85,16 @@ export default class Filter {
     // Build skip set for resume mode
     let skipSourceIds: number[] = []
     if (resume) {
-      skipSourceIds = getProcessedSourceIds(dbPath, this.id)
+      try {
+        skipSourceIds = await getProcessedSourceIdsAsync(dbPath, this.id)
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        return {
+          terminated: false,
+          errors: [`Resume failed: ${msg}`],
+          logs: [],
+        }
+      }
     } else {
       // Fresh run: clear the output table
       await deleteFilter(dbPath, this.id)
@@ -107,6 +119,7 @@ export default class Filter {
     const slices = createSlices(maxFiles, threadCount)
     this._activeSlices = slices
     const workerResults = new Array(slices.length).fill(0)
+    const workerSkipped = new Array(slices.length).fill(0)
     const workers: Worker[] = []
     const errors: string[] = []
     const logs: string[] = []
@@ -119,11 +132,28 @@ export default class Filter {
     }
 
     if (abortSignal) {
-      if (abortSignal.aborted) abortHandler()
       abortSignal.addEventListener('abort', abortHandler)
+      if (abortSignal.aborted) abortHandler()
     }
 
-    eventEmitter({ current: 0, total: maxFiles })
+    // On resume, report existing result count so UI doesn't flash to zero
+    let existingResultCount = 0
+    if (resume) {
+      try {
+        existingResultCount = await getTableCountAsync(dbPath, this.id)
+      } catch (_) {
+        // non-critical
+      }
+    }
+    // On resume, offset progress so counter starts from where it left off
+    // Use the saved progress count (actual files processed), not skipSourceIds.length
+    // (which only counts files that produced results)
+    const progressOffset = options?.resumeFromProgress ?? 0
+    eventEmitter({
+      current: progressOffset,
+      total: maxFiles,
+      newItemCount: existingResultCount,
+    })
 
     try {
       const workerExecArgv = getWorkerExecArgv()
@@ -163,19 +193,45 @@ export default class Filter {
         return new Promise<void>((resolve) => {
           let workerDone = false
 
+          // Heartbeat: if no progress/done message in 5 minutes, kill the worker
+          const IDLE_TIMEOUT = 5 * 60 * 1000
+          let idleTimer = setTimeout(onIdle, IDLE_TIMEOUT)
+          function resetIdle() {
+            clearTimeout(idleTimer)
+            idleTimer = setTimeout(onIdle, IDLE_TIMEOUT)
+          }
+          function onIdle() {
+            if (!workerDone && !terminated) {
+              if (errors.length < 10)
+                errors.push(`Worker ${i} timed out (no progress for 5 min)`)
+              worker.terminate()
+            }
+          }
+
           worker.on('message', (e: WorkerMessage) => {
             if (e.type === 'progress') {
+              resetIdle()
               slices[i].completed = e.current
               if (e.results !== undefined) workerResults[i] = e.results
+              if (e.skipped !== undefined) workerSkipped[i] = e.skipped
               const totalCompleted = slices.reduce(
                 (acc, s) => acc + s.completed,
                 0,
               )
               if (totalCompleted !== lastProgress) {
                 lastProgress = totalCompleted
-                const totalResults = workerResults.reduce((a, b) => a + b, 0)
+                const totalResults =
+                  existingResultCount + workerResults.reduce((a, b) => a + b, 0)
+                // On resume: progress = saved offset + newly processed items
+                // (totalCompleted - totalSkipped = items actually worked on)
+                const totalSkipped = workerSkipped.reduce(
+                  (a: number, b: number) => a + b,
+                  0,
+                )
+                const displayProgress =
+                  progressOffset + (totalCompleted - totalSkipped)
                 eventEmitter({
-                  current: totalCompleted,
+                  current: displayProgress,
                   total: maxFiles,
                   newItemCount: totalResults,
                 })
@@ -196,6 +252,7 @@ export default class Filter {
 
             if (e.type === 'done') {
               workerDone = true
+              clearTimeout(idleTimer)
               resolve()
               worker.terminate()
             }
@@ -207,6 +264,7 @@ export default class Filter {
           })
 
           worker.on('error', (error) => {
+            clearTimeout(idleTimer)
             console.error('Worker error:', error)
             const detail = workerStderr
               ? `${error.message}\n${workerStderr.slice(-500)}`
@@ -217,6 +275,7 @@ export default class Filter {
           })
 
           worker.on('exit', (code) => {
+            clearTimeout(idleTimer)
             if (code !== 0 && !workerDone && !terminated) {
               console.log(
                 `Worker ${i} exited with code ${code}`,
@@ -250,16 +309,19 @@ export default class Filter {
       })
     }
 
+    // Capture final progress before slices are cleared
+    const finalProgress = lastProgress >= 0 ? lastProgress : 0
+
     if (terminated) {
       this.isProcessed = false
       // Leave run record as-is so resume is available
-      return { terminated: true, errors, logs }
+      return { terminated: true, errors, logs, lastProgress: finalProgress }
     }
 
-    // Successful completion: remove run record
-    deleteFilterRun(dbPath, this.id)
+    // Successful completion: remove run record (via DbWorker for WAL consistency)
+    await deleteFilterRunAsync(dbPath, this.id)
     this.isProcessed = true
-    return { terminated: false, errors, logs }
+    return { terminated: false, errors, logs, lastProgress: finalProgress }
   }
 }
 

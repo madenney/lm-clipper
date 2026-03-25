@@ -147,15 +147,15 @@ function run() {
       // in chunks so we don't load 100K+ rows into memory before starting
       const total = slice.top - slice.bottom + 1
 
-      // Adaptive flush size: small runs flush often for UI responsiveness,
-      // large runs flush less often to minimize SQLite transaction overhead.
-      // First flush always at 100 so partial results are available quickly.
-      const parserFlushSize =
-        total < 1000 ? 100 : total < 10000 ? 500 : total < 100000 ? 2000 : 5000
+      // Flush size: balance between SQLite transaction overhead and result
+      // freshness. Downstream filters query this table mid-run, so results
+      // need to be committed frequently. A 500-row transaction takes ~5ms.
+      const parserFlushSize = total < 1000 ? 100 : 500
 
       let totalInserted = 0
       let buffer: Record<string, unknown>[] = []
       let processed = 0
+      let skippedCount = 0
       let lastProgressTime = 0
       let currentBottom = slice.bottom
 
@@ -189,12 +189,14 @@ function run() {
               type: 'progress',
               current: processed,
               total,
-              results: totalInserted,
+              results: totalInserted + buffer.length,
+              skipped: skippedCount,
             })
             lastProgressTime = now
           }
           if (skipSet && item._sourceId && skipSet.has(item._sourceId)) {
             processed++
+            skippedCount++
             continue
           }
           try {
@@ -251,6 +253,7 @@ function run() {
         current: processed,
         total,
         results: totalInserted,
+        skipped: skippedCount,
       })
       postMessage({ type: 'done', results: totalInserted })
     } else {
@@ -258,6 +261,7 @@ function run() {
       const total = slice.top - slice.bottom + 1
       let totalInserted = 0
       let processed = 0
+      let skippedCount = 0
       let currentBottom = slice.bottom
 
       // Slow I/O filters (open .slp files per item) use chunk size 1 so
@@ -293,11 +297,13 @@ function run() {
           skipSet.has(chunk[0]._sourceId)
         ) {
           processed += chunk.length
+          skippedCount += chunk.length
           postMessage({
             type: 'progress',
             current: processed,
             total,
             results: totalInserted,
+            skipped: skippedCount,
           })
           currentBottom = currentTop + 1
           continue
@@ -342,6 +348,7 @@ function run() {
           current: processed,
           total,
           results: totalInserted,
+          skipped: skippedCount,
         })
         currentBottom = currentTop + 1
       }

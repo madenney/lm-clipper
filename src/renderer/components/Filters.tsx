@@ -211,17 +211,6 @@ export default function Filters({
     ipcBridge.stopFilter(filterId)
   }
 
-  function stopAllFilters() {
-    ipcBridge.stopRunningFilters()
-  }
-
-  function cancelAllFilters() {
-    ipcBridge.cancelRunningFilters()
-    ipcBridge.getArchive((nextArchive) => {
-      setArchive(nextArchive || null)
-    })
-  }
-
   function runFilter(filter: ShallowFilterInterface) {
     if (!archive) return
     setActiveFilterId(filter.id)
@@ -770,26 +759,6 @@ export default function Filters({
             </div>
           )}
         </div>
-        {runningFilters.size > 0 ? (
-          <>
-            <button
-              type="button"
-              className="stopButton"
-              onClick={stopAllFilters}
-            >
-              Stop All
-            </button>
-            <button
-              type="button"
-              className="cancelButton"
-              onClick={cancelAllFilters}
-            >
-              Cancel All
-            </button>
-          </>
-        ) : (
-          ''
-        )}
       </div>
       {dragWarning && <div className="drag-warning-toast">{dragWarning}</div>}
       {parserWarning && (

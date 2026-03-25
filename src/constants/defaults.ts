@@ -32,6 +32,7 @@ export const config = {
   concatenate: false,
   convertToMp4: false,
   autoOpenOutputFolder: false,
+  sendAnonymousUsage: true,
   outputFilenamePattern: '{index}',
   defaultProjectDirectory: '',
   ffmpegPath: '',

@@ -26,15 +26,19 @@ import { resolveHtmlPath } from './util'
 import {
   getMetaData,
   createDB,
-  getTableCount,
-  deleteFilterRun,
   deleteFiles,
-  deleteRowsByFilePaths,
   getFilePathsByIds,
   deleteRows,
   updateSortOrder,
   validateTableId,
 } from './db'
+import {
+  getTableCountAsync,
+  getTableDurationAsync,
+  getAllIdsAsync,
+  deleteRowsByFilePathsAsync,
+  deleteFilterRunAsync,
+} from './dbAsync'
 import { closeDb, getDb } from './dbConnection'
 import { appendPerfEvents } from './perfLogger'
 import { logMain, logRenderer, getLogPath } from './logger'
@@ -709,7 +713,7 @@ export default class Controller {
 
     if (payload) {
       const _t0 = Date.now()
-      deleteFilterRun(this.archive.path, payload)
+      await deleteFilterRunAsync(this.archive.path, payload)
       console.log(`[removeFilter] deleteFilterRun took ${Date.now() - _t0}ms`)
       const _t1 = Date.now()
       await this.archive.deleteFilter(payload)
@@ -737,9 +741,11 @@ export default class Controller {
 
       // Cascade: remove derived rows from all filter tables by file path
       if (filePaths.length > 0) {
-        for (const f of this.archive.filters) {
-          deleteRowsByFilePaths(archivePath, f.id, filePaths)
-        }
+        await Promise.all(
+          this.archive.filters.map((f) =>
+            deleteRowsByFilePathsAsync(archivePath, f.id, filePaths),
+          ),
+        )
       }
 
       // Refresh archive from DB to get accurate state
@@ -794,10 +800,13 @@ export default class Controller {
         }
         // Cascade: remove derived rows from downstream filters by file path
         if (filePaths.length > 0) {
-          for (const f of this.archive.filters) {
-            if (f.id === payload.filterId) continue
-            deleteRowsByFilePaths(archivePath, f.id, filePaths)
-          }
+          await Promise.all(
+            this.archive.filters
+              .filter((f) => f.id !== payload.filterId)
+              .map((f) =>
+                deleteRowsByFilePathsAsync(archivePath, f.id, filePaths),
+              ),
+          )
         }
       }
 
@@ -1055,15 +1064,17 @@ export default class Controller {
     console.log('Selected filter: ', filterId)
 
     try {
-      const items = await this.archive.getItems({
-        filterId,
-        numPerPage,
-        currentPage,
-        offset,
-        limit,
-        lite,
-      })
-      const total = getTableCount(this.archive.path, filterId)
+      const [items, total] = await Promise.all([
+        this.archive.getItems({
+          filterId,
+          numPerPage,
+          currentPage,
+          offset,
+          limit,
+          lite,
+        }),
+        getTableCountAsync(this.archive.path, filterId),
+      ])
       reply(event, 'getResults', requestId, { items, total })
     } catch (error) {
       console.error('Error fetching results:', error)
@@ -1079,13 +1090,12 @@ export default class Controller {
     if (!this.archive || !payload?.filterId) {
       return reply(event, 'getAllResultIds', requestId, [])
     }
-    try {
-      const ids = this.archive.getAllIds(payload.filterId)
-      reply(event, 'getAllResultIds', requestId, ids)
-    } catch (error) {
-      console.error('Error fetching all IDs:', error)
-      reply(event, 'getAllResultIds', requestId, [])
-    }
+    getAllIdsAsync(this.archive.path, payload.filterId)
+      .then((ids) => reply(event, 'getAllResultIds', requestId, ids))
+      .catch((error) => {
+        console.error('Error fetching all IDs:', error)
+        reply(event, 'getAllResultIds', requestId, [])
+      })
   }
 
   getTableDuration(
@@ -1096,13 +1106,12 @@ export default class Controller {
     if (!this.archive || !payload?.filterId) {
       return reply(event, 'getTableDuration', requestId, 0)
     }
-    try {
-      const total = this.archive.getTableDuration(payload.filterId)
-      reply(event, 'getTableDuration', requestId, total)
-    } catch (error) {
-      console.error('Error calculating table duration:', error)
-      reply(event, 'getTableDuration', requestId, 0)
-    }
+    getTableDurationAsync(this.archive.path, payload.filterId)
+      .then((total) => reply(event, 'getTableDuration', requestId, total))
+      .catch((error) => {
+        console.error('Error calculating table duration:', error)
+        reply(event, 'getTableDuration', requestId, 0)
+      })
   }
 
   private stopNameCountWorker() {

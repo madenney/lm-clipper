@@ -2,7 +2,12 @@ import { BrowserWindow, IpcMainEvent } from 'electron'
 import { ArchiveInterface, ConfigInterface } from '../../constants/types'
 import Archive from '../../models/Archive'
 import Filter from '../../models/Filter'
-import { getMetaData, deleteFilterRun } from '../db'
+import { getMetaData } from '../db'
+import {
+  getTableCountAsync,
+  deleteFilterRunAsync,
+  updateFilterRunProgressAsync,
+} from '../dbAsync'
 import { RequestEnvelope, unpackRequest, reply } from '../ipcUtils'
 import type ConsoleManager from './ConsoleManager'
 
@@ -16,8 +21,11 @@ export default class FilterExecutor {
   runningFilterControllers: Map<string, AbortController>
   runningFilterIndices: Set<number>
   filterCancelIds: Set<string>
-  private filterCompletionLock: Promise<void>
   activeFilter: Filter | null
+
+  // Async mutex for serializing filter completion metadata updates
+  private _completionLocked = false
+  private _completionQueue: Array<() => void> = []
 
   constructor(
     mainWindow: BrowserWindow,
@@ -37,8 +45,23 @@ export default class FilterExecutor {
     this.runningFilterControllers = new Map()
     this.runningFilterIndices = new Set()
     this.filterCancelIds = new Set()
-    this.filterCompletionLock = Promise.resolve()
     this.activeFilter = null
+  }
+
+  private async withCompletionLock<T>(fn: () => Promise<T>): Promise<T> {
+    if (this._completionLocked) {
+      await new Promise<void>((resolve) => {
+        this._completionQueue.push(resolve)
+      })
+    }
+    this._completionLocked = true
+    try {
+      return await fn()
+    } finally {
+      this._completionLocked = false
+      const next = this._completionQueue.shift()
+      if (next) next()
+    }
   }
 
   private broadcastRunningFilters() {
@@ -87,9 +110,9 @@ export default class FilterExecutor {
       this.runningFilterControllers.delete(filterId)
     }
 
-    // Fresh run: delete any existing run record
+    // Fresh run: delete any existing run record (via DbWorker for WAL consistency)
     if (!resume) {
-      deleteFilterRun(archive.path, filterId)
+      await deleteFilterRunAsync(archive.path, filterId)
     }
 
     const abortController = new AbortController()
@@ -121,9 +144,19 @@ export default class FilterExecutor {
         })
       },
       abortController.signal,
-      resume ? { resume: true } : undefined,
+      resume
+        ? {
+            resume: true,
+            resumeFromProgress: filterJSON.resumeProgress?.processed,
+          }
+        : undefined,
     )
-    const { terminated, errors: filterErrors, logs: filterLogs } = filterResult
+    const {
+      terminated,
+      errors: filterErrors,
+      logs: filterLogs,
+      lastProgress,
+    } = filterResult
 
     if (filterErrors.length > 0) {
       this.mainWindow.webContents.send('filterError', {
@@ -165,8 +198,7 @@ export default class FilterExecutor {
       const prevFilterId = currentArchive?.filters[filterIndex - 1]?.id
       if (prevFilterId && this.runningFilterControllers.has(prevFilterId)) {
         try {
-          const { getTableCount } = await import('../db')
-          const prevCount = getTableCount(archive.path, prevFilterId)
+          const prevCount = await getTableCountAsync(archive.path, prevFilterId)
           filterMessage =
             prevCount === 0
               ? 'Previous filter has no results yet'
@@ -184,7 +216,7 @@ export default class FilterExecutor {
     if (terminated && this.filterCancelIds.has(filterId)) {
       // Cancel: drop partial results, reset filter, delete run record
       this.filterCancelIds.delete(filterId)
-      deleteFilterRun(archive.path, filterId)
+      await deleteFilterRunAsync(archive.path, filterId)
       if (archive.resetFiltersFrom) {
         await archive.resetFiltersFrom(filterIndex)
       }
@@ -194,31 +226,46 @@ export default class FilterExecutor {
       return reply(event, replyChannel, requestId, metadata)
     }
 
-    // Stop or normal completion: keep results, mark processed
+    // Stop: keep partial results AND run record (so resume is available)
+    // Normal completion: keep results, delete run record
+    const wasStopped = terminated
+    if (wasStopped && lastProgress !== undefined) {
+      // Save how far we got so the resume button can show it
+      await updateFilterRunProgressAsync(archive.path, filterId, lastProgress)
+    } else if (!wasStopped) {
+      await deleteFilterRunAsync(archive.path, filterId)
+    }
     this.filterCancelIds.delete(filterId)
+    this.activeFilter = null
 
-    // Serialize concurrent filter completions to prevent race conditions
-    // .catch() ensures a prior rejection doesn't break the chain
-    this.filterCompletionLock = this.filterCompletionLock
-      .catch(() => {})
-      .then(async () => {
-        try {
-          // Re-read archive from DB since another filter may have finished concurrently
-          const freshArchive = this.getArchive()
-          if (!freshArchive) return
-          const freshMetadata = await getMetaData(freshArchive.path)
-          const newArchive = new Archive(freshMetadata)
-          this.setArchive(newArchive)
+    // Fire-and-forget: serialize completion via mutex, don't block IPC handler
+    this.withCompletionLock(async () => {
+      try {
+        // Re-read archive from DB since another filter may have finished concurrently
+        const freshArchive = this.getArchive()
+        if (!freshArchive) return
+        const freshMetadata = await getMetaData(freshArchive.path)
+        const newArchive = new Archive(freshMetadata)
 
-          // Find the filter again in the refreshed archive and mark it processed
-          const refreshedFilter = newArchive.filters.find(
-            (f) => f.id === filterId,
-          )
+        const refreshedFilter = newArchive.filters.find(
+          (f) => f.id === filterId,
+        )
+
+        if (wasStopped) {
+          // Stopped: keep partial results, don't mark processed
+          // Get accurate partial count
+          if (refreshedFilter) {
+            refreshedFilter.results = await getTableCountAsync(
+              newArchive.path,
+              filterId,
+            )
+          }
+        } else {
+          // Normal completion: mark processed, reset downstream
           if (refreshedFilter) {
             refreshedFilter.isProcessed = true
           }
 
-          // Reset downstream filters that are NOT currently running
           const refreshedIndex = newArchive.filters.findIndex(
             (f) => f.id === filterId,
           )
@@ -235,36 +282,52 @@ export default class FilterExecutor {
             }
           }
 
-          if (newArchive.saveMetaData) await newArchive.saveMetaData()
-
-          const metadata = await getMetaData(newArchive.path)
-          const finalArchive = new Archive(metadata)
-          this.setArchive(finalArchive)
-
-          const replyData = filterMessage
-            ? { ...metadata, filterMessage: { [filterId]: filterMessage } }
-            : metadata
-          // Reply first so UI has correct results before isRunning flips to false
-          reply(event, replyChannel, requestId, replyData)
-          this.broadcastRunningFilters()
-        } catch (error) {
-          console.error('Error finalizing filter run:', error)
-          try {
-            const currentArchive = this.getArchive()
-            const metadata = await getMetaData(currentArchive!.path)
-            this.setArchive(new Archive(metadata))
-            reply(event, replyChannel, requestId, metadata)
-          } catch (innerError) {
-            console.error('Error reading metadata in recovery:', innerError)
-            reply(event, replyChannel, requestId, {
-              error: 'Filter completed but failed to read results',
-            })
+          // Get accurate final count
+          if (refreshedFilter) {
+            refreshedFilter.results = await getTableCountAsync(
+              newArchive.path,
+              filterId,
+            )
           }
-          this.broadcastRunningFilters()
         }
-      })
-    this.activeFilter = null
-    await this.filterCompletionLock
+
+        // Save to DB first, then update in-memory state
+        if (newArchive.saveMetaData) await newArchive.saveMetaData()
+
+        // Set in-memory archive only after successful DB save
+        this.setArchive(newArchive)
+
+        const metadata = {
+          name: newArchive.name,
+          path: newArchive.path,
+          createdAt: newArchive.createdAt,
+          files: newArchive.files,
+          filters: newArchive.filters,
+          savedCustomFilters: (newArchive as any).savedCustomFilters || [],
+        }
+        const replyData = filterMessage
+          ? { ...metadata, filterMessage: { [filterId]: filterMessage } }
+          : metadata
+        reply(event, replyChannel, requestId, replyData)
+        this.broadcastRunningFilters()
+      } catch (error) {
+        console.error('Error finalizing filter run:', error)
+        try {
+          const currentArchive = this.getArchive()
+          const metadata = await getMetaData(currentArchive!.path)
+          this.setArchive(new Archive(metadata))
+          reply(event, replyChannel, requestId, metadata)
+        } catch (innerError) {
+          console.error('Error reading metadata in recovery:', innerError)
+          reply(event, replyChannel, requestId, {
+            error: 'Filter completed but failed to read results',
+          })
+        }
+        this.broadcastRunningFilters()
+      }
+    }).catch((err) => {
+      console.error('Completion lock error:', err)
+    })
   }
 
   async runFilter(event: IpcMainEvent, data: RequestEnvelope<string>) {
@@ -289,8 +352,9 @@ export default class FilterExecutor {
       })
     }
 
-    // Delete the run record (keep partial results)
-    deleteFilterRun(archive.path, filterId)
+    // Delete the run record on the same DB connection that getMetaData reads from
+    // (both go through DbWorker, so the delete is visible to the subsequent read)
+    await deleteFilterRunAsync(archive.path, filterId)
 
     // Refresh archive
     const metadata = await getMetaData(archive.path)
