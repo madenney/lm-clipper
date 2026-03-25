@@ -206,6 +206,7 @@ export interface ConfigInterface {
   concatenate: boolean
   convertToMp4: boolean
   autoOpenOutputFolder: boolean
+  sendAnonymousUsage: boolean
   outputFilenamePattern: string
   defaultProjectDirectory: string
   ffmpegPath: string
@@ -301,6 +302,7 @@ export interface FilterInterface {
   params: Record<string, any>
   results: number
   resumable?: boolean
+  resumeProgress?: { processed: number; totalInput: number }
   run3?(
     dbPath: string,
     prevTable: string,
@@ -321,6 +323,7 @@ export interface ShallowFilterInterface {
   params: Record<string, any>
   results: number
   resumable?: boolean
+  resumeProgress?: { processed: number; totalInput: number }
 }
 
 export interface CustomParamDef {
@@ -454,6 +457,7 @@ interface WorkerMessageProgress {
   current: number
   total: number
   results?: number
+  skipped?: number
 }
 
 interface WorkerMessageDone {

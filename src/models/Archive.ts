@@ -16,11 +16,7 @@ import { streamSlpFilePaths } from '../lib/file'
 import {
   getFileByPath,
   insertFiles,
-  getItems,
-  getItemsLite,
   getAllFromTable,
-  getAllIds,
-  getTableDuration,
   getItemsByIds,
   updateMetaData,
   deleteFilter,
@@ -28,6 +24,12 @@ import {
   getPlayerNameCounts,
   getConnectCodeCounts,
 } from '../main/db'
+import {
+  getAllIdsAsync,
+  getTableDurationAsync,
+  getItemsAsync,
+  getItemsLiteAsync,
+} from '../main/dbAsync'
 import { asyncForEach, getWorkerExecArgv } from '../lib'
 
 export default class Archive {
@@ -342,8 +344,8 @@ export default class Archive {
     const safeOffset = Math.max(0, resolvedOffset)
     const response =
       lite && filterId === 'files'
-        ? await getItemsLite(this.path, resolvedLimit, safeOffset)
-        : await getItems(this.path, filterId, resolvedLimit, safeOffset)
+        ? await getItemsLiteAsync(this.path, resolvedLimit, safeOffset)
+        : await getItemsAsync(this.path, filterId, resolvedLimit, safeOffset)
 
     return this.parseRows(filterId, response, lite)
   }
@@ -358,12 +360,12 @@ export default class Archive {
     return this.parseRows(filterId, response)
   }
 
-  getAllIds(filterId: string): string[] {
-    return getAllIds(this.path, filterId)
+  getAllIds(filterId: string): Promise<string[]> {
+    return getAllIdsAsync(this.path, filterId)
   }
 
-  getTableDuration(filterId: string): number {
-    return getTableDuration(this.path, filterId)
+  getTableDuration(filterId: string): Promise<number> {
+    return getTableDurationAsync(this.path, filterId)
   }
 
   async getNames() {

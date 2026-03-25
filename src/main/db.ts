@@ -166,135 +166,7 @@ function migrateMetadataIfNeeded(db: ReturnType<typeof getDb>) {
   }
 }
 
-export function getMetaData(path: string) {
-  const db = getDb(path)
-
-  migrateMetadataIfNeeded(db)
-
-  const row = db
-    .prepare('SELECT name, path, createdAt, extra FROM metadata LIMIT 1')
-    .get() as
-    | { name: string; path: string; createdAt: number; extra: string }
-    | undefined
-
-  if (!row) {
-    throw new Error('metadata missing')
-  }
-
-  let extra: {
-    filters?: any[]
-    savedCustomFilters?: any[]
-    cachedCounts?: Record<string, number>
-  } = {}
-  try {
-    extra = JSON.parse(row.extra || '{}')
-  } catch (_) {
-    // empty
-  }
-
-  const metadata: any = {
-    name: row.name,
-    path: row.path,
-    createdAt: row.createdAt,
-    filters: extra.filters || [],
-    savedCustomFilters: extra.savedCustomFilters || [],
-  }
-  const cachedCounts: Record<string, number> = extra.cachedCounts || {}
-
-  let needsUpdate = false
-
-  const gameFilterIndex = metadata.filters.findIndex(
-    (filter: { type?: string }) => filter.type === 'files',
-  )
-  if (gameFilterIndex === -1) {
-    const template = defaultArchive.filters.find(
-      (filter) => filter.type === 'files',
-    )
-    if (template) {
-      const usedIds = new Set(
-        metadata.filters.map((filter: { id: string }) => filter.id),
-      )
-      let id = template.id || `filter_${Date.now()}`
-      if (usedIds.has(id)) {
-        id = `filter_${Date.now()}`
-      }
-      metadata.filters.unshift({
-        ...template,
-        id,
-        params: { ...(template.params || {}) },
-      })
-      needsUpdate = true
-    }
-  } else if (gameFilterIndex > 0) {
-    const [gameFilter] = metadata.filters.splice(gameFilterIndex, 1)
-    metadata.filters.unshift(gameFilter)
-    needsUpdate = true
-  }
-
-  const countRow = db.prepare('SELECT COUNT(*) AS count FROM files').get() as {
-    count: number
-  }
-  metadata.files = countRow.count
-
-  const newCachedCounts: Record<string, number> = {}
-  for (const filter of metadata.filters) {
-    try {
-      // Use cached count for processed filters; recount for unprocessed/running
-      if (
-        filter.isProcessed &&
-        cachedCounts[filter.id] !== undefined &&
-        cachedCounts[filter.id] >= 0
-      ) {
-        filter.results = cachedCounts[filter.id]
-      } else {
-        const countResult = db
-          .prepare(`SELECT COUNT(*) AS count FROM "${filter.id}"`)
-          .get() as { count: number }
-        filter.results = countResult.count
-      }
-      newCachedCounts[filter.id] = filter.results
-    } catch (error) {
-      console.log(`Missing filter table ${filter.id}, recreating`)
-      createFilter(path, filter.id)
-      filter.results = 0
-      filter.isProcessed = false
-      needsUpdate = true
-    }
-  }
-
-  // Ensure filter_runs table exists (for DBs created before this feature)
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS filter_runs (
-      filter_id TEXT PRIMARY KEY,
-      params_json TEXT,
-      total_input INTEGER,
-      status TEXT,
-      created_at INTEGER
-    )
-  `)
-
-  metadata.cachedCounts = newCachedCounts
-
-  // Check for resumable filter runs
-  for (const filter of metadata.filters) {
-    const run = db
-      .prepare('SELECT * FROM filter_runs WHERE filter_id = ?')
-      .get(filter.id) as { params_json: string; status: string } | undefined
-    if (
-      run &&
-      run.status === 'running' &&
-      run.params_json === JSON.stringify(filter.params)
-    ) {
-      filter.resumable = true
-    }
-  }
-
-  if (needsUpdate) {
-    updateMetaData(path, metadata)
-  }
-
-  return metadata
-}
+export { getMetaDataAsync as getMetaData } from './dbAsync'
 
 export function updateMetaData(
   path: string,
@@ -305,6 +177,7 @@ export function updateMetaData(
     filters?: any[]
     savedCustomFilters?: any[]
     cachedCounts?: Record<string, number>
+    files?: number
   },
 ) {
   const db = getDb(path)
@@ -314,6 +187,9 @@ export function updateMetaData(
   }
   if (metadata.cachedCounts) {
     extraObj.cachedCounts = metadata.cachedCounts
+  }
+  if (metadata.files !== undefined) {
+    extraObj.cachedFileCount = metadata.files
   }
   const extra = JSON.stringify(extraObj)
   db.prepare(
@@ -351,6 +227,7 @@ export function insertFile(path: string, fileJSON: FileInterface) {
     fileJSON.isProcessed ? 1 : 0,
     fileJSON.info || '',
   )
+  invalidateCachedFileCount(db)
 }
 
 export function insertFiles(path: string, files: FileInterface[]) {
@@ -379,11 +256,27 @@ export function insertFiles(path: string, files: FileInterface[]) {
   })
 
   insertMany(files)
+  invalidateCachedFileCount(db)
 }
 
-export function getFiles(path: string) {
-  const db = getDb(path)
-  return db.prepare('SELECT * FROM files').all()
+/**
+ * Clear cachedFileCount from metadata extra so the next getMetaData
+ * call recounts. This is cheap — just a JSON read/write on one row.
+ */
+function invalidateCachedFileCount(db: ReturnType<typeof getDb>) {
+  try {
+    const row = db.prepare('SELECT extra FROM metadata LIMIT 1').get() as
+      | { extra: string }
+      | undefined
+    if (!row) return
+    const extra = JSON.parse(row.extra || '{}')
+    if (extra.cachedFileCount !== undefined) {
+      delete extra.cachedFileCount
+      db.prepare('UPDATE metadata SET extra = ?').run(JSON.stringify(extra))
+    }
+  } catch (_) {
+    // non-critical
+  }
 }
 
 export function getPlayerNameCounts(
@@ -448,119 +341,9 @@ export function insertRow(path: string, tableId: string, rowJSON: any) {
   )
 }
 
-export function getTableLength(path: string, tableId: string) {
-  const db = getDb(path)
-  const row = db
-    .prepare(`SELECT COUNT(*) AS count FROM "${tableId}"`)
-    .get() as { count: number }
-  return row.count
-}
-
-export function getMaxFileId(path: string) {
-  const db = getDb(path)
-  const row = db
-    .prepare('SELECT COALESCE(MAX(id), 0) AS max_id FROM files')
-    .get() as { max_id: number }
-  return row.max_id
-}
-
-export function deleteFilesAfterId(path: string, id: number) {
-  const safeId = Math.max(0, Math.floor(id))
-  const db = getDb(path)
-  db.prepare('DELETE FROM files WHERE id > ?').run(safeId)
-}
-
 export function getItem(path: string, tableId: string, itemId: number) {
   const db = getDb(path)
   return db.prepare(`SELECT * FROM "${tableId}" WHERE id = ?`).get(itemId)
-}
-
-export function getItems(
-  path: string,
-  tableId: string,
-  limit: number,
-  offset: number,
-) {
-  const db = getDb(path)
-  const colNames = getTableColumns(path, tableId)
-  const hasSortOrder = colNames.has('sort_order')
-  const orderBy = hasSortOrder ? 'COALESCE(sort_order, id), id' : 'id'
-  return db
-    .prepare(`SELECT * FROM "${tableId}" ORDER BY ${orderBy} LIMIT ? OFFSET ?`)
-    .all(limit, offset)
-}
-
-export function getItemsLite(path: string, limit: number, offset: number) {
-  const db = getDb(path)
-  return db
-    .prepare('SELECT id, stage FROM files ORDER BY id LIMIT ? OFFSET ?')
-    .all(limit, offset)
-}
-
-export function getAllIds(path: string, tableId: string): string[] {
-  const db = getDb(path)
-  const colNames = getTableColumns(path, tableId)
-  const hasSortOrder = colNames.has('sort_order')
-  const orderBy = hasSortOrder ? 'COALESCE(sort_order, id), id' : 'id'
-  const rows = db
-    .prepare(`SELECT id FROM "${tableId}" ORDER BY ${orderBy}`)
-    .all() as {
-    id: number
-  }[]
-  return rows.map((r) => String(r.id))
-}
-
-export function getTableDuration(path: string, tableId: string): number {
-  const db = getDb(path)
-  const colNames = getTableColumns(path, tableId)
-
-  // Filter/combo tables store data in a JSON column
-  if (colNames.has('JSON') && !colNames.has('startFrame')) {
-    const startExpr = "COALESCE(json_extract(JSON, '$.startFrame'), 0)"
-    const endExpr = `CASE
-      WHEN COALESCE(json_extract(JSON, '$.endFrame'), 0) > 0
-        THEN json_extract(JSON, '$.endFrame')
-      ELSE COALESCE(json_extract(JSON, '$.lastFrame'), 0)
-    END`
-    const diffExpr = `(${endExpr}) - (${startExpr})`
-    const clampedExpr = `CASE WHEN (${diffExpr}) > 0 THEN (${diffExpr}) ELSE 0 END`
-    const row = db
-      .prepare(`SELECT SUM(${clampedExpr}) AS total FROM "${tableId}"`)
-      .get() as { total: number | null } | undefined
-    return row?.total ?? 0
-  }
-
-  // Direct column tables (files)
-  const hasStartFrame = colNames.has('startFrame')
-  const hasEndFrame = colNames.has('endFrame')
-  const hasLastFrame = colNames.has('lastFrame')
-
-  if (!hasStartFrame && !hasEndFrame && !hasLastFrame) return 0
-
-  const startExpr = hasStartFrame ? 'COALESCE(startFrame, 0)' : '0'
-  const endExpr = hasEndFrame
-    ? hasLastFrame
-      ? 'CASE WHEN COALESCE(endFrame, 0) > 0 THEN endFrame ELSE COALESCE(lastFrame, 0) END'
-      : 'COALESCE(endFrame, 0)'
-    : hasLastFrame
-      ? 'COALESCE(lastFrame, 0)'
-      : '0'
-
-  const diffExpr = `(${endExpr}) - (${startExpr})`
-  const clampedExpr = `CASE WHEN (${diffExpr}) > 0 THEN (${diffExpr}) ELSE 0 END`
-
-  const row = db
-    .prepare(`SELECT SUM(${clampedExpr}) AS total FROM "${tableId}"`)
-    .get() as { total: number | null } | undefined
-  return row?.total ?? 0
-}
-
-export function getTableCount(path: string, tableId: string): number {
-  const db = getDb(path)
-  const row = db.prepare(`SELECT COUNT(*) AS count FROM "${tableId}"`).get() as
-    | { count: number }
-    | undefined
-  return row?.count ?? 0
 }
 
 export function createFilter(path: string, id: string) {
@@ -629,38 +412,7 @@ export function deleteFiles(path: string, fileIds: number[]) {
   const db = getDb(path)
   const placeholders = fileIds.map(() => '?').join(',')
   db.prepare(`DELETE FROM files WHERE id IN (${placeholders})`).run(...fileIds)
-}
-
-export function deleteRowsBySourceId(
-  path: string,
-  tableId: string,
-  sourceIds: number[],
-) {
-  if (sourceIds.length === 0) return 0
-  const db = getDb(path)
-  const placeholders = sourceIds.map(() => '?').join(',')
-  const result = db
-    .prepare(
-      `DELETE FROM "${tableId}" WHERE CAST(JSON_EXTRACT(JSON, '$._sourceId') AS INTEGER) IN (${placeholders})`,
-    )
-    .run(...sourceIds)
-  return result.changes
-}
-
-export function deleteRowsByFilePaths(
-  path: string,
-  tableId: string,
-  filePaths: string[],
-) {
-  if (filePaths.length === 0) return 0
-  const db = getDb(path)
-  const placeholders = filePaths.map(() => '?').join(',')
-  const result = db
-    .prepare(
-      `DELETE FROM "${tableId}" WHERE JSON_EXTRACT(JSON, '$.path') IN (${placeholders})`,
-    )
-    .run(...filePaths)
-  return result.changes
+  invalidateCachedFileCount(db)
 }
 
 export function deleteRows(path: string, tableId: string, rowIds: number[]) {
@@ -694,20 +446,4 @@ export function updateSortOrder(
     }
   })
   updateMany(updates)
-}
-
-export function getProcessedSourceIds(path: string, tableId: string): number[] {
-  const db = getDb(path)
-  try {
-    const rows = db
-      .prepare(
-        `SELECT DISTINCT CAST(JSON_EXTRACT(JSON, '$._sourceId') AS INTEGER) AS sid
-         FROM "${tableId}"
-         WHERE JSON_EXTRACT(JSON, '$._sourceId') IS NOT NULL`,
-      )
-      .all() as { sid: number }[]
-    return rows.map((r) => r.sid)
-  } catch (_) {
-    return []
-  }
 }

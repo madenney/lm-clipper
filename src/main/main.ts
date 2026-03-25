@@ -18,6 +18,7 @@ import Controller from './controller'
 import { runWorkflow } from './workflow'
 import { logMain } from './logger'
 import { closeDb } from './dbConnection'
+import { terminateDbWorker } from './dbAsync'
 
 // Set WM_CLASS so Linux desktop environments use our window icon
 app.setName('LM Clipper')
@@ -257,6 +258,7 @@ const shutdownCleanup = () => {
     controller.cleanup()
     controller = null
   }
+  terminateDbWorker()
   closeDb()
 }
 

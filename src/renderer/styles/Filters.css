@@ -676,6 +676,9 @@
   border: 1px solid var(--filter-border);
   border-radius: 10px;
   padding: 4px 0;
+  position: absolute;
+  left: 0;
+  right: 0;
   z-index: 100;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
 }
@@ -724,23 +727,6 @@
   padding-top: 10px;
 }
 
-.stopButton,
-.cancelButton {
-  border: 1px solid var(--filter-border);
-  border-radius: 10px;
-  background: #1c1f26;
-  color: #f5f6f8;
-  font-size: 12px;
-  padding: 10px 14px;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  cursor: pointer;
-}
-
-.stopButton:hover,
-.cancelButton:hover {
-  background: #262a34;
-}
 
 /* Multi-select dropdown */
 
@@ -1135,6 +1121,11 @@
   align-items: center;
   justify-content: center;
   cursor: pointer;
+}
+
+.filter-resume-progress {
+  margin-left: 6px;
+  opacity: 0.7;
 }
 
 .filter-resume-dismiss:hover {

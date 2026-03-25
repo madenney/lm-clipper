@@ -18,12 +18,12 @@ const hiddenFromSettings = new Set([
 
 // Sidebar sections for settings modal
 const settingsSections = [
+  { key: 'general', label: 'General' },
   { key: 'paths', label: 'Paths' },
   { key: 'output', label: 'Output' },
   { key: 'video', label: 'Video' },
   { key: 'rendering', label: 'Gecko Codes' },
   { key: 'performance', label: 'Performance' },
-  { key: 'general', label: 'General' },
   { key: 'diagnostics', label: 'Diagnostics' },
   { key: 'about', label: 'About' },
 ] as const
@@ -56,7 +56,7 @@ export default function SettingsModal({
   onClose,
   onOpenGeckoModal: _onOpenGeckoModal,
 }: SettingsModalProps) {
-  const [activeSection, setActiveSection] = useState<SettingsSection>('paths')
+  const [activeSection, setActiveSection] = useState<SettingsSection>('general')
   const [resetConfirm, setResetConfirm] = useState(false)
   const [appVersion, setAppVersion] = useState('')
   const [logsPath, setLogsPath] = useState('')
@@ -442,6 +442,11 @@ export default function SettingsModal({
                     <label className="settings-item-label" htmlFor={c.id}>
                       {c.label}
                     </label>
+                    {c.description && (
+                      <span className="settings-item-desc">
+                        {c.description}
+                      </span>
+                    )}
                     {c.warning && config[c.id] && (
                       <span className="settings-item-warning">{c.warning}</span>
                     )}
