@@ -1128,6 +1128,13 @@
   opacity: 0.7;
 }
 
+.filter-progress-pill {
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  opacity: 0.7;
+  margin-right: 10px;
+}
+
 .filter-resume-dismiss:hover {
   background: rgba(160, 50, 50, 0.2);
   border-color: #8b4a4a;

@@ -138,29 +138,27 @@ export default function FilterCard({
               ? (liveResults ?? 0).toLocaleString()
               : (liveResults ?? resultsCount ?? 0).toLocaleString()}
           </div>
-          {filterMsg ? (
+          {filterMsg && !/^\d+\/\d+$/.test(filterMsg) ? (
             <div className="filterMsg">
               {filterMsg}
-              {!/^\d+\/\d+$/.test(filterMsg) && (
-                <span
-                  className="filterMsg-dismiss"
-                  role="button"
-                  tabIndex={0}
-                  onClick={(e) => {
+              <span
+                className="filterMsg-dismiss"
+                role="button"
+                tabIndex={0}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onDismissMsg(filter.id)
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
                     e.stopPropagation()
                     onDismissMsg(filter.id)
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault()
-                      e.stopPropagation()
-                      onDismissMsg(filter.id)
-                    }
-                  }}
-                >
-                  ✕
-                </span>
-              )}
+                  }
+                }}
+              >
+                ✕
+              </span>
             </div>
           ) : (
             ''
@@ -226,6 +224,9 @@ export default function FilterCard({
           >
             Edit Code
           </button>
+        )}
+        {isRunning && filterMsg && /^\d+\/\d+$/.test(filterMsg) && (
+          <span className="filter-progress-pill">{filterMsg}</span>
         )}
         <button
           type="button"
