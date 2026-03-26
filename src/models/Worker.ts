@@ -189,7 +189,7 @@ function run() {
               type: 'progress',
               current: processed,
               total,
-              results: totalInserted + buffer.length,
+              results: totalInserted,
               skipped: skippedCount,
             })
             lastProgressTime = now
