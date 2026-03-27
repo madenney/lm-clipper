@@ -15,6 +15,7 @@ export default class FilterExecutor {
   private mainWindow: BrowserWindow
   private getArchive: () => ArchiveInterface | null
   private setArchive: (_archive: ArchiveInterface | null) => void
+  private getArchiveVersion: () => number
   private getConfig: () => ConfigInterface
   private consoleManager: ConsoleManager
 
@@ -32,6 +33,7 @@ export default class FilterExecutor {
     deps: {
       getArchive: () => ArchiveInterface | null
       setArchive: (_archive: ArchiveInterface | null) => void
+      getArchiveVersion: () => number
       getConfig: () => ConfigInterface
       consoleManager: ConsoleManager
     },
@@ -39,6 +41,7 @@ export default class FilterExecutor {
     this.mainWindow = mainWindow
     this.getArchive = deps.getArchive
     this.setArchive = deps.setArchive
+    this.getArchiveVersion = deps.getArchiveVersion
     this.getConfig = deps.getConfig
     this.consoleManager = deps.consoleManager
 
@@ -352,14 +355,33 @@ export default class FilterExecutor {
       })
     }
 
-    // Delete the run record on the same DB connection that getMetaData reads from
-    // (both go through DbWorker, so the delete is visible to the subsequent read)
-    await deleteFilterRunAsync(archive.path, filterId)
-
-    // Refresh archive
-    const metadata = await getMetaData(archive.path)
-    this.setArchive(new Archive(metadata))
-    return reply(event, 'dismissFilterResume', requestId, metadata)
+    try {
+      // Delete the run record on the same DB connection that getMetaData reads from
+      // (both go through DbWorker, so the delete is visible to the subsequent read)
+      console.log(
+        '[dismissFilterResume] deleting run for:',
+        filterId,
+        'at path:',
+        archive.path,
+      )
+      await deleteFilterRunAsync(archive.path, filterId)
+      console.log('[dismissFilterResume] delete completed, refreshing metadata')
+      const metadata = await getMetaData(archive.path)
+      const stillResumable = metadata?.filters?.filter((f: any) => f.resumable)
+      console.log(
+        '[dismissFilterResume] still resumable after refresh:',
+        JSON.stringify(
+          stillResumable?.map((f: any) => ({ id: f.id, label: f.label })),
+        ),
+      )
+      this.setArchive(new Archive(metadata))
+      return reply(event, 'dismissFilterResume', requestId, metadata)
+    } catch (error) {
+      console.error('[dismissFilterResume] error:', error)
+      return reply(event, 'dismissFilterResume', requestId, {
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
   }
 
   async runFilters(event: IpcMainEvent, data?: RequestEnvelope<null>) {

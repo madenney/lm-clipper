@@ -803,6 +803,7 @@ export default function CodeEditorPage() {
     message: string
     onYes: () => void
   } | null>(null)
+  const [showHelp, setShowHelp] = useState(false)
   const savedTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const editorContainerRef = useRef<HTMLDivElement>(null)
   const editorViewRef = useRef<EditorView | null>(null)
@@ -1332,12 +1333,13 @@ export default function CodeEditorPage() {
           </button>
         </div>
 
-        {/* Right: save + close */}
+        {/* Right: save + close + help */}
         <div
           style={{
             marginLeft: 'auto',
             display: 'flex',
             gap: 8,
+            alignItems: 'center',
             WebkitAppRegion: 'no-drag',
           }}
         >
@@ -1435,8 +1437,245 @@ export default function CodeEditorPage() {
           >
             Close
           </button>
+          <button
+            type="button"
+            onClick={() => setShowHelp(true)}
+            title="Help"
+            style={{
+              width: 22,
+              height: 22,
+              borderRadius: '50%',
+              border: '1px solid #585b70',
+              background: 'transparent',
+              color: '#7f849c',
+              fontSize: 13,
+              fontWeight: 700,
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: 0,
+              lineHeight: 1,
+              flexShrink: 0,
+            }}
+          >
+            ?
+          </button>
         </div>
       </div>
+
+      {/* Help modal */}
+      {showHelp && (
+        <div
+          onClick={() => setShowHelp(false)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.6)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 100,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: '#1e1e2e',
+              border: '1px solid #45475a',
+              borderRadius: 10,
+              padding: '24px 28px',
+              maxWidth: 560,
+              width: '90%',
+              maxHeight: '80vh',
+              overflowY: 'auto',
+              boxShadow: '0 20px 60px rgba(0,0,0,0.6)',
+              color: '#cdd6f4',
+              fontSize: 14,
+              lineHeight: 1.7,
+            }}
+          >
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginBottom: 16,
+              }}
+            >
+              <span style={{ fontSize: 18, fontWeight: 600 }}>
+                Custom Code Filter
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowHelp(false)}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: '#7f849c',
+                  fontSize: 20,
+                  cursor: 'pointer',
+                  padding: '0 4px',
+                }}
+              >
+                &times;
+              </button>
+            </div>
+            <p style={{ margin: '0 0 12px', color: '#bac2de' }}>
+              This editor lets you write JavaScript to filter clips however you
+              want. Your code receives an array of clips from the previous
+              filter and must return the clips you want to keep.
+            </p>
+            <p
+              style={{
+                margin: '0 0 12px',
+                fontWeight: 600,
+                color: '#cdd6f4',
+              }}
+            >
+              How it works:
+            </p>
+            <ul
+              style={{
+                margin: '0 0 12px',
+                paddingLeft: 20,
+                color: '#bac2de',
+              }}
+            >
+              <li>
+                <code
+                  style={{
+                    background: '#313244',
+                    padding: '1px 5px',
+                    borderRadius: 3,
+                    fontSize: 13,
+                  }}
+                >
+                  clips
+                </code>{' '}
+                is an array of clip objects. Each clip has properties like{' '}
+                <code
+                  style={{
+                    background: '#313244',
+                    padding: '1px 5px',
+                    borderRadius: 3,
+                    fontSize: 13,
+                  }}
+                >
+                  path
+                </code>
+                ,{' '}
+                <code
+                  style={{
+                    background: '#313244',
+                    padding: '1px 5px',
+                    borderRadius: 3,
+                    fontSize: 13,
+                  }}
+                >
+                  startFrame
+                </code>
+                ,{' '}
+                <code
+                  style={{
+                    background: '#313244',
+                    padding: '1px 5px',
+                    borderRadius: 3,
+                    fontSize: 13,
+                  }}
+                >
+                  endFrame
+                </code>
+                , character/player info, and combo data if a parser ran before
+                this filter.
+              </li>
+              <li>
+                <code
+                  style={{
+                    background: '#313244',
+                    padding: '1px 5px',
+                    borderRadius: 3,
+                    fontSize: 13,
+                  }}
+                >
+                  SlippiGame
+                </code>{' '}
+                is the slippi-js class. Use{' '}
+                <code
+                  style={{
+                    background: '#313244',
+                    padding: '1px 5px',
+                    borderRadius: 3,
+                    fontSize: 13,
+                  }}
+                >
+                  new SlippiGame(clip.path)
+                </code>{' '}
+                to open a replay and read frame data, metadata, etc.
+              </li>
+              <li>
+                <code
+                  style={{
+                    background: '#313244',
+                    padding: '1px 5px',
+                    borderRadius: 3,
+                    fontSize: 13,
+                  }}
+                >
+                  params
+                </code>{' '}
+                contains any custom parameters you define below the editor (Max
+                Files, or your own).
+              </li>
+              <li>
+                Your code must{' '}
+                <code
+                  style={{
+                    background: '#313244',
+                    padding: '1px 5px',
+                    borderRadius: 3,
+                    fontSize: 13,
+                  }}
+                >
+                  return
+                </code>{' '}
+                an array of clips to keep. Return fewer clips to filter, or
+                return modified clips to transform data.
+              </li>
+            </ul>
+            <p
+              style={{
+                margin: '0 0 12px',
+                fontWeight: 600,
+                color: '#cdd6f4',
+              }}
+            >
+              Tips:
+            </p>
+            <ul style={{ margin: 0, paddingLeft: 20, color: '#bac2de' }}>
+              <li>
+                Click <b>Code Reference</b> in the toolbar to see the full shape
+                of clip objects and all available fields.
+              </li>
+              <li>
+                Use <b>Test Run</b> to try your code on a small sample before
+                running the full filter.
+              </li>
+              <li>
+                Use <b>console.log()</b> in your code to inspect data — output
+                appears in the console panel below the editor.
+              </li>
+              <li>
+                Save reusable code as a <b>Template</b> to use it across
+                projects.
+              </li>
+              <li>
+                <b>Ctrl+S</b> saves, <b>Ctrl+/Cmd+ +/-</b> adjusts font size.
+              </li>
+            </ul>
+          </div>
+        </div>
+      )}
 
       {/* Reference panel */}
       {showRef && (

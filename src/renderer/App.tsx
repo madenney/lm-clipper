@@ -1,6 +1,7 @@
-import { Component, useState, useEffect, ReactNode } from 'react'
+import { Component, useState, useEffect, useMemo, ReactNode } from 'react'
 
 import './styles/App.css'
+import { ArchiveContext, ConfigContext } from './context/AppContext'
 import Main from './components/Main'
 import LoadingScreen from './components/LoadingScreen'
 import UpdateBanner from './components/UpdateBanner'
@@ -333,6 +334,15 @@ export default function App() {
     }
   }, [])
 
+  const archiveCtx = useMemo(
+    () => ({ archive, setArchive }),
+    [archive, setArchive],
+  )
+  const configCtx = useMemo(
+    () => ({ config: config!, setConfig }),
+    [config, setConfig],
+  )
+
   if (!config) {
     return <LoadingScreen />
   }
@@ -369,17 +379,21 @@ export default function App() {
           }}
         />
       )}
-      <ErrorBoundary>
-        <Main
-          archive={archive}
-          setArchive={setArchive}
-          config={config}
-          setConfig={setConfig}
-          triggerSetupWizard={triggerSetupWizard}
-          pendingAction={pendingAction}
-          clearPendingAction={() => setPendingAction(null)}
-        />
-      </ErrorBoundary>
+      <ArchiveContext.Provider value={archiveCtx}>
+        <ConfigContext.Provider value={configCtx}>
+          <ErrorBoundary>
+            <Main
+              archive={archive}
+              setArchive={setArchive}
+              config={config}
+              setConfig={setConfig}
+              triggerSetupWizard={triggerSetupWizard}
+              pendingAction={pendingAction}
+              clearPendingAction={() => setPendingAction(null)}
+            />
+          </ErrorBoundary>
+        </ConfigContext.Provider>
+      </ArchiveContext.Provider>
     </>
   )
 }

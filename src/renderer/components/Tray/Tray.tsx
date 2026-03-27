@@ -9,6 +9,7 @@
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { FiZoomIn, FiZoomOut } from 'react-icons/fi'
+import useIpcListener from '../../hooks/useIpcListener'
 
 import { DomLayer } from './DomLayer'
 import { GpuLayer } from './GpuLayer'
@@ -81,17 +82,9 @@ export function Tray({
   // Bumped on a timer while viewing a running filter to trigger re-fetches
   const [previewTick, setPreviewTick] = useState(0)
 
-  useEffect(() => {
-    const remove = window.electron.ipcRenderer.on(
-      'currentlyRunningFilter',
-      (event: { running: number[] }) => {
-        setRunningFilterIndices(new Set(event.running))
-      },
-    )
-    return () => {
-      remove()
-    }
-  }, [])
+  useIpcListener('currentlyRunningFilter', (event: { running: number[] }) => {
+    setRunningFilterIndices(new Set(event.running))
+  })
 
   // Tray dimensions
   const [trayWidth, setTrayWidth] = useState(800)

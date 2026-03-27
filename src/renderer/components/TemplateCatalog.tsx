@@ -48,6 +48,7 @@ export default function TemplateCatalog({
     const sorted = [...builtInCats].sort()
     const cats = ['All', ...sorted]
     if (hasUser) cats.push('My Templates')
+    cats.push('Community')
     return cats
   }, [templates])
 
@@ -100,7 +101,7 @@ export default function TemplateCatalog({
             {categories.map((cat) => (
               <div
                 key={cat}
-                className={`tc-cat${activeCategory === cat ? ' tc-cat-active' : ''}${cat === 'My Templates' ? ' tc-cat-user' : ''}`}
+                className={`tc-cat${activeCategory === cat ? ' tc-cat-active' : ''}${cat === 'My Templates' ? ' tc-cat-user' : ''}${cat === 'Community' ? ' tc-cat-community' : ''}`}
                 onClick={() => setActiveCategory(cat)}
               >
                 {cat}
@@ -110,56 +111,78 @@ export default function TemplateCatalog({
 
           {/* Template list */}
           <div className="tc-list">
-            {filtered.length === 0 && (
+            {activeCategory === 'Community' && (
+              <div className="tc-community">
+                <div className="tc-community-title">Community Templates</div>
+                <p className="tc-community-text">
+                  Community-submitted templates will show up here in future
+                  updates. Have a cool filter you think others would find
+                  useful?
+                </p>
+                <p className="tc-community-text">
+                  Join the{' '}
+                  <span
+                    className="tc-community-link"
+                    onClick={() => window.open('https://discord.gg/ThjMCW3F4R')}
+                  >
+                    Discord
+                  </span>{' '}
+                  and share your template — we&apos;ll review it and add it to
+                  the built-in list for everyone to use.
+                </p>
+              </div>
+            )}
+            {activeCategory !== 'Community' && filtered.length === 0 && (
               <div className="tc-empty">
                 {search
                   ? 'No templates match your search.'
                   : 'No templates in this category.'}
               </div>
             )}
-            {filtered.map((t, i) => {
-              const disabled = t.requiresParser && !hasParser
-              return (
-                <div
-                  key={`${t.name}-${i}`}
-                  className={`tc-item${disabled ? ' tc-item-disabled' : ''}`}
-                  onClick={() => !disabled && onSelect(t)}
-                  title={
-                    disabled ? 'Add a Combo Parser filter first' : undefined
-                  }
-                >
-                  <div className="tc-item-top">
-                    <span className="tc-item-name">{t.name}</span>
-                    {disabled && (
-                      <span className="tc-item-badge tc-item-badge-parser">
-                        Needs Parser
-                      </span>
+            {activeCategory !== 'Community' &&
+              filtered.map((t, i) => {
+                const disabled = t.requiresParser && !hasParser
+                return (
+                  <div
+                    key={`${t.name}-${i}`}
+                    className={`tc-item${disabled ? ' tc-item-disabled' : ''}`}
+                    onClick={() => !disabled && onSelect(t)}
+                    title={
+                      disabled ? 'Add a Combo Parser filter first' : undefined
+                    }
+                  >
+                    <div className="tc-item-top">
+                      <span className="tc-item-name">{t.name}</span>
+                      {disabled && (
+                        <span className="tc-item-badge tc-item-badge-parser">
+                          Needs Parser
+                        </span>
+                      )}
+                      {t.category && t.builtIn && (
+                        <span className="tc-item-badge">{t.category}</span>
+                      )}
+                      {!t.builtIn && (
+                        <span className="tc-item-badge tc-item-badge-user">
+                          My Template
+                        </span>
+                      )}
+                    </div>
+                    {t.description && (
+                      <div className="tc-item-desc">{t.description}</div>
                     )}
-                    {t.category && t.builtIn && (
-                      <span className="tc-item-badge">{t.category}</span>
-                    )}
-                    {!t.builtIn && (
-                      <span className="tc-item-badge tc-item-badge-user">
-                        My Template
-                      </span>
+                    {t.customParams && t.customParams.length > 0 && (
+                      <div className="tc-item-params">
+                        {t.customParams.map((p) => (
+                          <span key={p.name} className="tc-item-param">
+                            {p.name}
+                            {p.value ? `=${p.value}` : ''}
+                          </span>
+                        ))}
+                      </div>
                     )}
                   </div>
-                  {t.description && (
-                    <div className="tc-item-desc">{t.description}</div>
-                  )}
-                  {t.customParams && t.customParams.length > 0 && (
-                    <div className="tc-item-params">
-                      {t.customParams.map((p) => (
-                        <span key={p.name} className="tc-item-param">
-                          {p.name}
-                          {p.value ? `=${p.value}` : ''}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )
-            })}
+                )
+              })}
           </div>
         </div>
       </div>

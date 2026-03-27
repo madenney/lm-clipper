@@ -1,3 +1,4 @@
+import vm from 'vm'
 import {
   ClipInterface,
   EventEmitterInterface,
@@ -80,10 +81,11 @@ export default (
     },
   }
 
-  let userFn: Function
+  let script: vm.Script
   try {
-    // eslint-disable-next-line no-new-func
-    userFn = new Function('clips', 'params', 'SlippiGame', 'console', code)
+    script = new vm.Script(
+      `(function(clips, params, SlippiGame, console) { ${code} })(clips, params, SlippiGame, console)`,
+    )
   } catch (err: any) {
     throw new Error(
       `Syntax error in custom code: ${err?.message || String(err)}`,
@@ -91,7 +93,14 @@ export default (
   }
 
   try {
-    const result = userFn(sliced, mergedParams, SlippiGame, fakeConsole)
+    const sandbox = {
+      clips: sliced,
+      params: mergedParams,
+      SlippiGame,
+      console: fakeConsole,
+    }
+    vm.createContext(sandbox)
+    const result = script.runInNewContext(sandbox, { timeout: 300000 })
     if (!Array.isArray(result)) {
       throw new Error(`Custom code must return an array, got ${typeof result}`)
     }

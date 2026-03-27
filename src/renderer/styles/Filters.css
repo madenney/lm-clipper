@@ -910,10 +910,17 @@
 
 /* Name select count */
 
+.filter-multi-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
 .filter-autocomplete-count {
   font-size: 10px;
   color: var(--filter-muted);
   margin-left: auto;
+  flex-shrink: 0;
 }
 
 .no-archive {

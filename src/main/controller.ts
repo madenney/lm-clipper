@@ -22,36 +22,25 @@ import {
 import Archive from '../models/Archive'
 import Filter from '../models/Filter'
 import { setFFMPEGPathOverride } from './slpToVideo'
-import { resolveHtmlPath } from './util'
-import {
-  getMetaData,
-  createDB,
-  deleteFiles,
-  getFilePathsByIds,
-  deleteRows,
-  updateSortOrder,
-  validateTableId,
-} from './db'
+import { getMetaData, createDB } from './db'
 import {
   getTableCountAsync,
   getTableDurationAsync,
   getAllIdsAsync,
-  deleteRowsByFilePathsAsync,
   deleteFilterRunAsync,
+  updateMetadataNameAsync,
+  updateMetadataPathAndNameAsync,
 } from './dbAsync'
-import { closeDb, getDb } from './dbConnection'
+import { closeDb } from './dbConnection'
 import { appendPerfEvents } from './perfLogger'
 import { logMain, logRenderer, getLogPath } from './logger'
-import {
-  RequestEnvelope,
-  unpackRequest,
-  reply,
-  buildShallowArchive,
-} from './ipcUtils'
+import { RequestEnvelope, unpackRequest, reply } from './ipcUtils'
 import ConsoleManager from './managers/ConsoleManager'
 import ImportManager from './managers/ImportManager'
 import FilterExecutor from './managers/FilterExecutor'
 import VideoManager from './managers/VideoManager'
+import ClipManager from './managers/ClipManager'
+import CodeEditorManager from './managers/CodeEditorManager'
 
 function getDefaultProjectDir(): string {
   if (process.platform === 'linux') {
@@ -67,14 +56,9 @@ export default class Controller {
   configDir: string
   configPath: string
   archive: ArchiveInterface | null
+  private archiveVersion = 0
   config: ConfigInterface
   nameCountWorker: Worker | null
-  codeEditorWindow: BrowserWindow | null
-  codeEditorContext: {
-    filterIndex: number
-    filterId: string
-  } | null
-  private _cleanupCodeEditorListeners: (() => void) | null
   private countWorkerExecArgv?: string[]
 
   // Managers
@@ -82,6 +66,8 @@ export default class Controller {
   importManager: ImportManager
   filterExecutor: FilterExecutor
   videoManager: VideoManager
+  clipManager: ClipManager
+  codeEditorManager: CodeEditorManager
 
   constructor(mainWindow: BrowserWindow) {
     this.mainWindow = mainWindow
@@ -145,15 +131,12 @@ export default class Controller {
         }
       }
     })
-    fs.writeFileSync(this.configPath, JSON.stringify(this.config, null, 2))
+    this.saveConfig()
     if (this.config.ffmpegPath) {
       setFFMPEGPathOverride(this.config.ffmpegPath)
     }
     this.archive = null
     this.nameCountWorker = null
-    this.codeEditorWindow = null
-    this.codeEditorContext = null
-    this._cleanupCodeEditorListeners = null
     this.countWorkerExecArgv = getWorkerExecArgv()
 
     // Initialize managers
@@ -164,34 +147,67 @@ export default class Controller {
       getImportStatus: () => this.importManager.importStatus,
     })
 
+    const setArchiveWithVersion = (a: ArchiveInterface | null) => {
+      this.setArchiveInternal(a)
+    }
+
     this.importManager = new ImportManager(mainWindow, {
       getConfig: () => this.config,
       getConfigPath: () => this.configPath,
       getArchive: () => this.archive,
-      setArchive: (a) => {
-        this.archive = a
-      },
+      setArchive: setArchiveWithVersion,
+      getArchiveVersion: () => this.archiveVersion,
       autoCreateUntitledProject: () => this.autoCreateUntitledProject(),
       consoleManager: this.consoleManager,
     })
 
     this.filterExecutor = new FilterExecutor(mainWindow, {
       getArchive: () => this.archive,
-      setArchive: (a) => {
-        this.archive = a
-      },
+      setArchive: setArchiveWithVersion,
+      getArchiveVersion: () => this.archiveVersion,
       getConfig: () => this.config,
       consoleManager: this.consoleManager,
     })
 
     this.videoManager = new VideoManager(mainWindow, {
       getArchive: () => this.archive,
-      setArchive: (a) => {
-        this.archive = a
-      },
+      setArchive: setArchiveWithVersion,
       getConfig: () => this.config,
       consoleManager: this.consoleManager,
     })
+
+    this.clipManager = new ClipManager(mainWindow, {
+      getArchive: () => this.archive,
+      setArchive: setArchiveWithVersion,
+    })
+
+    this.codeEditorManager = new CodeEditorManager(mainWindow, {
+      getArchive: () => this.archive,
+      getConfig: () => this.config,
+      getConfigPath: () => this.configPath,
+      saveConfig: () => {
+        this.saveConfig()
+      },
+    })
+  }
+
+  private saveConfig() {
+    return fsPromises.writeFile(
+      this.configPath,
+      JSON.stringify(this.config, null, 2),
+    )
+  }
+
+  private setArchiveInternal(a: ArchiveInterface | null) {
+    this.archive = a
+    this.archiveVersion += 1
+    this.updateWindowTitle()
+  }
+
+  private updateWindowTitle() {
+    if (this.mainWindow?.isDestroyed?.()) return
+    const name = this.archive?.name
+    this.mainWindow.setTitle(name ? `LM Clipper — ${name}` : 'LM Clipper')
   }
 
   cleanup() {
@@ -211,15 +227,7 @@ export default class Controller {
     this.stopNameCountWorker()
 
     // Close code editor window and clean up its IPC listeners
-    if (this._cleanupCodeEditorListeners) {
-      this._cleanupCodeEditorListeners()
-      this._cleanupCodeEditorListeners = null
-    }
-    if (this.codeEditorWindow && !this.codeEditorWindow.isDestroyed()) {
-      this.codeEditorWindow.destroy()
-      this.codeEditorWindow = null
-      this.codeEditorContext = null
-    }
+    this.codeEditorManager.cleanup()
   }
 
   private addToRecentProjects(name: string, projectPath: string) {
@@ -235,7 +243,7 @@ export default class Controller {
     if (this.config.recentProjects.length > 10) {
       this.config.recentProjects = this.config.recentProjects.slice(0, 10)
     }
-    fs.writeFileSync(this.configPath, JSON.stringify(this.config, null, 2))
+    this.saveConfig()
   }
 
   private removeFromRecentProjects(projectPath: string) {
@@ -243,7 +251,7 @@ export default class Controller {
     this.config.recentProjects = this.config.recentProjects.filter(
       (p) => p.path !== projectPath,
     )
-    fs.writeFileSync(this.configPath, JSON.stringify(this.config, null, 2))
+    this.saveConfig()
   }
 
   private getUntitledName(dir: string): string {
@@ -284,11 +292,11 @@ export default class Controller {
       this.config.includeDefaultFilters !== false,
     )
     const metadata = await getMetaData(newArchivePath)
-    this.archive = new Archive(metadata)
+    this.setArchiveInternal(new Archive(metadata))
 
     this.config.lastArchivePath = newArchivePath
     this.config.projectName = metadata.name
-    fs.writeFileSync(this.configPath, JSON.stringify(this.config, null, 2))
+    this.saveConfig()
     this.addToRecentProjects(metadata.name, newArchivePath)
 
     return metadata
@@ -296,7 +304,7 @@ export default class Controller {
 
   async initArchive() {
     if (!this.config.lastArchivePath) {
-      this.archive = null
+      this.setArchiveInternal(null)
       return
     }
 
@@ -304,7 +312,8 @@ export default class Controller {
       console.log('Loading from existing DB')
       try {
         const metadata = await getMetaData(this.config.lastArchivePath)
-        this.archive = new Archive(metadata)
+        this.setArchiveInternal(new Archive(metadata))
+        this.updateWindowTitle()
         return
       } catch (e) {
         console.error('error fetching from last archive path')
@@ -314,8 +323,8 @@ export default class Controller {
     // Stale path — clear it
     console.log('Last archive path not found, clearing')
     this.config.lastArchivePath = null
-    fs.writeFileSync(this.configPath, JSON.stringify(this.config, null, 2))
-    this.archive = null
+    this.saveConfig()
+    this.setArchiveInternal(null)
   }
 
   async getConfig(event: IpcMainEvent, data?: RequestEnvelope<null>) {
@@ -338,7 +347,7 @@ export default class Controller {
         app.getPath('videos') || app.getPath('home'),
         'LM Clipper',
       )
-      fs.writeFileSync(this.configPath, JSON.stringify(this.config, null, 2))
+      this.saveConfig()
     }
   }
 
@@ -360,7 +369,7 @@ export default class Controller {
     if (payload.key === 'ffmpegPath') {
       setFFMPEGPathOverride(payload.value as string)
     }
-    fs.writeFileSync(this.configPath, JSON.stringify(this.config, null, 2))
+    this.saveConfig()
     return reply(event, 'updateConfig', requestId)
   }
 
@@ -370,13 +379,14 @@ export default class Controller {
       try {
         this.stopNameCountWorker()
         const metadata = await getMetaData(this.archive.path)
-        this.archive = new Archive(metadata)
+        this.setArchiveInternal(new Archive(metadata))
+        this.updateWindowTitle()
         reply(event, 'archive', requestId, metadata)
       } catch (error) {
         console.error('Error loading archive metadata:', error)
-        this.archive = null
+        this.setArchiveInternal(null)
         this.config.lastArchivePath = null
-        fs.writeFileSync(this.configPath, JSON.stringify(this.config, null, 2))
+        this.saveConfig()
         reply(event, 'archive', requestId)
       }
     } else {
@@ -406,14 +416,19 @@ export default class Controller {
 
   async getDirectory(event: IpcMainEvent, data?: RequestEnvelope<null>) {
     const { requestId } = unpackRequest<null>(data)
-    const { canceled, filePaths } = await dialog.showOpenDialog({
-      properties: ['openDirectory'],
-      defaultPath: this.config.lastArchivePath
-        ? this.config.lastArchivePath
-        : '',
-    })
-    if (canceled) return reply(event, 'directory', requestId)
-    return reply(event, 'directory', requestId, filePaths[0])
+    try {
+      const { canceled, filePaths } = await dialog.showOpenDialog({
+        properties: ['openDirectory'],
+        defaultPath: this.config.lastArchivePath
+          ? this.config.lastArchivePath
+          : '',
+      })
+      if (canceled) return reply(event, 'directory', requestId)
+      return reply(event, 'directory', requestId, filePaths[0])
+    } catch (error) {
+      console.error('[getDirectory] error:', error)
+      return reply(event, 'directory', requestId)
+    }
   }
 
   async openExistingArchive(event: IpcMainEvent, data?: RequestEnvelope<null>) {
@@ -432,7 +447,8 @@ export default class Controller {
       closeDb()
       try {
         const metadata = await getMetaData(filePaths[0])
-        this.archive = new Archive(metadata)
+        this.setArchiveInternal(new Archive(metadata))
+        this.updateWindowTitle()
       } catch (e) {
         console.error('Error opening archive', e)
         return reply(event, 'openExistingArchive', requestId, {
@@ -446,14 +462,13 @@ export default class Controller {
       // Fix legacy projects whose name is still "Untitled"
       if (/^Untitled(\s\d+)?$/.test(this.archive.name)) {
         const derivedName = path.basename(filePaths[0])
-        const db = getDb(filePaths[0])
-        db.prepare('UPDATE metadata SET name = ?').run(derivedName)
+        await updateMetadataNameAsync(filePaths[0], derivedName)
         this.archive.name = derivedName
       }
 
       this.config.lastArchivePath = this.archive.path
       this.config.projectName = this.archive.name
-      fs.writeFileSync(this.configPath, JSON.stringify(this.config, null, 2))
+      this.saveConfig()
       this.addToRecentProjects(this.archive.name, this.archive.path)
       const metadata = await this.archive.shallowCopy()
       return reply(event, 'openExistingArchive', requestId, metadata)
@@ -466,9 +481,9 @@ export default class Controller {
     const { requestId } = unpackRequest<null>(data)
     this.stopNameCountWorker()
     closeDb()
-    this.archive = null
+    this.setArchiveInternal(null)
     this.config.lastArchivePath = null
-    fs.writeFileSync(this.configPath, JSON.stringify(this.config, null, 2))
+    this.saveConfig()
     this.importManager.setImportStatus({
       isImporting: false,
       current: 0,
@@ -538,15 +553,15 @@ export default class Controller {
 
       // Update the stored path and name inside the DB
       const newName = path.basename(newPath)
-      const db = getDb(newPath)
-      db.prepare('UPDATE metadata SET path = ?, name = ?').run(newPath, newName)
+      await updateMetadataPathAndNameAsync(newPath, newPath, newName)
 
       const metadata = await getMetaData(newPath)
-      this.archive = new Archive(metadata)
+      this.setArchiveInternal(new Archive(metadata))
+      this.updateWindowTitle()
 
       this.config.lastArchivePath = newPath
       this.config.projectName = newName
-      fs.writeFileSync(this.configPath, JSON.stringify(this.config, null, 2))
+      this.saveConfig()
       this.addToRecentProjects(newName, newPath)
 
       const shallow = await this.archive.shallowCopy!()
@@ -568,7 +583,7 @@ export default class Controller {
     // Update stored list to remove stale entries
     if (recents.length !== (this.config.recentProjects || []).length) {
       this.config.recentProjects = recents
-      fs.writeFileSync(this.configPath, JSON.stringify(this.config, null, 2))
+      this.saveConfig()
     }
     return reply(event, 'getRecentProjects', requestId, recents)
   }
@@ -586,21 +601,21 @@ export default class Controller {
       this.stopNameCountWorker()
       closeDb()
       const metadata = await getMetaData(projectPath)
-      this.archive = new Archive(metadata)
+      this.setArchiveInternal(new Archive(metadata))
+      this.updateWindowTitle()
       if (!this.archive || !this.archive.shallowCopy) {
         throw new Error('Failed to load project')
       }
       // Fix legacy projects whose name is still "Untitled"
       if (/^Untitled(\s\d+)?$/.test(this.archive.name)) {
         const derivedName = path.basename(projectPath)
-        const db = getDb(projectPath)
-        db.prepare('UPDATE metadata SET name = ?').run(derivedName)
+        await updateMetadataNameAsync(projectPath, derivedName)
         this.archive.name = derivedName
       }
 
       this.config.lastArchivePath = projectPath
       this.config.projectName = this.archive.name
-      fs.writeFileSync(this.configPath, JSON.stringify(this.config, null, 2))
+      this.saveConfig()
       this.addToRecentProjects(this.archive.name, projectPath)
       const shallow = await this.archive.shallowCopy()
       return reply(event, 'openRecentProject', requestId, shallow)
@@ -687,9 +702,16 @@ export default class Controller {
       }
     }
 
-    await this.archive.addFilter(newFilterJSON)
-    const metadata = await this.archive.shallowCopy()
-    return reply(event, 'addFilter', requestId, metadata)
+    try {
+      await this.archive.addFilter(newFilterJSON)
+      const metadata = await this.archive.shallowCopy()
+      return reply(event, 'addFilter', requestId, metadata)
+    } catch (error) {
+      console.error('[addFilter] error:', error)
+      return reply(event, 'addFilter', requestId, {
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
   }
 
   async removeFilter(event: IpcMainEvent, data: RequestEnvelope<string>) {
@@ -711,148 +733,28 @@ export default class Controller {
       })
     }
 
-    if (payload) {
-      const _t0 = Date.now()
-      await deleteFilterRunAsync(this.archive.path, payload)
-      console.log(`[removeFilter] deleteFilterRun took ${Date.now() - _t0}ms`)
-      const _t1 = Date.now()
-      await this.archive.deleteFilter(payload)
-      console.log(`[removeFilter] deleteFilter took ${Date.now() - _t1}ms`)
-    }
-    const _t2 = Date.now()
-    const metadata = await this.archive.shallowCopy()
-    console.log(`[removeFilter] shallowCopy took ${Date.now() - _t2}ms`)
-    return reply(event, 'removeFilter', requestId, metadata)
-  }
-
-  async removeGame(
-    event: IpcMainEvent,
-    data: RequestEnvelope<{ fileIds: number[] }>,
-  ) {
-    const { requestId, payload } = unpackRequest<{ fileIds: number[] }>(data)
-    if (!this.archive || !payload?.fileIds?.length) {
-      return reply(event, 'removeGame', requestId, { error: 'invalid request' })
-    }
     try {
-      const archivePath = this.archive.path
-      // Look up file paths before deleting so we can cascade
-      const filePaths = getFilePathsByIds(archivePath, payload.fileIds)
-      deleteFiles(archivePath, payload.fileIds)
-
-      // Cascade: remove derived rows from all filter tables by file path
-      if (filePaths.length > 0) {
-        await Promise.all(
-          this.archive.filters.map((f) =>
-            deleteRowsByFilePathsAsync(archivePath, f.id, filePaths),
-          ),
-        )
+      if (payload) {
+        const _t0 = Date.now()
+        await deleteFilterRunAsync(this.archive.path, payload)
+        console.log(`[removeFilter] deleteFilterRun took ${Date.now() - _t0}ms`)
+        const _t1 = Date.now()
+        await this.archive.deleteFilter(payload)
+        console.log(`[removeFilter] deleteFilter took ${Date.now() - _t1}ms`)
       }
-
-      // Refresh archive from DB to get accurate state
-      const metadata = await getMetaData(archivePath)
-      this.archive = new Archive(metadata)
-
-      const removed = payload.fileIds.length
-      this.mainWindow.webContents.send(
-        'archiveUpdated',
-        buildShallowArchive(this.archive),
-      )
-      return reply(event, 'removeGame', requestId, { removed })
-    } catch (error: any) {
-      console.error('[removeGame] error:', error)
-      return reply(event, 'removeGame', requestId, { error: error.message })
+      const _t2 = Date.now()
+      const metadata = await this.archive.shallowCopy()
+      console.log(`[removeFilter] shallowCopy took ${Date.now() - _t2}ms`)
+      return reply(event, 'removeFilter', requestId, metadata)
+    } catch (error) {
+      console.error('[removeFilter] error:', error)
+      return reply(event, 'removeFilter', requestId, {
+        error: error instanceof Error ? error.message : String(error),
+      })
     }
   }
 
-  async removeResult(
-    event: IpcMainEvent,
-    data: RequestEnvelope<{ filterId: string; rowIds: number[] }>,
-  ) {
-    const { requestId, payload } = unpackRequest<{
-      filterId: string
-      rowIds: number[]
-    }>(data)
-    if (!this.archive || !payload?.filterId || !payload?.rowIds?.length) {
-      return reply(event, 'removeResult', requestId, {
-        error: 'invalid request',
-      })
-    }
-    try {
-      const archivePath = this.archive.path
-      validateTableId(payload.filterId)
-      const filter = this.archive.filters.find((f) => f.id === payload.filterId)
-
-      // If this is the game filter, also delete from the files table + cascade
-      if (filter?.type === 'files') {
-        const db = getDb(archivePath)
-        const placeholders = payload.rowIds.map(() => '?').join(',')
-        const rows = db
-          .prepare(
-            `SELECT CAST(JSON_EXTRACT(JSON, '$.id') AS INTEGER) AS fileId, JSON_EXTRACT(JSON, '$.path') AS filePath FROM "${payload.filterId}" WHERE id IN (${placeholders})`,
-          )
-          .all(...payload.rowIds) as { fileId: number; filePath: string }[]
-        const fileIds = rows.map((r) => r.fileId).filter((id) => id > 0)
-        const filePaths = rows
-          .map((r) => r.filePath)
-          .filter((p) => p && p.length > 0)
-        if (fileIds.length > 0) {
-          deleteFiles(archivePath, fileIds)
-        }
-        // Cascade: remove derived rows from downstream filters by file path
-        if (filePaths.length > 0) {
-          await Promise.all(
-            this.archive.filters
-              .filter((f) => f.id !== payload.filterId)
-              .map((f) =>
-                deleteRowsByFilePathsAsync(archivePath, f.id, filePaths),
-              ),
-          )
-        }
-      }
-
-      deleteRows(archivePath, payload.filterId, payload.rowIds)
-
-      // Refresh archive from DB to get accurate state
-      const metadata = await getMetaData(archivePath)
-      this.archive = new Archive(metadata)
-
-      this.mainWindow.webContents.send(
-        'archiveUpdated',
-        buildShallowArchive(this.archive),
-      )
-      return reply(event, 'removeResult', requestId, {
-        removed: payload.rowIds.length,
-      })
-    } catch (error: any) {
-      console.error('[removeResult] error:', error)
-      return reply(event, 'removeResult', requestId, { error: error.message })
-    }
-  }
-
-  reorderClips(
-    event: IpcMainEvent,
-    data: RequestEnvelope<{
-      filterId: string
-      updates: { id: number; sort_order: number }[]
-    }>,
-  ) {
-    const { requestId, payload } = unpackRequest<{
-      filterId: string
-      updates: { id: number; sort_order: number }[]
-    }>(data)
-    if (!this.archive || !payload?.filterId || !payload?.updates?.length) {
-      return reply(event, 'reorderClips', requestId, {
-        error: 'invalid request',
-      })
-    }
-    try {
-      updateSortOrder(this.archive.path, payload.filterId, payload.updates)
-      return reply(event, 'reorderClips', requestId, { success: true })
-    } catch (error: any) {
-      console.error('[reorderClips] error:', error)
-      return reply(event, 'reorderClips', requestId, { error: error.message })
-    }
-  }
+  // removeGame, removeResult, reorderClips → ClipManager
 
   async saveCustomFilter(
     event: IpcMainEvent,
@@ -892,7 +794,7 @@ export default class Controller {
     } else {
       this.config.savedCustomFilters.push(entry)
     }
-    fs.writeFileSync(this.configPath, JSON.stringify(this.config, null, 2))
+    this.saveConfig()
     return reply(event, 'saveCustomFilter', requestId, {
       savedCustomFilters: this.config.savedCustomFilters,
     })
@@ -911,7 +813,7 @@ export default class Controller {
       })
     }
     this.config.savedCustomFilters.splice(payload, 1)
-    fs.writeFileSync(this.configPath, JSON.stringify(this.config, null, 2))
+    this.saveConfig()
     return reply(event, 'deleteCustomFilter', requestId, {
       savedCustomFilters: this.config.savedCustomFilters,
     })
@@ -990,13 +892,20 @@ export default class Controller {
       }
     }
 
-    if (this.archive.saveMetaData) await this.archive.saveMetaData()
-    return reply(
-      event,
-      'reorderFilter',
-      requestId,
-      await this.archive.shallowCopy(),
-    )
+    try {
+      if (this.archive.saveMetaData) await this.archive.saveMetaData()
+      return reply(
+        event,
+        'reorderFilter',
+        requestId,
+        await this.archive.shallowCopy(),
+      )
+    } catch (error) {
+      console.error('[reorderFilter] error:', error)
+      return reply(event, 'reorderFilter', requestId, {
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
   }
 
   async updateFilter(
@@ -1020,22 +929,29 @@ export default class Controller {
       return reply(event, 'updateFilter', requestId, {
         error: 'archive undefined',
       })
-    this.archive.filters[filterIndex] = new Filter({
-      ...newFilter,
-      isProcessed: false,
-      results: 0,
-    })
-    this.archive.filters.slice(filterIndex + 1).forEach((filter) => {
-      filter.isProcessed = false
-      filter.results = 0
-    })
-    if (this.archive.saveMetaData) await this.archive.saveMetaData()
-    return reply(
-      event,
-      'updateFilter',
-      requestId,
-      await this.archive.shallowCopy(),
-    )
+    try {
+      this.archive.filters[filterIndex] = new Filter({
+        ...newFilter,
+        isProcessed: false,
+        results: 0,
+      })
+      this.archive.filters.slice(filterIndex + 1).forEach((filter) => {
+        filter.isProcessed = false
+        filter.results = 0
+      })
+      if (this.archive.saveMetaData) await this.archive.saveMetaData()
+      return reply(
+        event,
+        'updateFilter',
+        requestId,
+        await this.archive.shallowCopy(),
+      )
+    } catch (error) {
+      console.error('[updateFilter] error:', error)
+      return reply(event, 'updateFilter', requestId, {
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
   }
 
   async getResults(
@@ -1082,7 +998,7 @@ export default class Controller {
     }
   }
 
-  getAllResultIds(
+  async getAllResultIds(
     event: IpcMainEvent,
     data: RequestEnvelope<{ filterId: string }>,
   ) {
@@ -1090,15 +1006,16 @@ export default class Controller {
     if (!this.archive || !payload?.filterId) {
       return reply(event, 'getAllResultIds', requestId, [])
     }
-    getAllIdsAsync(this.archive.path, payload.filterId)
-      .then((ids) => reply(event, 'getAllResultIds', requestId, ids))
-      .catch((error) => {
-        console.error('Error fetching all IDs:', error)
-        reply(event, 'getAllResultIds', requestId, [])
-      })
+    try {
+      const ids = await getAllIdsAsync(this.archive.path, payload.filterId)
+      return reply(event, 'getAllResultIds', requestId, ids)
+    } catch (error) {
+      console.error('[getAllResultIds] error:', error)
+      return reply(event, 'getAllResultIds', requestId, [])
+    }
   }
 
-  getTableDuration(
+  async getTableDuration(
     event: IpcMainEvent,
     data: RequestEnvelope<{ filterId: string }>,
   ) {
@@ -1106,12 +1023,16 @@ export default class Controller {
     if (!this.archive || !payload?.filterId) {
       return reply(event, 'getTableDuration', requestId, 0)
     }
-    getTableDurationAsync(this.archive.path, payload.filterId)
-      .then((total) => reply(event, 'getTableDuration', requestId, total))
-      .catch((error) => {
-        console.error('Error calculating table duration:', error)
-        reply(event, 'getTableDuration', requestId, 0)
-      })
+    try {
+      const total = await getTableDurationAsync(
+        this.archive.path,
+        payload.filterId,
+      )
+      return reply(event, 'getTableDuration', requestId, total)
+    } catch (error) {
+      console.error('[getTableDuration] error:', error)
+      return reply(event, 'getTableDuration', requestId, 0)
+    }
   }
 
   private stopNameCountWorker() {
@@ -1281,426 +1202,7 @@ export default class Controller {
     reply(event, 'rendererError', requestId)
   }
 
-  openCodeEditor(
-    _event: IpcMainEvent,
-    data: RequestEnvelope<{
-      filterIndex: number
-      filter: ShallowFilterInterface
-    }>,
-  ) {
-    const { payload } = unpackRequest<{
-      filterIndex: number
-      filter: ShallowFilterInterface
-    }>(data)
-    if (!payload) return
-
-    const { filterIndex, filter } = payload
-    // Collect upstream context: filter types and custom output fields
-    const upstreamFields: { name: string; type: string; from: string }[] = []
-    const upstreamTypes: string[] = []
-    if (this.archive) {
-      for (const f of this.archive.filters) {
-        if (f.id === filter.id) break
-        upstreamTypes.push(f.type)
-        if (f.type === 'custom' && Array.isArray(f.params?.outputFields)) {
-          for (const of2 of f.params.outputFields) {
-            if (of2.name) {
-              upstreamFields.push({
-                name: of2.name,
-                type: of2.type || 'any',
-                from: f.label || 'Custom Code',
-              })
-            }
-          }
-        }
-      }
-    }
-    const initData = {
-      code: filter.params?.code || '',
-      filterName: filter.label,
-      filterId: filter.id,
-      savedCustomFilters: this.config.savedCustomFilters || [],
-      mode: 'filter' as const,
-      customParams: filter.params?.customParams || [],
-      outputFields: filter.params?.outputFields || [],
-      upstreamFields,
-      upstreamTypes,
-    }
-
-    this._openCodeEditorWindow(initData, { filterIndex, filterId: filter.id })
-  }
-
-  openCodeEditorForTemplate(
-    _event: IpcMainEvent,
-    data: RequestEnvelope<{ templateIndex: number }>,
-  ) {
-    const { payload } = unpackRequest<{ templateIndex: number }>(data)
-    if (!payload) return
-    const { templateIndex } = payload
-    const tmpl = this.config.savedCustomFilters?.[templateIndex]
-    if (!tmpl) return
-
-    const initData = {
-      code: tmpl.code,
-      filterName: tmpl.name,
-      filterId: '',
-      savedCustomFilters: this.config.savedCustomFilters || [],
-      mode: 'template' as const,
-      templateIndex,
-      customParams: tmpl.customParams || [],
-    }
-
-    this._openCodeEditorWindow(initData, null)
-  }
-
-  _openCodeEditorWindow(
-    initData: {
-      code: string
-      filterName: string
-      filterId: string
-      savedCustomFilters: { name: string; code: string }[]
-      mode: 'filter' | 'template'
-      templateIndex?: number
-      customParams?: { name: string; type: string; value: string }[]
-      outputFields?: { name: string; type: string }[]
-      upstreamFields?: { name: string; type: string; from: string }[]
-      upstreamTypes?: string[]
-    },
-    filterContext: { filterIndex: number; filterId: string } | null,
-  ) {
-    const windowTitle =
-      initData.mode === 'template'
-        ? `LM Clipper Code Editor - ${initData.filterName}`
-        : `LM Clipper Custom Code Editor - ${initData.filterName}`
-
-    // Clean up any stale IPC listeners from a previous code editor session
-    if (this._cleanupCodeEditorListeners) {
-      this._cleanupCodeEditorListeners()
-      this._cleanupCodeEditorListeners = null
-    }
-
-    // If window already open, focus it and send new init data
-    if (this.codeEditorWindow && !this.codeEditorWindow.isDestroyed()) {
-      this.codeEditorContext = filterContext
-      this.codeEditorWindow.setTitle(windowTitle)
-      this.codeEditorWindow.webContents.send('code-editor-init', initData)
-      this.codeEditorWindow.focus()
-      return
-    }
-
-    this.codeEditorContext = filterContext
-
-    const preloadPath = app.isPackaged
-      ? path.join(__dirname, 'preload.js')
-      : path.join(__dirname, '../../.erb/dll/preload.js')
-
-    this.codeEditorWindow = new BrowserWindow({
-      title: windowTitle,
-      width: 1100,
-      height: 750,
-      webPreferences: {
-        preload: preloadPath,
-        devTools: false,
-      },
-      autoHideMenuBar: true,
-    })
-
-    // Remove menu bar entirely
-    this.codeEditorWindow.setMenu(null)
-
-    const editorWindow = this.codeEditorWindow
-
-    // Listen for ready signal before sending init data
-    ipcMain.once('code-editor-ready', () => {
-      if (editorWindow && !editorWindow.isDestroyed()) {
-        editorWindow.webContents.send('code-editor-init', initData)
-      }
-    })
-
-    // Listen for save (filter mode)
-    const onSave = (
-      _saveEvent: IpcMainEvent,
-      saveData: {
-        code: string
-        filterId: string
-        mode?: string
-        templateIndex?: number
-      },
-    ) => {
-      if (!saveData) return
-
-      // Template mode: overwrite the template in config
-      if (
-        saveData.mode === 'template' &&
-        typeof saveData.templateIndex === 'number'
-      ) {
-        const idx = saveData.templateIndex
-        if (
-          this.config.savedCustomFilters &&
-          idx >= 0 &&
-          idx < this.config.savedCustomFilters.length
-        ) {
-          this.config.savedCustomFilters[idx].code = saveData.code
-          fs.writeFileSync(
-            this.configPath,
-            JSON.stringify(this.config, null, 2),
-          )
-          // Notify editor of updated templates
-          if (editorWindow && !editorWindow.isDestroyed()) {
-            editorWindow.webContents.send('code-editor-templates-updated', [
-              ...this.config.savedCustomFilters,
-            ])
-          }
-          // Notify main window
-          this.mainWindow.webContents.send(
-            'config-templates-updated',
-            this.config.savedCustomFilters,
-          )
-        }
-        return
-      }
-
-      // Filter mode
-      if (!this.archive || !this.codeEditorContext) return
-      const { filterIndex: idx, filterId } = this.codeEditorContext
-      if (saveData.filterId !== filterId) return
-      const existingFilter = this.archive.filters[idx]
-      if (!existingFilter) return
-      existingFilter.params = { ...existingFilter.params, code: saveData.code }
-
-      // If the saved code matches a template, sync its customParams & outputFields
-      const matchedTemplate = (this.config.savedCustomFilters || []).find(
-        (t) => t.code.trim() === saveData.code.trim(),
-      )
-      if (matchedTemplate) {
-        existingFilter.label = matchedTemplate.name
-        if (matchedTemplate.customParams) {
-          existingFilter.params.customParams = JSON.parse(
-            JSON.stringify(matchedTemplate.customParams),
-          )
-        }
-        if (matchedTemplate.outputFields) {
-          existingFilter.params.outputFields = JSON.parse(
-            JSON.stringify(matchedTemplate.outputFields),
-          )
-        }
-      }
-      existingFilter.isProcessed = false
-      existingFilter.results = 0
-      // Invalidate downstream filters
-      this.archive.filters.slice(idx + 1).forEach((f) => {
-        f.isProcessed = false
-        f.results = 0
-      })
-      if (this.archive.saveMetaData) this.archive.saveMetaData()
-      const shallow = buildShallowArchive(this.archive)
-      console.log(
-        '[code-editor-save] filter params:',
-        JSON.stringify(existingFilter.params.customParams),
-      )
-      console.log(
-        '[code-editor-save] matched template:',
-        matchedTemplate?.name || 'none',
-      )
-      this.mainWindow.webContents.send('code-editor-saved', shallow)
-    }
-    ipcMain.on('code-editor-save', onSave)
-
-    // Listen for template save
-    const onSaveTemplate = (
-      _e: IpcMainEvent,
-      tmplData: {
-        name: string
-        code: string
-        customParams?: { name: string; type: string; value: string }[]
-        outputFields?: { name: string; type: string }[]
-      },
-    ) => {
-      if (!tmplData?.name || !tmplData?.code) return
-      if (!this.config.savedCustomFilters) this.config.savedCustomFilters = []
-      const existing = this.config.savedCustomFilters.findIndex(
-        (t) => t.name === tmplData.name,
-      )
-      const entry = {
-        name: tmplData.name,
-        code: tmplData.code,
-        customParams: tmplData.customParams,
-        outputFields: tmplData.outputFields,
-      }
-      if (existing >= 0) {
-        this.config.savedCustomFilters[existing] = entry
-      } else {
-        this.config.savedCustomFilters.push(entry)
-      }
-      fs.writeFileSync(this.configPath, JSON.stringify(this.config, null, 2))
-      const templates = [...this.config.savedCustomFilters]
-      if (editorWindow && !editorWindow.isDestroyed()) {
-        editorWindow.webContents.send(
-          'code-editor-templates-updated',
-          templates,
-        )
-      }
-      // Notify main window
-      this.mainWindow.webContents.send('config-templates-updated', templates)
-    }
-    ipcMain.on('code-editor-save-template', onSaveTemplate)
-
-    // Listen for template delete
-    const onDeleteTemplate = (_e: IpcMainEvent, index: number) => {
-      if (
-        !this.config.savedCustomFilters ||
-        typeof index !== 'number' ||
-        index < 0 ||
-        index >= this.config.savedCustomFilters.length
-      )
-        return
-      this.config.savedCustomFilters.splice(index, 1)
-      fs.writeFileSync(this.configPath, JSON.stringify(this.config, null, 2))
-      const templates = [...this.config.savedCustomFilters]
-      if (editorWindow && !editorWindow.isDestroyed()) {
-        editorWindow.webContents.send(
-          'code-editor-templates-updated',
-          templates,
-        )
-      }
-      this.mainWindow.webContents.send('config-templates-updated', templates)
-    }
-    ipcMain.on('code-editor-delete-template', onDeleteTemplate)
-
-    // Test run: execute code on a sample of clips from the previous filter
-    const onTestRun = async (
-      _e: IpcMainEvent,
-      testData: { code: string; customParams?: any[]; sampleSize?: number },
-    ) => {
-      if (!this.archive || !this.codeEditorContext) {
-        editorWindow?.webContents.send('code-editor-test-result', {
-          error: 'No archive or filter context',
-        })
-        return
-      }
-      const { filterIndex } = this.codeEditorContext
-      try {
-        // Get clips from the previous filter (or files table)
-        const prevFilterId =
-          filterIndex > 0 ? this.archive.filters[filterIndex - 1].id : 'files'
-        const sampleSize =
-          testData.sampleSize && testData.sampleSize > 0
-            ? testData.sampleSize
-            : 5
-        const items = await this.archive.getItems!({
-          filterId: prevFilterId,
-          limit: sampleSize,
-          offset: 0,
-        })
-        if (!items || items.length === 0) {
-          editorWindow?.webContents.send('code-editor-test-result', {
-            error: 'No clips available from previous filter',
-          })
-          return
-        }
-
-        // Build merged params
-        const params: any = { code: testData.code }
-        const reserved = new Set(['code', 'maxFiles', 'customParams'])
-        if (Array.isArray(testData.customParams)) {
-          params.customParams = testData.customParams
-          for (const cp of testData.customParams) {
-            if (!cp.name || reserved.has(cp.name)) continue
-            if (cp.type === 'int') {
-              const n = parseInt(cp.value, 10)
-              params[cp.name] = Number.isNaN(n) ? 0 : n
-            } else if (cp.type === 'array') {
-              params[cp.name] = (cp.value ?? '')
-                .split(',')
-                .map((s: string) => s.trim())
-                .filter(Boolean)
-            } else {
-              params[cp.name] = cp.value ?? ''
-            }
-          }
-        }
-
-        // Capture console output
-        const logs: string[] = []
-        const fakeConsole = {
-          log: (...args: any[]) => {
-            logs.push(
-              args
-                .map((a) =>
-                  typeof a === 'object'
-                    ? JSON.stringify(a, null, 2)
-                    : String(a),
-                )
-                .join(' '),
-            )
-          },
-          warn: (...args: any[]) => {
-            logs.push(
-              `[warn] ${args.map((a) => (typeof a === 'object' ? JSON.stringify(a) : String(a))).join(' ')}`,
-            )
-          },
-          error: (...args: any[]) => {
-            logs.push(
-              `[error] ${args.map((a) => (typeof a === 'object' ? JSON.stringify(a) : String(a))).join(' ')}`,
-            )
-          },
-        }
-
-        // eslint-disable-next-line no-new-func
-        const userFn = new Function(
-          'clips',
-          'params',
-          'SlippiGame',
-          'console',
-          testData.code,
-        )
-        // eslint-disable-next-line global-require
-        const { SlippiGame } = require('@slippi/slippi-js')
-        const result = userFn(items as any[], params, SlippiGame, fakeConsole)
-
-        const outputClips = Array.isArray(result) ? result : []
-
-        editorWindow?.webContents.send('code-editor-test-result', {
-          logs,
-          inputClips: items,
-          outputClips: outputClips.slice(0, 20),
-          inputCount: items.length,
-          outputCount: outputClips.length,
-        })
-      } catch (err: any) {
-        editorWindow?.webContents.send('code-editor-test-result', {
-          error: err?.message || String(err),
-        })
-      }
-    }
-    ipcMain.on('code-editor-test-run', onTestRun)
-
-    // Close editor via IPC from renderer
-    const onClose = () => {
-      if (editorWindow && !editorWindow.isDestroyed()) {
-        editorWindow.close()
-      }
-    }
-    ipcMain.on('code-editor-close', onClose)
-
-    const cleanupListeners = () => {
-      ipcMain.removeListener('code-editor-save', onSave)
-      ipcMain.removeListener('code-editor-save-template', onSaveTemplate)
-      ipcMain.removeListener('code-editor-delete-template', onDeleteTemplate)
-      ipcMain.removeListener('code-editor-test-run', onTestRun)
-      ipcMain.removeListener('code-editor-close', onClose)
-    }
-    this._cleanupCodeEditorListeners = cleanupListeners
-
-    editorWindow.on('closed', () => {
-      cleanupListeners()
-      this._cleanupCodeEditorListeners = null
-      this.codeEditorWindow = null
-      this.codeEditorContext = null
-    })
-
-    editorWindow.loadURL(resolveHtmlPath('codeEditor.html'))
-  }
+  // openCodeEditor, openCodeEditorForTemplate, _openCodeEditorWindow → CodeEditorManager
 
   initiateListeners() {
     ipcMain.on('getConfig', this.getConfig.bind(this))
@@ -1807,9 +1309,15 @@ export default class Controller {
       'recordClip',
       this.videoManager.recordClip.bind(this.videoManager),
     )
-    ipcMain.on('removeGame', this.removeGame.bind(this))
-    ipcMain.on('removeResult', this.removeResult.bind(this))
-    ipcMain.on('reorderClips', this.reorderClips.bind(this))
+    ipcMain.on('removeGame', this.clipManager.removeGame.bind(this.clipManager))
+    ipcMain.on(
+      'removeResult',
+      this.clipManager.removeResult.bind(this.clipManager),
+    )
+    ipcMain.on(
+      'reorderClips',
+      this.clipManager.reorderClips.bind(this.clipManager),
+    )
     ipcMain.on('logPerfEvents', this.logPerfEvents.bind(this))
     ipcMain.on('debugLog', this.debugLog.bind(this))
     ipcMain.on('openFolder', (_event: IpcMainEvent, folderPath: string) => {
@@ -1852,6 +1360,49 @@ export default class Controller {
     ipcMain.on('getLogsPath', (event: IpcMainEvent) => {
       event.reply('logsPath', getLogPath())
     })
+    ipcMain.on(
+      'exportLogs',
+      async (event: IpcMainEvent, data: RequestEnvelope<null>) => {
+        const { requestId } = unpackRequest<null>(data)
+        try {
+          // eslint-disable-next-line global-require
+          const JSZip = require('jszip')
+          const logsDir = getLogPath()
+          const zip = new JSZip()
+          try {
+            await fsPromises.access(logsDir)
+            const files = await fsPromises.readdir(logsDir)
+            for (const file of files) {
+              const filePath = path.join(logsDir, file)
+              const stat = await fsPromises.stat(filePath)
+              if (stat.isFile()) {
+                zip.file(file, await fsPromises.readFile(filePath))
+              }
+            }
+          } catch (_) {
+            // logs dir doesn't exist or is empty
+          }
+          const downloadsDir = app.getPath('downloads')
+          const timestamp = new Date()
+            .toISOString()
+            .replace(/[:.]/g, '-')
+            .slice(0, 19)
+          const outPath = path.join(
+            downloadsDir,
+            `lm-clipper-logs-${timestamp}.zip`,
+          )
+          const buf = await zip.generateAsync({ type: 'nodebuffer' })
+          await fsPromises.writeFile(outPath, buf)
+          shell.showItemInFolder(outPath)
+          return reply(event, 'exportLogs', requestId, { path: outPath })
+        } catch (error) {
+          console.error('Export logs error:', error)
+          return reply(event, 'exportLogs', requestId, {
+            error: error instanceof Error ? error.message : String(error),
+          })
+        }
+      },
+    )
     ipcMain.on('getAppVersion', (event: IpcMainEvent) => {
       event.reply('appVersion', app.getVersion())
     })
@@ -1869,7 +1420,7 @@ export default class Controller {
         if (this.config[key] !== undefined) preserved[key] = this.config[key]
       }
       this.config = { ...defaultConfig, ...preserved }
-      fs.writeFileSync(this.configPath, JSON.stringify(this.config, null, 2))
+      this.saveConfig()
       event.reply('config', this.config)
     })
     ipcMain.on('openExternal', (_event: IpcMainEvent, url: string) => {
@@ -1885,10 +1436,15 @@ export default class Controller {
       'testDolphin',
       this.videoManager.testDolphin.bind(this.videoManager),
     )
-    ipcMain.on('openCodeEditor', this.openCodeEditor.bind(this))
+    ipcMain.on(
+      'openCodeEditor',
+      this.codeEditorManager.openCodeEditor.bind(this.codeEditorManager),
+    )
     ipcMain.on(
       'openCodeEditorForTemplate',
-      this.openCodeEditorForTemplate.bind(this),
+      this.codeEditorManager.openCodeEditorForTemplate.bind(
+        this.codeEditorManager,
+      ),
     )
   }
 }
