@@ -139,9 +139,7 @@ const processOneReplay = async (
   const fileBasename = path.basename(resolvedName)
 
   // Ensure output subdirectories exist
-  if (!fs.existsSync(outputDir)) {
-    fs.mkdirSync(outputDir, { recursive: true })
-  }
+  await fsPromises.mkdir(outputDir, { recursive: true })
 
   const basePath = (suffix: string) =>
     path.resolve(outputDir, `${fileBasename}${suffix}`)
@@ -434,8 +432,7 @@ const processReplays = async (
     eventEmitter('Concatenating clips...')
 
     const ext = config.convertToMp4 ? '.mp4' : '.avi'
-    const outputFiles = fs
-      .readdirSync(config.outputPath)
+    const outputFiles = (await fsPromises.readdir(config.outputPath))
       .filter(
         (f) =>
           f.endsWith(ext) && !f.includes('-unmerged') && !f.includes('-merged'),
@@ -555,14 +552,17 @@ const configureDolphin = async (
       'Dolphin.ini',
     )
 
-    if (!fs.existsSync(gameSettingsPath)) {
+    try {
+      await fsPromises.access(gameSettingsPath)
+    } catch {
       eventEmitter('Creating game settings file')
-      const fd = fs.openSync(gameSettingsPath, 'a')
-      fs.closeSync(fd)
+      await fsPromises.writeFile(gameSettingsPath, '')
     }
   }
 
-  if (!fs.existsSync(gameSettingsPath)) {
+  try {
+    await fsPromises.access(gameSettingsPath)
+  } catch {
     eventEmitter('Error: could not find game settings file')
     throw new Error('Error: could not find game settings file')
   }

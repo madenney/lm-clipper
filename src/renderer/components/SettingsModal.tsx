@@ -60,6 +60,8 @@ export default function SettingsModal({
   const [resetConfirm, setResetConfirm] = useState(false)
   const [appVersion, setAppVersion] = useState('')
   const [logsPath, setLogsPath] = useState('')
+  const [exportingLogs, setExportingLogs] = useState(false)
+  const [exportedPath, setExportedPath] = useState<string | null>(null)
   const [expandedGeckoIdx, setExpandedGeckoIdx] = useState<number | null>(null)
   const [updateCheckStatus, setUpdateCheckStatus] = useState<
     'idle' | 'checking' | 'up-to-date' | 'available' | 'error'
@@ -486,7 +488,10 @@ export default function SettingsModal({
                   {logsPath || 'Loading...'}
                 </span>
               </div>
-              <div className="settings-item-control">
+              <div
+                className="settings-item-control"
+                style={{ display: 'flex', gap: 8 }}
+              >
                 <button
                   type="button"
                   className="settings-action-btn"
@@ -500,6 +505,38 @@ export default function SettingsModal({
                   }}
                 >
                   Open Logs
+                </button>
+                <button
+                  type="button"
+                  className="settings-action-btn"
+                  disabled={exportingLogs}
+                  onClick={() => {
+                    setExportingLogs(true)
+                    setExportedPath(null)
+                    const reqId = `${Date.now()}`
+                    const remove = window.electron.ipcRenderer.on(
+                      'exportLogs',
+                      (resp: any) => {
+                        if (resp?.requestId !== reqId) return
+                        remove()
+                        setExportingLogs(false)
+                        if (resp.payload?.path) {
+                          setExportedPath(resp.payload.path)
+                          setTimeout(() => setExportedPath(null), 4000)
+                        }
+                      },
+                    )
+                    window.electron.ipcRenderer.sendMessage('exportLogs', {
+                      requestId: reqId,
+                      payload: null,
+                    })
+                  }}
+                >
+                  {exportingLogs
+                    ? 'Exporting...'
+                    : exportedPath
+                      ? 'Exported!'
+                      : 'Export Logs'}
                 </button>
               </div>
             </div>

@@ -12,6 +12,7 @@ import {
 import '../styles/Filters.css'
 import { filtersConfig } from 'constants/config'
 import ipcBridge from '../ipcBridge'
+import useIpcListener from '../hooks/useIpcListener'
 import {
   ConfigInterface,
   FilterInterface,
@@ -85,88 +86,78 @@ export default function Filters({
     }
   }, [])
 
-  useEffect(() => {
-    const removeRunningListener = window.electron.ipcRenderer.on(
-      'currentlyRunningFilter',
-      (event: { running: number[] }) => {
-        const next = new Set(event.running)
-        setRunningFilters((prev) => {
-          // Find indices that stopped running and clear their messages
-          const stopped: number[] = []
-          prev.forEach((idx) => {
-            if (!next.has(idx)) stopped.push(idx)
-          })
-          if (stopped.length > 0) {
-            setFilterMsgs((msgs) => {
-              const updated = { ...msgs }
-              // Clear progress messages for stopped filters
-              for (const key of Object.keys(updated)) {
-                // Messages are keyed by filterId; we can't map idx->id here,
-                // so just clear all progress-shaped messages (e.g. "123/456")
-                if (/^\d+\/\d+$/.test(updated[key])) {
-                  delete updated[key]
-                }
-              }
-              return updated
-            })
+  useIpcListener('currentlyRunningFilter', (event: { running: number[] }) => {
+    const next = new Set(event.running)
+    setRunningFilters((prev) => {
+      const stopped: number[] = []
+      prev.forEach((idx) => {
+        if (!next.has(idx)) stopped.push(idx)
+      })
+      if (stopped.length > 0) {
+        setFilterMsgs((msgs) => {
+          const updated = { ...msgs }
+          for (const key of Object.keys(updated)) {
+            if (/^\d+\/\d+$/.test(updated[key])) {
+              delete updated[key]
+            }
           }
-          return next
+          return updated
         })
-      },
-    )
+      }
+      return next
+    })
+  })
 
-    const removeUpdateListener = window.electron.ipcRenderer.on(
-      'filterUpdate',
-      (event: {
-        filterId?: string
-        filterIndex?: number
-        total: number
-        current: number
-        results?: number
-      }) => {
-        const key = event.filterId || String(event.filterIndex ?? '')
-        if (key) {
-          setFilterMsgs((prev) => ({
+  useIpcListener(
+    'filterUpdate',
+    (event: {
+      filterId?: string
+      filterIndex?: number
+      total: number
+      current: number
+      results?: number
+    }) => {
+      const key = event.filterId || String(event.filterIndex ?? '')
+      if (key) {
+        setFilterMsgs((prev) => ({
+          ...prev,
+          [key]: `${event.current}/${event.total}`,
+        }))
+        if (event.results !== undefined) {
+          setLiveResults((prev) => ({
             ...prev,
-            [key]: `${event.current}/${event.total}`,
+            [key]: event.results as number,
           }))
-          if (event.results !== undefined) {
-            setLiveResults((prev) => ({
-              ...prev,
-              [key]: event.results as number,
-            }))
-          }
         }
-      },
-    )
+      }
+    },
+  )
 
-    const removeErrorListener = window.electron.ipcRenderer.on(
-      'filterError',
-      (event: { filterId: string; filterLabel: string; errors: string[] }) => {
-        setFilterError({
-          filterLabel: event.filterLabel,
-          errors: event.errors,
-        })
-      },
-    )
+  useIpcListener(
+    'filterError',
+    (event: { filterId: string; filterLabel: string; errors: string[] }) => {
+      setFilterError({
+        filterLabel: event.filterLabel,
+        errors: event.errors,
+      })
+    },
+  )
 
-    const removeLogsListener = window.electron.ipcRenderer.on(
-      'filterLogs',
-      (event: { filterId: string; filterLabel: string; logs: string[] }) => {
-        setFilterLogs({
-          filterLabel: event.filterLabel,
-          logs: event.logs,
-        })
-      },
-    )
+  useIpcListener(
+    'filterLogs',
+    (event: { filterId: string; filterLabel: string; logs: string[] }) => {
+      setFilterLogs({
+        filterLabel: event.filterLabel,
+        logs: event.logs,
+      })
+    },
+  )
 
-    const removeCodeEditorSavedListener = window.electron.ipcRenderer.on(
-      'code-editor-saved',
-      (shallowArchive: any) => {
-        if (shallowArchive) setArchive(shallowArchive)
-      },
-    )
+  useIpcListener('code-editor-saved', (shallowArchive: any) => {
+    if (shallowArchive) setArchive(shallowArchive)
+  })
 
+  useEffect(() => {
     const handleClickOutside = (event: Event) => {
       if (
         dropdownRef.current &&
@@ -176,13 +167,7 @@ export default function Filters({
       }
     }
     document.addEventListener('mousedown', handleClickOutside)
-
     return () => {
-      removeRunningListener()
-      removeUpdateListener()
-      removeErrorListener()
-      removeLogsListener()
-      removeCodeEditorSavedListener()
       document.removeEventListener('mousedown', handleClickOutside)
     }
   }, [])
@@ -312,11 +297,22 @@ export default function Filters({
   }
 
   function dismissResume(filter: ShallowFilterInterface) {
+    console.log('[dismissResume] sending for filter:', filter.id)
     ipcBridge.dismissFilterResume(filter.id, (response) => {
+      console.log('[dismissResume] response:', response)
       if (!response || response?.error) {
         console.error('dismissFilterResume error:', response?.error)
         return
       }
+      const stillResumable = response?.filters?.filter((f: any) => f.resumable)
+      console.log(
+        '[dismissResume] still resumable:',
+        stillResumable?.map((f: any) => ({
+          id: f.id,
+          label: f.label,
+          resumable: f.resumable,
+        })),
+      )
       setArchive(response)
     })
   }

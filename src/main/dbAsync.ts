@@ -146,3 +146,56 @@ export function updateFilterRunProgressAsync(
 ): Promise<void> {
   return call(dbPath, 'updateFilterRunProgress', { filterId, processed })
 }
+
+export function deleteFilesAsync(
+  dbPath: string,
+  fileIds: number[],
+): Promise<void> {
+  return call(dbPath, 'deleteFiles', { fileIds })
+}
+
+export function getFilePathsByIdsAsync(
+  dbPath: string,
+  fileIds: number[],
+): Promise<string[]> {
+  return call(dbPath, 'getFilePathsByIds', { fileIds })
+}
+
+export function deleteRowsAsync(
+  dbPath: string,
+  tableId: string,
+  rowIds: number[],
+): Promise<void> {
+  return call(dbPath, 'deleteRows', { tableId, rowIds })
+}
+
+export function updateSortOrderAsync(
+  dbPath: string,
+  tableId: string,
+  updates: { id: number; sort_order: number }[],
+): Promise<void> {
+  return call(dbPath, 'updateSortOrder', { tableId, updates })
+}
+
+export function updateMetadataNameAsync(
+  dbPath: string,
+  name: string,
+): Promise<void> {
+  return call(dbPath, 'updateMetadataName', { name })
+}
+
+export function updateMetadataPathAndNameAsync(
+  dbPath: string,
+  newPath: string,
+  name: string,
+): Promise<void> {
+  return call(dbPath, 'updateMetadataPathAndName', { path: newPath, name })
+}
+
+export function getGameFilterRowInfo(
+  dbPath: string,
+  tableId: string,
+  rowIds: number[],
+): Promise<{ fileId: number; filePath: string }[]> {
+  return call(dbPath, 'getGameFilterRowInfo', { tableId, rowIds })
+}

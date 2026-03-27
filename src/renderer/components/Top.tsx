@@ -5,6 +5,7 @@ import { HiGlobeAlt } from 'react-icons/hi'
 import '../styles/Top.css'
 import { ConfigInterface } from '../../constants/types'
 import ipcBridge from '../ipcBridge'
+import useIpcListener from '../hooks/useIpcListener'
 import SettingsModal from './SettingsModal'
 import GeckoModal from './GeckoModal'
 
@@ -20,31 +21,20 @@ export default function Top({ config, setConfig }: TopProps) {
   const [importCurrent, setImportCurrent] = useState(0)
   const [importTotal, setImportTotal] = useState<number | null>(null)
 
+  const applyStatus = (status: any) => {
+    if (!status || typeof status !== 'object') return
+    const isImportingNext = !!status.isImporting
+    const current = typeof status.current === 'number' ? status.current : 0
+    const total = typeof status.total === 'number' ? status.total : null
+    setIsImporting(isImportingNext)
+    setImportCurrent(isImportingNext ? current : 0)
+    setImportTotal(isImportingNext ? total : null)
+  }
+
+  useIpcListener('importStatus', applyStatus)
+
   useEffect(() => {
-    const applyStatus = (status: any) => {
-      if (!status || typeof status !== 'object') return
-      const isImportingNext = !!status.isImporting
-      const current = typeof status.current === 'number' ? status.current : 0
-      const total = typeof status.total === 'number' ? status.total : null
-      setIsImporting(isImportingNext)
-      setImportCurrent(isImportingNext ? current : 0)
-      setImportTotal(isImportingNext ? total : null)
-    }
-
-    const removeListener = window.electron.ipcRenderer.on(
-      'importStatus',
-      (status) => {
-        applyStatus(status)
-      },
-    )
-
-    ipcBridge.getImportStatus((status) => {
-      applyStatus(status)
-    })
-
-    return () => {
-      removeListener()
-    }
+    ipcBridge.getImportStatus(applyStatus)
   }, [])
 
   function handleChange(key: string, value: any) {
@@ -148,14 +138,6 @@ export default function Top({ config, setConfig }: TopProps) {
         >
           <HiGlobeAlt className="top-lunar-icon" />
           <span>Lunar Database</span>
-        </button>
-        <button
-          type="button"
-          className="top-gecko-btn"
-          onClick={() => setGeckoModalOpen(true)}
-          title="Configure Gecko Codes for recording"
-        >
-          Gecko Codes
         </button>
         <div
           className="gear-icon"

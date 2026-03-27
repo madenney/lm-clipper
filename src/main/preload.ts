@@ -67,6 +67,7 @@ const SEND_CHANNELS = new Set([
   'openFolder',
   'openExternal',
   'getLogsPath',
+  'exportLogs',
   'getAppVersion',
   'resetConfig',
   'rendererError',

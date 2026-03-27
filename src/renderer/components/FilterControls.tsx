@@ -510,6 +510,7 @@ export default function FilterControls({
                       <div
                         key={n.name}
                         className={`filter-multi-item${checked ? ' filter-multi-item-checked' : ''}`}
+                        title={`${n.name} (${n.total.toLocaleString()})`}
                         onClick={(e) => {
                           e.stopPropagation()
                           const next = checked
@@ -521,7 +522,7 @@ export default function FilterControls({
                         <span className="filter-multi-check">
                           {checked ? '\u2714' : ''}
                         </span>
-                        <span>{n.name}</span>
+                        <span className="filter-multi-name">{n.name}</span>
                         <span className="filter-autocomplete-count">
                           {n.total}
                         </span>
@@ -640,6 +641,7 @@ export default function FilterControls({
                       <div
                         key={n.name}
                         className={`filter-multi-item${checked ? ' filter-multi-item-checked' : ''}`}
+                        title={`${n.name} (${n.total.toLocaleString()})`}
                         onClick={(e) => {
                           e.stopPropagation()
                           const next = checked
@@ -651,7 +653,7 @@ export default function FilterControls({
                         <span className="filter-multi-check">
                           {checked ? '\u2714' : ''}
                         </span>
-                        <span>{n.name}</span>
+                        <span className="filter-multi-name">{n.name}</span>
                         <span className="filter-autocomplete-count">
                           {n.total}
                         </span>
@@ -721,7 +723,10 @@ export default function FilterControls({
   ) {
     return (
       <div key={`${move.n}-${index}`} className="filter-nth-row">
-        <label className="filter-nth-field">
+        <label
+          className="filter-nth-field"
+          title="Move position in the combo (0-based). Positive = from start, negative = from end."
+        >
           <span className="filter-nth-field-label">N</span>
           <input
             className="filter-control-input filter-nth-input"
@@ -733,7 +738,10 @@ export default function FilterControls({
             }}
           />
         </label>
-        <label className="filter-nth-field">
+        <label
+          className="filter-nth-field"
+          title="Maximum frame gap between this move and the previous move"
+        >
           <span className="filter-nth-field-label">T Max</span>
           <input
             className="filter-control-input filter-nth-input"
@@ -745,7 +753,10 @@ export default function FilterControls({
             }}
           />
         </label>
-        <label className="filter-nth-field">
+        <label
+          className="filter-nth-field"
+          title="Minimum frame gap between this move and the previous move"
+        >
           <span className="filter-nth-field-label">T Min</span>
           <input
             className="filter-control-input filter-nth-input"
@@ -757,7 +768,10 @@ export default function FilterControls({
             }}
           />
         </label>
-        <label className="filter-nth-field">
+        <label
+          className="filter-nth-field"
+          title="Damage constraint for this move (min or max depending on the dropdown)"
+        >
           <span className="filter-nth-field-label">D</span>
           <div className="filter-nth-damage-row">
             <select
@@ -784,7 +798,10 @@ export default function FilterControls({
             />
           </div>
         </label>
-        <div className="filter-nth-field filter-nth-field-move">
+        <div
+          className="filter-nth-field filter-nth-field-move"
+          title="Which attack move to match at this position"
+        >
           <span className="filter-nth-field-label">Move</span>
           {renderMultiDropdown(
             `${f.id}:nth:${index}`,
@@ -810,6 +827,7 @@ export default function FilterControls({
             filterClone.params[nthMovesOption.id].splice(index, 1)
             updateFilter(filterClone, f)
           }}
+          title="Remove this move rule"
         >
           ✕
         </button>
@@ -831,7 +849,10 @@ export default function FilterControls({
     return (
       <div key={`${move.n}-${index}`} className="filter-nth-row-wrap">
         <div className="filter-nth-row">
-          <div className="filter-nth-field filter-nth-field-move">
+          <div
+            className="filter-nth-field filter-nth-field-move"
+            title="Which position in the combo this move must appear at"
+          >
             <span className="filter-nth-field-label">Position</span>
             <div className={showCustomInput ? 'filter-nth-pos-row' : undefined}>
               {renderPositionDropdown(f, nthMovesOption, move, index)}
@@ -872,7 +893,10 @@ export default function FilterControls({
               )}
             </div>
           </div>
-          <div className="filter-nth-field filter-nth-field-move">
+          <div
+            className="filter-nth-field filter-nth-field-move"
+            title="Which attack move to match at this position"
+          >
             <span className="filter-nth-field-label">Move</span>
             {renderMultiDropdown(
               `${f.id}:nth:${index}`,
@@ -908,6 +932,7 @@ export default function FilterControls({
           <button
             type="button"
             className="filter-nth-delete"
+            title="Remove this move rule"
             onClick={() => {
               const filterClone = cloneDeep(f)
               filterClone.params[nthMovesOption.id].splice(index, 1)

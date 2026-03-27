@@ -37,7 +37,7 @@ const nextRequestId = () => {
 setInterval(() => {
   const now = Date.now()
   for (const [channel, pending] of pendingByChannel) {
-    for (const [requestId] of pending) {
+    for (const [requestId, handler] of pending) {
       const ts = requestTimestamps.get(requestId)
       if (
         ts &&
@@ -46,9 +46,13 @@ setInterval(() => {
       ) {
         pending.delete(requestId)
         requestTimestamps.delete(requestId)
-        console.warn(
-          `[ipcBridge] Reaped stale request ${requestId} on ${channel}`,
-        )
+        console.warn(`[ipcBridge] Timed out request ${requestId} on ${channel}`)
+        // Notify the caller instead of silently dropping
+        try {
+          handler({ error: `Request timed out (${channel})` })
+        } catch (_) {
+          // handler may not expect error shape, don't crash
+        }
       }
     }
   }

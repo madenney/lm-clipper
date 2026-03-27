@@ -279,8 +279,7 @@ export default class VideoManager {
     if (!stopped && videoConfig.outputPath) {
       try {
         const ext = videoConfig.convertToMp4 ? '.mp4' : '.avi'
-        const allFiles = fs
-          .readdirSync(videoConfig.outputPath)
+        const allFiles = (await fsPromises.readdir(videoConfig.outputPath))
           .filter(
             (f) =>
               f.endsWith(ext) &&
@@ -292,9 +291,10 @@ export default class VideoManager {
         let totalSize = 0
         for (const f of allFiles) {
           try {
-            totalSize += fs.statSync(
+            const stat = await fsPromises.stat(
               path.resolve(videoConfig.outputPath, f),
-            ).size
+            )
+            totalSize += stat.size
           } catch {
             // skip
           }
@@ -497,10 +497,18 @@ export default class VideoManager {
       replay.endFrame += lastClipOffset
     }
 
-    const job = slpToVideo([replay], videoConfig, (msg: string) => {
-      this.mainWindow.webContents.send('videoMsg', msg)
-    })
-    await job.promise
+    try {
+      const job = slpToVideo([replay], videoConfig, (msg: string) => {
+        this.mainWindow.webContents.send('videoMsg', msg)
+      })
+      await job.promise
+    } catch (error) {
+      console.error('[recordClip] error:', error)
+      this.mainWindow.webContents.send(
+        'videoMsg',
+        `Error: ${error instanceof Error ? error.message : String(error)}`,
+      )
+    }
 
     return reply(event, 'recordClip', requestId)
   }
@@ -742,9 +750,13 @@ export default class VideoManager {
     this.playbackAborted = false
     this.mainWindow.webContents.send('playbackStarted')
 
-    await this.playClipAsync(payload, (msg) => {
-      this.mainWindow.webContents.send('videoMsg', msg)
-    })
+    try {
+      await this.playClipAsync(payload, (msg) => {
+        this.mainWindow.webContents.send('videoMsg', msg)
+      })
+    } catch (error) {
+      console.error('[playClip] error:', error)
+    }
 
     this.mainWindow.webContents.send('playbackDone')
     return reply(event, 'playClip', requestId)
@@ -872,7 +884,7 @@ export default class VideoManager {
           '',
           ...logLines,
         ].join('\n')
-        fs.writeFileSync(logFilePath, logContent)
+        fsPromises.writeFile(logFilePath, logContent).catch(() => {})
 
         if (code !== 0 && logLines.length > 0) {
           const lastErr = logLines[logLines.length - 1]

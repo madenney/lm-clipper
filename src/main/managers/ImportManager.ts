@@ -1,8 +1,9 @@
 import { ipcMain, dialog, BrowserWindow, IpcMainEvent } from 'electron'
 import { Worker } from 'worker_threads'
-import { execFileSync } from 'child_process'
+import { execFile } from 'child_process'
+import { promisify } from 'util'
 import path from 'path'
-import fs from 'fs'
+import { promises as fsPromises } from 'fs'
 import { getWorkerExecArgv } from '../../lib'
 import { ArchiveInterface, ConfigInterface } from '../../constants/types'
 import Archive from '../../models/Archive'
@@ -17,6 +18,8 @@ import {
 } from '../ipcUtils'
 import type ConsoleManager from './ConsoleManager'
 
+const execFileAsync = promisify(execFile)
+
 type ImportStatus = {
   isImporting: boolean
   current: number
@@ -30,6 +33,7 @@ export default class ImportManager {
   private getConfigPath: () => string
   private getArchive: () => ArchiveInterface | null
   private setArchive: (_archive: ArchiveInterface | null) => void
+  private getArchiveVersion: () => number
   private autoCreateUntitledProject: () => Promise<any>
   private consoleManager: ConsoleManager
 
@@ -51,6 +55,7 @@ export default class ImportManager {
       getConfigPath: () => string
       getArchive: () => ArchiveInterface | null
       setArchive: (_archive: ArchiveInterface | null) => void
+      getArchiveVersion: () => number
       autoCreateUntitledProject: () => Promise<any>
       consoleManager: ConsoleManager
     },
@@ -60,6 +65,7 @@ export default class ImportManager {
     this.getConfigPath = deps.getConfigPath
     this.getArchive = deps.getArchive
     this.setArchive = deps.setArchive
+    this.getArchiveVersion = deps.getArchiveVersion
     this.autoCreateUntitledProject = deps.autoCreateUntitledProject
     this.consoleManager = deps.consoleManager
 
@@ -254,11 +260,11 @@ export default class ImportManager {
           try {
             const zipName = path.basename(zipFile, '.zip')
             const extractDir = path.join(zipChoice.outputDir, zipName)
-            fs.mkdirSync(extractDir, { recursive: true })
-            this.extractZip(zipFile, extractDir)
+            await fsPromises.mkdir(extractDir, { recursive: true })
+            await this.extractZip(zipFile, extractDir)
             if (zipChoice.deleteOriginal) {
               try {
-                fs.unlinkSync(zipFile)
+                await fsPromises.unlink(zipFile)
               } catch {
                 // Non-fatal
               }
@@ -283,22 +289,29 @@ export default class ImportManager {
     this.currentImportAbortController = importAbortController
 
     // Check if batch may contain .slpz files and resolve decompression config
-    const mayHaveSlpz = filePaths.some((p) => {
+    let mayHaveSlpz = false
+    for (const p of filePaths) {
       const ext = path.extname(p).toLowerCase()
-      if (ext === '.slpz') return true
-      // For directories, do a quick shallow check for .slpz files
+      if (ext === '.slpz') {
+        mayHaveSlpz = true
+        break
+      }
       if (ext === '') {
         try {
-          const entries = fs.readdirSync(p, { withFileTypes: true })
-          return entries.some(
-            (e) => e.isFile() && e.name.toLowerCase().endsWith('.slpz'),
-          )
+          const entries = await fsPromises.readdir(p, { withFileTypes: true })
+          if (
+            entries.some(
+              (e) => e.isFile() && e.name.toLowerCase().endsWith('.slpz'),
+            )
+          ) {
+            mayHaveSlpz = true
+            break
+          }
         } catch {
-          return false
+          // skip
         }
       }
-      return false
-    })
+    }
 
     let slpzConfig:
       | {
@@ -351,7 +364,7 @@ export default class ImportManager {
           if (userChoice.outputDir) {
             currentConfig.slpzOutputDir = userChoice.outputDir
           }
-          fs.writeFileSync(
+          fsPromises.writeFile(
             this.getConfigPath(),
             JSON.stringify(currentConfig, null, 2),
           )
@@ -583,9 +596,9 @@ export default class ImportManager {
     })
   }
 
-  extractZip(zipPath: string, outputDir: string) {
+  async extractZip(zipPath: string, outputDir: string) {
     if (process.platform === 'win32') {
-      execFileSync(
+      await execFileAsync(
         'powershell',
         [
           '-Command',
@@ -594,7 +607,7 @@ export default class ImportManager {
         { timeout: 300000 },
       )
     } else {
-      execFileSync('unzip', ['-o', '-q', zipPath, '-d', outputDir], {
+      await execFileAsync('unzip', ['-o', '-q', zipPath, '-d', outputDir], {
         timeout: 300000,
       })
     }

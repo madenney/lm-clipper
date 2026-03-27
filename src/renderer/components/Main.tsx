@@ -15,8 +15,10 @@ import {
 } from '../../constants/types'
 import Filters from './Filters'
 import Top from './Top'
+import GeckoModal from './GeckoModal'
 import { Tray } from './Tray/Tray'
 import useSelection from '../hooks/useSelection'
+import useIpcListener from '../hooks/useIpcListener'
 import '../styles/Main.css'
 
 // Format duration in frames to Xd Xh Xm Xs format
@@ -198,6 +200,7 @@ export default function Main({
   const [consoleLogCount, setConsoleLogCount] = useState(0)
   const [consoleHasError, setConsoleHasError] = useState(false)
   const [consoleOpen, setConsoleOpen] = useState(false)
+  const [geckoModalOpen, setGeckoModalOpen] = useState(false)
   const [consoleHeight, setConsoleHeight] = useState(200)
   const [consoleLogEntries, setConsoleLogEntries] = useState<ConsoleLogEntry[]>(
     [],
@@ -206,72 +209,49 @@ export default function Main({
     useState<ConsoleSnapshot | null>(null)
 
   // Listen for video job completion
-  useEffect(() => {
-    const removeFinished = window.electron.ipcRenderer.on(
-      'videoJobFinished',
-      () => {
-        setVideoMsg((prev) => {
-          const wasCancelled = prev === 'Stopped.' || prev === 'Cancelled.'
-          if (wasCancelled) {
-            setTimeout(() => {
-              setIsGenerating(false)
-              setVideoMsg('')
-            }, 1000)
-          } else {
-            setTimeout(() => {
-              setIsGenerating(false)
-              setVideoMsg('')
-            }, 2000)
-          }
-          return wasCancelled ? prev : 'Done :)'
-        })
-      },
-    )
-    const removeMsg = window.electron.ipcRenderer.on(
-      'videoMsg',
-      (msg: string) => {
-        setVideoMsg(msg)
-      },
-    )
-    const removeOutputPath = window.electron.ipcRenderer.on(
-      'videoOutputPath',
-      (p: string) => {
-        if (p) {
-          setVideoOutputPaths((prev) =>
-            prev.includes(p) ? prev : [...prev, p],
-          )
-        }
-      },
-    )
-    const removePlaybackStarted = window.electron.ipcRenderer.on(
-      'playbackStarted',
-      () => setIsPlaying(true),
-    )
-    const removePlaybackDone = window.electron.ipcRenderer.on(
-      'playbackDone',
-      () => setIsPlaying(false),
-    )
-    const removeVideoCompleted = window.electron.ipcRenderer.on(
-      'videoCompleted',
-      (info: {
-        outputPath: string
-        files: string[]
-        totalSize: number
-        clipCount: number
-        duration: number | null
-      }) => {
-        setVideoCompletedInfo(info)
-      },
-    )
-    return () => {
-      removeFinished()
-      removeMsg()
-      removeOutputPath()
-      removePlaybackStarted()
-      removePlaybackDone()
-      removeVideoCompleted()
+  useIpcListener('videoJobFinished', () => {
+    setVideoMsg((prev) => {
+      const wasCancelled = prev === 'Stopped.' || prev === 'Cancelled.'
+      if (wasCancelled) {
+        setTimeout(() => {
+          setIsGenerating(false)
+          setVideoMsg('')
+        }, 1000)
+      } else {
+        setTimeout(() => {
+          setIsGenerating(false)
+          setVideoMsg('')
+        }, 2000)
+      }
+      return wasCancelled ? prev : 'Done :)'
+    })
+  })
+
+  useIpcListener('videoMsg', (msg: string) => {
+    setVideoMsg(msg)
+  })
+
+  useIpcListener('videoOutputPath', (p: string) => {
+    if (p) {
+      setVideoOutputPaths((prev) => (prev.includes(p) ? prev : [...prev, p]))
     }
-  }, [])
+  })
+
+  useIpcListener('playbackStarted', () => setIsPlaying(true))
+  useIpcListener('playbackDone', () => setIsPlaying(false))
+
+  useIpcListener(
+    'videoCompleted',
+    (info: {
+      outputPath: string
+      files: string[]
+      totalSize: number
+      clipCount: number
+      duration: number | null
+    }) => {
+      setVideoCompletedInfo(info)
+    },
+  )
 
   // Close video completed modal on Escape
   useEffect(() => {
@@ -284,34 +264,23 @@ export default function Main({
   }, [videoCompletedInfo])
 
   // Track console log entries, count, error state, and snapshot
-  useEffect(() => {
-    const removeConsoleLog = window.electron.ipcRenderer.on(
-      'consoleLog',
-      (entries: ConsoleLogEntry[]) => {
-        if (Array.isArray(entries)) {
-          setConsoleLogCount((prev) => prev + entries.length)
-          setConsoleLogEntries((prev) => {
-            const next = [...prev, ...entries]
-            return next.length > 2000 ? next.slice(-1500) : next
-          })
-          if (entries.some((e) => e.level === 'error')) {
-            setConsoleHasError(true)
-            setConsoleOpen(true)
-          }
-        }
-      },
-    )
-    const removeSnapshot = window.electron.ipcRenderer.on(
-      'consoleSnapshot',
-      (data: ConsoleSnapshot) => {
-        setConsoleSnapshot(data)
-      },
-    )
-    return () => {
-      removeConsoleLog()
-      removeSnapshot()
+  useIpcListener('consoleLog', (entries: ConsoleLogEntry[]) => {
+    if (Array.isArray(entries)) {
+      setConsoleLogCount((prev) => prev + entries.length)
+      setConsoleLogEntries((prev) => {
+        const next = [...prev, ...entries]
+        return next.length > 2000 ? next.slice(-1500) : next
+      })
+      if (entries.some((e) => e.level === 'error')) {
+        setConsoleHasError(true)
+        setConsoleOpen(true)
+      }
     }
-  }, [])
+  })
+
+  useIpcListener('consoleSnapshot', (data: ConsoleSnapshot) => {
+    setConsoleSnapshot(data)
+  })
 
   // Determine if showing games or clips
   const activeFilterType = archive?.filters.find(
@@ -658,6 +627,13 @@ export default function Main({
           </div>
         </div>
       ) : null}
+      {geckoModalOpen && (
+        <GeckoModal
+          config={config}
+          setConfig={setConfig}
+          onClose={() => setGeckoModalOpen(false)}
+        />
+      )}
       <Top config={config} setConfig={setConfig} />
       <div className="mid">
         <div className="sidebar" style={{ width: `${leftWidth}px` }}>
@@ -703,53 +679,6 @@ export default function Main({
           )}
         </button>
         <div className="footer-section">
-          <div className="footer-setting" title="Bitrate (kbps)">
-            <span className="footer-setting-label">Bitrate</span>
-            <input
-              type="number"
-              className="footer-input footer-input--wide"
-              value={config.bitrateKbps}
-              min={1000}
-              onChange={(e) =>
-                handleConfigChange(
-                  'bitrateKbps',
-                  parseInt(e.target.value, 10) || 50000,
-                )
-              }
-            />
-          </div>
-          <div
-            className="footer-setting"
-            title="Extra frames before clip start"
-          >
-            <span className="footer-setting-label">+Start</span>
-            <input
-              type="number"
-              className="footer-input"
-              value={config.addStartFrames}
-              onChange={(e) =>
-                handleConfigChange(
-                  'addStartFrames',
-                  parseInt(e.target.value, 10) || 0,
-                )
-              }
-            />
-          </div>
-          <div className="footer-setting" title="Extra frames after clip end">
-            <span className="footer-setting-label">+End</span>
-            <input
-              type="number"
-              className="footer-input"
-              value={config.addEndFrames}
-              onChange={(e) =>
-                handleConfigChange(
-                  'addEndFrames',
-                  parseInt(e.target.value, 10) || 0,
-                )
-              }
-            />
-          </div>
-          <div className="footer-sep" />
           <label
             className="footer-setting footer-toggle"
             title="Concatenate clips into one video"
@@ -776,7 +705,14 @@ export default function Main({
               }
             />
           </label>
-          <div className="footer-sep" />
+          <button
+            type="button"
+            className="footer-setting-btn"
+            onClick={() => setGeckoModalOpen(true)}
+            title="Configure Gecko Codes for recording"
+          >
+            Gecko Codes
+          </button>
           <div
             className="footer-setting"
             title="Number of Dolphin instances for recording"

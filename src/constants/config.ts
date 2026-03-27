@@ -17,6 +17,7 @@ export const filtersConfig = [
         type: 'multiDropdown',
         options: sortedCharacters,
         default: [],
+        tooltip: 'Filter by Player 1 character.',
       },
       {
         name: 'Player 1',
@@ -24,6 +25,7 @@ export const filtersConfig = [
         type: 'textInput',
         default: [],
         autocomplete: 'names',
+        tooltip: 'Filter by Player 1 display name / tag.',
       },
       {
         name: 'Player 1 CC',
@@ -31,6 +33,7 @@ export const filtersConfig = [
         type: 'textInput',
         default: [],
         autocomplete: 'connectCodes',
+        tooltip: 'Filter by Player 1 connect code.',
       },
       {
         name: 'Char 2',
@@ -38,6 +41,7 @@ export const filtersConfig = [
         type: 'multiDropdown',
         options: sortedCharacters,
         default: [],
+        tooltip: 'Filter by Player 2 character.',
       },
       {
         name: 'Player 2',
@@ -45,6 +49,7 @@ export const filtersConfig = [
         type: 'textInput',
         default: [],
         autocomplete: 'names',
+        tooltip: 'Filter by Player 2 display name / tag.',
       },
       {
         name: 'Player 2 CC',
@@ -52,6 +57,7 @@ export const filtersConfig = [
         type: 'textInput',
         default: [],
         autocomplete: 'connectCodes',
+        tooltip: 'Filter by Player 2 connect code.',
       },
       {
         name: 'Stage',
@@ -59,6 +65,7 @@ export const filtersConfig = [
         type: 'multiDropdown',
         options: legalStages,
         default: [],
+        tooltip: 'Filter by stage.',
       },
     ],
   },
@@ -72,18 +79,69 @@ export const filtersConfig = [
         id: 'minHits',
         type: 'int',
         default: '2',
+        tooltip: 'Minimum number of hits in a combo.',
       },
       {
         name: 'Max Hits',
         id: 'maxHits',
         type: 'int',
         default: '',
+        tooltip: 'Maximum number of hits in a combo. Empty = no limit.',
       },
       {
         name: 'Max Files',
         id: 'maxFiles',
         type: 'int',
         default: '',
+        tooltip: 'Stop parsing after this many files. Empty = parse all.',
+      },
+      {
+        name: 'Comboer Char',
+        id: 'comboerChar',
+        type: 'multiDropdown',
+        options: sortedCharacters,
+        default: [],
+        tooltip: 'Only parse combos performed by these characters.',
+      },
+      {
+        name: 'Comboer Tag',
+        id: 'comboerTag',
+        type: 'textInput',
+        default: [],
+        autocomplete: 'names',
+        tooltip: 'Only parse combos by players with these tags.',
+      },
+      {
+        name: 'Comboer CC',
+        id: 'comboerCC',
+        type: 'textInput',
+        default: [],
+        autocomplete: 'connectCodes',
+        tooltip: 'Only parse combos by players with these connect codes.',
+      },
+      {
+        name: 'Comboee Char',
+        id: 'comboeeChar',
+        type: 'multiDropdown',
+        options: sortedCharacters,
+        default: [],
+        tooltip: 'Only parse combos received by these characters.',
+      },
+      {
+        name: 'Comboee Tag',
+        id: 'comboeeTag',
+        type: 'textInput',
+        default: [],
+        autocomplete: 'names',
+        tooltip: 'Only parse combos against players with these tags.',
+      },
+      {
+        name: 'Comboee CC',
+        id: 'comboeeCC',
+        type: 'textInput',
+        default: [],
+        autocomplete: 'connectCodes',
+        tooltip: 'Only parse combos against players with these connect codes.',
       },
       {
         name: 'Combo Timeout',
@@ -95,52 +153,11 @@ export const filtersConfig = [
           'Frames opponent must be out of hitstun before the combo ends. Lower = stricter, higher = more lenient. Default: 45 (~0.75s).',
       },
       {
-        name: 'Comboer Char',
-        id: 'comboerChar',
-        type: 'multiDropdown',
-        options: sortedCharacters,
-        default: [],
-      },
-      {
-        name: 'Comboee Char',
-        id: 'comboeeChar',
-        type: 'multiDropdown',
-        options: sortedCharacters,
-        default: [],
-      },
-      {
-        name: 'Comboer Tag',
-        id: 'comboerTag',
-        type: 'textInput',
-        default: [],
-        autocomplete: 'names',
-      },
-      {
-        name: 'Comboer CC',
-        id: 'comboerCC',
-        type: 'textInput',
-        default: [],
-        autocomplete: 'connectCodes',
-      },
-      {
-        name: 'Comboee Tag',
-        id: 'comboeeTag',
-        type: 'textInput',
-        default: [],
-        autocomplete: 'names',
-      },
-      {
-        name: 'Comboee CC',
-        id: 'comboeeCC',
-        type: 'textInput',
-        default: [],
-        autocomplete: 'connectCodes',
-      },
-      {
         name: 'Did Kill',
         id: 'didKill',
         type: 'checkbox',
         default: false,
+        tooltip: 'Only keep combos that resulted in a kill.',
       },
     ],
   },
@@ -154,18 +171,21 @@ export const filtersConfig = [
         id: 'minHits',
         type: 'int',
         default: '3',
+        tooltip: 'Minimum number of hits in a combo.',
       },
       {
         name: 'Max Hits',
         id: 'maxHits',
         type: 'int',
         default: '',
+        tooltip: 'Maximum number of hits in a combo. Empty = no limit.',
       },
       {
         name: 'Min Damage',
         id: 'minDamage',
         type: 'int',
         default: '',
+        tooltip: 'Minimum total damage dealt by the combo. Empty = no minimum.',
       },
       {
         name: 'Comboer Char',
@@ -173,6 +193,7 @@ export const filtersConfig = [
         type: 'multiDropdown',
         options: sortedCharacters,
         default: [],
+        tooltip: 'Keep only combos performed by these characters.',
       },
       {
         name: 'Comboer Tag',
@@ -180,6 +201,7 @@ export const filtersConfig = [
         type: 'textInput',
         default: [],
         autocomplete: 'names',
+        tooltip: 'Keep only combos by players with these tags.',
       },
       {
         name: 'Comboer CC',
@@ -187,6 +209,7 @@ export const filtersConfig = [
         type: 'textInput',
         default: [],
         autocomplete: 'connectCodes',
+        tooltip: 'Keep only combos by players with these connect codes.',
       },
       {
         name: 'Comboee Char',
@@ -194,6 +217,7 @@ export const filtersConfig = [
         type: 'multiDropdown',
         options: sortedCharacters,
         default: [],
+        tooltip: 'Keep only combos received by these characters.',
       },
       {
         name: 'Comboee Tag',
@@ -201,6 +225,7 @@ export const filtersConfig = [
         type: 'textInput',
         default: [],
         autocomplete: 'names',
+        tooltip: 'Keep only combos against players with these tags.',
       },
       {
         name: 'Comboee CC',
@@ -208,6 +233,7 @@ export const filtersConfig = [
         type: 'textInput',
         default: [],
         autocomplete: 'connectCodes',
+        tooltip: 'Keep only combos against players with these connect codes.',
       },
       {
         name: 'Stage',
@@ -215,18 +241,22 @@ export const filtersConfig = [
         type: 'multiDropdown',
         options: legalStages,
         default: [],
+        tooltip: 'Keep only combos on these stages.',
       },
       {
         name: 'Did Kill',
         id: 'didKill',
         type: 'checkbox',
         default: true,
+        tooltip: 'Only keep combos that resulted in a kill.',
       },
       {
         name: 'Count Pummels',
         id: 'countPummels',
         type: 'checkbox',
         default: false,
+        tooltip:
+          'Count grab pummels as individual hits in the combo hit count.',
       },
       {
         name: 'Nth Moves',
@@ -235,6 +265,8 @@ export const filtersConfig = [
         options: moves,
         default: [],
         moves: [],
+        tooltip:
+          'Require specific moves at specific positions in the combo sequence.',
       },
     ],
   },
@@ -248,6 +280,8 @@ export const filtersConfig = [
         id: 'n',
         type: 'positionDropdown',
         default: '',
+        tooltip:
+          'Which hit in the combo to check for a reverse hitbox (e.g. 1 = first hit, -1 = last hit).',
       },
     ],
   },
@@ -301,15 +335,6 @@ export const filtersConfig = [
           "Filter clips by the attacker's action state during the search window. Without a parser, matches any player.",
       },
       {
-        name: 'Comboee State',
-        id: 'comboeeActionState',
-        type: 'multiDropdown',
-        options: actionStates,
-        default: [],
-        tooltip:
-          "Filter clips by the defender's action state during the search window. Without a parser, matches any player.",
-      },
-      {
         name: 'Comboer Custom IDs',
         id: 'comboerCustomIds',
         type: 'textInput',
@@ -317,6 +342,15 @@ export const filtersConfig = [
         tooltip:
           'Comma-separated action state IDs for the Custom option (e.g. 43,44,45).',
         showWhenCustomField: 'comboerActionState',
+      },
+      {
+        name: 'Comboee State',
+        id: 'comboeeActionState',
+        type: 'multiDropdown',
+        options: actionStates,
+        default: [],
+        tooltip:
+          "Filter clips by the defender's action state during the search window. Without a parser, matches any player.",
       },
       {
         name: 'Comboee Custom IDs',
@@ -412,13 +446,7 @@ export const filtersConfig = [
         type: 'multiDropdown',
         options: sortedCharacters,
         default: [],
-      },
-      {
-        name: 'Edgeguardee Char',
-        id: 'comboeeChar',
-        type: 'multiDropdown',
-        options: sortedCharacters,
-        default: [],
+        tooltip: 'Only parse edgeguards performed by these characters.',
       },
       {
         name: 'Edgeguarder Tag',
@@ -426,6 +454,7 @@ export const filtersConfig = [
         type: 'textInput',
         default: [],
         autocomplete: 'names',
+        tooltip: 'Only parse edgeguards by players with these tags.',
       },
       {
         name: 'Edgeguarder CC',
@@ -433,6 +462,15 @@ export const filtersConfig = [
         type: 'textInput',
         default: [],
         autocomplete: 'connectCodes',
+        tooltip: 'Only parse edgeguards by players with these connect codes.',
+      },
+      {
+        name: 'Edgeguardee Char',
+        id: 'comboeeChar',
+        type: 'multiDropdown',
+        options: sortedCharacters,
+        default: [],
+        tooltip: 'Only parse edgeguards against these characters.',
       },
       {
         name: 'Edgeguardee Tag',
@@ -440,6 +478,7 @@ export const filtersConfig = [
         type: 'textInput',
         default: [],
         autocomplete: 'names',
+        tooltip: 'Only parse edgeguards against players with these tags.',
       },
       {
         name: 'Edgeguardee CC',
@@ -447,6 +486,8 @@ export const filtersConfig = [
         type: 'textInput',
         default: [],
         autocomplete: 'connectCodes',
+        tooltip:
+          'Only parse edgeguards against players with these connect codes.',
       },
       {
         name: 'Stage',
@@ -454,6 +495,7 @@ export const filtersConfig = [
         type: 'multiDropdown',
         options: legalStages,
         default: [],
+        tooltip: 'Only parse edgeguards on these stages.',
       },
     ],
   },
@@ -506,6 +548,7 @@ export const filtersConfig = [
         id: 'maxFiles',
         type: 'int',
         default: '',
+        tooltip: 'Stop processing after this many files. Empty = process all.',
       },
       {
         name: 'Direction',
@@ -513,6 +556,7 @@ export const filtersConfig = [
         type: 'multiDropdown',
         options: deathDirections,
         default: [],
+        tooltip: 'Keep only KOs in these blast zone directions.',
       },
     ],
   },
@@ -563,12 +607,14 @@ export const filtersConfig = [
         type: 'dropdown',
         options: sortOptions,
         default: 'dps',
+        tooltip: 'Which metric to sort clips by.',
       },
       {
         name: 'Reverse',
         id: 'reverse',
         type: 'checkbox',
         default: false,
+        tooltip: 'Reverse the sort order (ascending instead of descending).',
       },
     ],
   },
@@ -596,6 +642,7 @@ return clips.filter(clip => {
         id: 'maxFiles',
         type: 'int',
         default: '',
+        tooltip: 'Stop processing after this many files. Empty = process all.',
       },
     ],
   },
@@ -619,6 +666,8 @@ export const videoConfig = [
     id: 'ssbmIsoPath',
     type: 'openFile',
     category: 'paths',
+    tooltip:
+      'Path to your Super Smash Bros. Melee .iso file. Required for playback and recording.',
   },
   {
     label: 'Dolphin Path',
@@ -626,6 +675,8 @@ export const videoConfig = [
     id: 'dolphinPath',
     type: 'openFile',
     category: 'paths',
+    tooltip:
+      'Path to the Slippi Dolphin executable. Required for playback and recording.',
   },
   {
     label: 'Output Directory',
@@ -633,6 +684,7 @@ export const videoConfig = [
     id: 'outputPath',
     type: 'openDirectory',
     category: 'paths',
+    tooltip: 'Where recorded video files are saved.',
   },
   {
     label: 'Default Project Directory',
@@ -640,6 +692,8 @@ export const videoConfig = [
     id: 'defaultProjectDirectory',
     type: 'openDirectory',
     category: 'paths',
+    tooltip:
+      'Default location for new projects. Leave empty to use ~/Documents/LM Clipper.',
   },
   {
     label: 'FFmpeg Path Override',
@@ -647,6 +701,8 @@ export const videoConfig = [
     id: 'ffmpegPath',
     type: 'openFile',
     category: 'paths',
+    tooltip:
+      'Use a custom ffmpeg binary instead of the bundled one. Leave empty to use the default.',
   },
   // Output
   {
@@ -656,6 +712,8 @@ export const videoConfig = [
     type: 'textInput',
     category: 'output',
     hint: '{character1}, {character2}, {stage}, {index}, {date}, {time}',
+    tooltip:
+      'Pattern for naming output video files. Use variables like {index}, {character1}, {stage}, etc.',
   },
   // Video Output
   {
@@ -664,6 +722,8 @@ export const videoConfig = [
     id: 'resolution',
     type: 'dropdown',
     category: 'video',
+    tooltip:
+      'Internal rendering resolution multiplier for recorded videos. Higher = sharper but slower.',
     options: [
       { label: '1x - Low Quality (fast)', value: 2 },
       { label: '1.5x', value: 3 },
@@ -683,6 +743,7 @@ export const videoConfig = [
     id: 'playbackResolution',
     type: 'dropdown',
     category: 'video',
+    tooltip: 'Internal rendering resolution multiplier for the preview player.',
     options: [
       { label: '1x - Low Quality (fast)', value: 2 },
       { label: '1.5x', value: 3 },
@@ -700,8 +761,10 @@ export const videoConfig = [
     label: 'Bitrate (kbps)',
     default: 15000,
     id: 'bitrateKbps',
-    type: 'textInput',
+    type: 'int',
     category: 'video',
+    tooltip:
+      'Video bitrate in kilobits per second. Higher = better quality, larger files.',
   },
   {
     label: 'Add Start Frames',
@@ -709,6 +772,8 @@ export const videoConfig = [
     id: 'addStartFrames',
     type: 'int',
     category: 'video',
+    tooltip:
+      'Extra frames to add before every clip during recording. Applies globally on top of any Trim filter.',
   },
   {
     label: 'Add End Frames',
@@ -716,6 +781,8 @@ export const videoConfig = [
     id: 'addEndFrames',
     type: 'int',
     category: 'video',
+    tooltip:
+      'Extra frames to add after every clip during recording. Applies globally on top of any Trim filter.',
   },
   {
     label: 'Final End Frames',
@@ -723,6 +790,8 @@ export const videoConfig = [
     id: 'lastClipOffset',
     type: 'int',
     category: 'video',
+    tooltip:
+      'Extra frames to add after the very last clip in a batch. Useful to avoid abrupt cuts at the end.',
   },
   {
     label: 'Fullscreen',
@@ -730,6 +799,8 @@ export const videoConfig = [
     id: 'fullscreen',
     type: 'checkbox',
     category: 'video',
+    tooltip:
+      'Run Dolphin in fullscreen mode during recording. Recommended for clean output.',
   },
   {
     label: 'Concatenate Output',
@@ -737,6 +808,7 @@ export const videoConfig = [
     id: 'concatenate',
     type: 'checkbox',
     category: 'video',
+    tooltip: 'Merge all recorded clips into a single video file using ffmpeg.',
   },
   {
     label: 'Convert to MP4',
@@ -744,6 +816,8 @@ export const videoConfig = [
     id: 'convertToMp4',
     type: 'checkbox',
     category: 'video',
+    tooltip:
+      'Convert the raw AVI output from Dolphin to MP4 for smaller file size and wider compatibility.',
   },
   // Rendering
   {
@@ -888,6 +962,8 @@ export const videoConfig = [
     id: 'numCPUs',
     type: 'int',
     category: 'performance',
+    tooltip:
+      'Number of Dolphin processes to run in parallel during recording. More = faster but uses more CPU/RAM.',
   },
   {
     label: 'Clips per Batch',
@@ -895,6 +971,8 @@ export const videoConfig = [
     id: 'slice',
     type: 'int',
     category: 'performance',
+    tooltip:
+      'Number of clips each Dolphin instance records before restarting. Higher values reduce Dolphin startup overhead.',
   },
   {
     label: 'CPU Threads',
@@ -902,6 +980,8 @@ export const videoConfig = [
     id: 'numFilterThreads',
     type: 'int',
     category: 'performance',
+    tooltip:
+      'Number of worker threads for filter processing. More threads = faster filtering on multi-core CPUs.',
   },
   // General
   {
@@ -910,6 +990,7 @@ export const videoConfig = [
     id: 'shuffle',
     type: 'checkbox',
     category: 'general',
+    tooltip: 'Randomize the order of clips before playback or recording.',
   },
   {
     label: 'Detect Duplicates on Import',
@@ -918,6 +999,8 @@ export const videoConfig = [
     type: 'checkbox',
     category: 'general',
     warning: 'Can significantly slow down imports with large file counts',
+    tooltip:
+      'Skip files that are already in the project during import. Compares by file path.',
   },
   {
     label: 'Include Default Filters (Parser + Combo Filter)',
@@ -925,6 +1008,8 @@ export const videoConfig = [
     id: 'includeDefaultFilters',
     type: 'checkbox',
     category: 'general',
+    tooltip:
+      'Automatically add a Combo Parser and Combo Filter when creating new projects.',
   },
   {
     label: 'Warn on Parser Delete',
@@ -932,6 +1017,8 @@ export const videoConfig = [
     id: 'warnOnParserDelete',
     type: 'checkbox',
     category: 'general',
+    tooltip:
+      'Show a confirmation dialog before deleting a combo parser that was run on many files.',
   },
   {
     label: 'Send Anonymous Usage Data',
@@ -941,6 +1028,8 @@ export const videoConfig = [
     category: 'general',
     description:
       'Sends anonymous stats to help improve LM Clipper. No personal data is collected.',
+    tooltip:
+      'Send anonymous usage statistics to help improve LM Clipper. No personal data is collected.',
   },
   {
     label: 'Advanced Mode',
@@ -948,6 +1037,8 @@ export const videoConfig = [
     id: 'advancedMode',
     type: 'checkbox',
     category: 'general',
+    tooltip:
+      'Show advanced options in filter controls, like raw Nth Moves fields.',
   },
   {
     label: 'Test Mode',
@@ -955,6 +1046,7 @@ export const videoConfig = [
     id: 'testMode',
     type: 'checkbox',
     category: 'general',
+    tooltip: 'Enable developer/debug features. Not needed for normal use.',
   },
   {
     label: 'Test Dolphin',
@@ -962,6 +1054,8 @@ export const videoConfig = [
     type: 'button',
     category: 'general',
     buttonLabel: 'Launch Test',
+    tooltip:
+      'Launch Dolphin with the current settings to verify your paths and configuration work.',
   },
   // SLPZ
   {

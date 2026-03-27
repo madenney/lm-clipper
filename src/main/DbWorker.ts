@@ -31,6 +31,22 @@ type DbRequest = {
   | { method: 'getItemsLite'; limit: number; offset: number }
   | { method: 'deleteFilterRun'; filterId: string }
   | { method: 'updateFilterRunProgress'; filterId: string; processed: number }
+  | { method: 'deleteFiles'; fileIds: number[] }
+  | { method: 'getFilePathsByIds'; fileIds: number[] }
+  | { method: 'deleteRows'; tableId: string; rowIds: number[] }
+  | {
+      method: 'updateSortOrder'
+      tableId: string
+      updates: { id: number; sort_order: number }[]
+    }
+  | { method: 'updateMetadataName'; name: string }
+  | { method: 'updateMetadataPathAndName'; path: string; name: string }
+  | {
+      method: 'getGameFilterRowInfo'
+      tableId: string
+      rowIds: number[]
+    }
+  | { method: 'updateMetadataField'; field: string; value: string }
 )
 
 type DbResponse =
@@ -246,20 +262,22 @@ function migrateMetadataIfNeeded(db: Database.Database) {
     } catch {
       return
     }
-    db.exec('ALTER TABLE metadata RENAME TO metadata_old')
-    db.exec(`
-      CREATE TABLE metadata (
-        name TEXT NOT NULL,
-        path TEXT NOT NULL,
-        createdAt INTEGER NOT NULL,
-        extra TEXT DEFAULT '{}'
-      )
-    `)
-    const extra = JSON.stringify({ filters: old.filters || [] })
-    db.prepare(
-      'INSERT INTO metadata (name, path, createdAt, extra) VALUES (?, ?, ?, ?)',
-    ).run(old.name || '', old.path || '', old.createdAt || 0, extra)
-    db.exec('DROP TABLE metadata_old')
+    db.transaction(() => {
+      db.exec('ALTER TABLE metadata RENAME TO metadata_old')
+      db.exec(`
+        CREATE TABLE metadata (
+          name TEXT NOT NULL,
+          path TEXT NOT NULL,
+          createdAt INTEGER NOT NULL,
+          extra TEXT DEFAULT '{}'
+        )
+      `)
+      const extra = JSON.stringify({ filters: old.filters || [] })
+      db.prepare(
+        'INSERT INTO metadata (name, path, createdAt, extra) VALUES (?, ?, ?, ?)',
+      ).run(old.name || '', old.path || '', old.createdAt || 0, extra)
+      db.exec('DROP TABLE metadata_old')
+    })()
   }
 }
 
@@ -380,6 +398,11 @@ function handleGetMetadata(db: Database.Database) {
   metadata.cachedCounts = newCachedCounts
 
   // Check for resumable filter runs
+  // Clear any stale resumable flags from stored metadata before re-checking
+  for (const filter of metadata.filters) {
+    delete filter.resumable
+    delete filter.resumeProgress
+  }
   for (const filter of metadata.filters) {
     const run = db
       .prepare('SELECT * FROM filter_runs WHERE filter_id = ?')
@@ -468,12 +491,30 @@ parentPort.on('message', (msg: DbRequest) => {
       case 'getItemsLite':
         data = handleGetItemsLite(db, msg.limit, msg.offset)
         break
-      case 'deleteFilterRun':
-        db.prepare('DELETE FROM filter_runs WHERE filter_id = ?').run(
-          msg.filterId,
+      case 'deleteFilterRun': {
+        const beforeCount = (
+          db
+            .prepare(
+              'SELECT COUNT(*) AS cnt FROM filter_runs WHERE filter_id = ?',
+            )
+            .get(msg.filterId) as any
+        )?.cnt
+        const result = db
+          .prepare('DELETE FROM filter_runs WHERE filter_id = ?')
+          .run(msg.filterId)
+        const afterCount = (
+          db
+            .prepare(
+              'SELECT COUNT(*) AS cnt FROM filter_runs WHERE filter_id = ?',
+            )
+            .get(msg.filterId) as any
+        )?.cnt
+        console.log(
+          `[DbWorker deleteFilterRun] filterId=${msg.filterId} before=${beforeCount} deleted=${result.changes} after=${afterCount}`,
         )
         data = null
         break
+      }
       case 'updateFilterRunProgress':
         // Add processed column if it doesn't exist (migration)
         try {
@@ -488,6 +529,90 @@ parentPort.on('message', (msg: DbRequest) => {
         ).run(msg.processed, msg.filterId)
         data = null
         break
+      case 'deleteFiles': {
+        const placeholders = msg.fileIds.map(() => '?').join(',')
+        db.prepare(`DELETE FROM files WHERE id IN (${placeholders})`).run(
+          ...msg.fileIds,
+        )
+        data = null
+        break
+      }
+      case 'getFilePathsByIds': {
+        if (!msg.fileIds || msg.fileIds.length === 0) {
+          data = []
+        } else {
+          const placeholders = msg.fileIds.map(() => '?').join(',')
+          const rows = db
+            .prepare(`SELECT path FROM files WHERE id IN (${placeholders})`)
+            .all(...msg.fileIds) as { path: string }[]
+          data = rows.map((r) => r.path)
+        }
+        break
+      }
+      case 'deleteRows': {
+        validateTableId(msg.tableId)
+        const placeholders = msg.rowIds.map(() => '?').join(',')
+        db.prepare(
+          `DELETE FROM "${msg.tableId}" WHERE id IN (${placeholders})`,
+        ).run(...msg.rowIds)
+        data = null
+        break
+      }
+      case 'updateSortOrder': {
+        validateTableId(msg.tableId)
+        // Ensure sort_order column exists
+        const cols = db
+          .pragma(`table_info("${msg.tableId}")`)
+          .map((c: any) => c.name)
+        if (!cols.includes('sort_order')) {
+          db.exec(
+            `ALTER TABLE "${msg.tableId}" ADD COLUMN sort_order INTEGER DEFAULT NULL`,
+          )
+        }
+        const stmt = db.prepare(
+          `UPDATE "${msg.tableId}" SET sort_order = ? WHERE id = ?`,
+        )
+        const txn = db.transaction(
+          (updates: { id: number; sort_order: number }[]) => {
+            for (const u of updates) {
+              stmt.run(u.sort_order, u.id)
+            }
+          },
+        )
+        txn(msg.updates)
+        data = null
+        break
+      }
+      case 'updateMetadataName': {
+        db.prepare('UPDATE metadata SET name = ?').run(msg.name)
+        data = null
+        break
+      }
+      case 'updateMetadataPathAndName': {
+        db.prepare('UPDATE metadata SET path = ?, name = ?').run(
+          msg.path,
+          msg.name,
+        )
+        data = null
+        break
+      }
+      case 'getGameFilterRowInfo': {
+        validateTableId(msg.tableId)
+        const placeholders = msg.rowIds.map(() => '?').join(',')
+        data = db
+          .prepare(
+            `SELECT CAST(JSON_EXTRACT(JSON, '$.id') AS INTEGER) AS fileId, JSON_EXTRACT(JSON, '$.path') AS filePath FROM "${msg.tableId}" WHERE id IN (${placeholders})`,
+          )
+          .all(...msg.rowIds)
+        break
+      }
+      case 'updateMetadataField': {
+        db.prepare(`UPDATE metadata SET ${msg.field} = ? WHERE rowid = 1`).run(
+          msg.value,
+        )
+        data = null
+        break
+      }
       default:
         throw new Error(`Unknown method: ${(msg as any).method}`)
     }

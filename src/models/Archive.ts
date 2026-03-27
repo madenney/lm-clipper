@@ -320,6 +320,9 @@ export default class Archive {
         params: filter.params,
         results: filter.results,
         resumable: filter.resumable,
+        ...(filter.resumeProgress
+          ? { resumeProgress: filter.resumeProgress }
+          : {}),
       })),
       savedCustomFilters: this.savedCustomFilters || [],
     }

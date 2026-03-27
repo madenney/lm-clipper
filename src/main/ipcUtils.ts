@@ -47,7 +47,14 @@ export const buildShallowArchive = (
       isProcessed: filter.isProcessed,
       params: filter.params,
       results: filter.results,
-      ...(filter.resumable ? { resumable: true } : {}),
+      ...(filter.resumable
+        ? {
+            resumable: true,
+            ...(filter.resumeProgress
+              ? { resumeProgress: filter.resumeProgress }
+              : {}),
+          }
+        : {}),
     })),
   }
 }
