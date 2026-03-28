@@ -48,6 +48,7 @@ type SettingsModalProps = {
   setConfig: Dispatch<SetStateAction<ConfigInterface | null>>
   onClose: () => void
   onOpenGeckoModal: () => void
+  onRunSetupWizard?: () => void
 }
 
 export default function SettingsModal({
@@ -55,6 +56,7 @@ export default function SettingsModal({
   setConfig,
   onClose,
   onOpenGeckoModal: _onOpenGeckoModal,
+  onRunSetupWizard,
 }: SettingsModalProps) {
   const [activeSection, setActiveSection] = useState<SettingsSection>('general')
   const [resetConfirm, setResetConfirm] = useState(false)
@@ -429,6 +431,28 @@ export default function SettingsModal({
         }
         return (
           <div className="settings-list">
+            {categoryKey === 'paths' && onRunSetupWizard && (
+              <div className="settings-item">
+                <div className="settings-item-info">
+                  <span className="settings-item-label">Setup Wizard</span>
+                  <span className="settings-item-desc">
+                    Guided setup for Dolphin and ISO paths
+                  </span>
+                </div>
+                <div className="settings-item-control">
+                  <button
+                    type="button"
+                    className="settings-action-btn"
+                    onClick={() => {
+                      onClose()
+                      onRunSetupWizard()
+                    }}
+                  >
+                    Run Wizard
+                  </button>
+                </div>
+              </div>
+            )}
             {items.map((c: any) => {
               const isWide =
                 c.type === 'openFile' ||

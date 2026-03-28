@@ -634,7 +634,11 @@ export default function Main({
           onClose={() => setGeckoModalOpen(false)}
         />
       )}
-      <Top config={config} setConfig={setConfig} />
+      <Top
+        config={config}
+        setConfig={setConfig}
+        onRunSetupWizard={() => triggerSetupWizard('record')}
+      />
       <div className="mid">
         <div className="sidebar" style={{ width: `${leftWidth}px` }}>
           <Filters

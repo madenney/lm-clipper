@@ -137,7 +137,8 @@
   justify-content: space-between;
   padding: 0 16px;
   box-sizing: border-box;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: visible;
   gap: 8px;
 }
 
