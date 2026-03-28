@@ -12,9 +12,10 @@ import GeckoModal from './GeckoModal'
 type TopProps = {
   config: ConfigInterface
   setConfig: Dispatch<SetStateAction<ConfigInterface | null>>
+  onRunSetupWizard?: () => void
 }
 
-export default function Top({ config, setConfig }: TopProps) {
+export default function Top({ config, setConfig, onRunSetupWizard }: TopProps) {
   const [configModalOpen, setConfigModalOpen] = useState(false)
   const [geckoModalOpen, setGeckoModalOpen] = useState(false)
   const [isImporting, setIsImporting] = useState(false)
@@ -56,6 +57,7 @@ export default function Top({ config, setConfig }: TopProps) {
             setConfigModalOpen(false)
             setGeckoModalOpen(true)
           }}
+          onRunSetupWizard={onRunSetupWizard}
         />
       )}
       {geckoModalOpen && (
