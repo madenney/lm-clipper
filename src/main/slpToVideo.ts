@@ -203,6 +203,20 @@ const processOneReplay = async (
     '--cout',
   ]
 
+  // Clean up leftover audio dump files so Dolphin doesn't prompt the user
+  const dolphinDirname = path.dirname(config.dolphinPath)
+  const dumpAudioDirs = [
+    // Windows: User/Dump/Audio relative to dolphin dir
+    path.join(dolphinDirname, 'User', 'Dump', 'Audio'),
+    // Linux: SlippiPlayback/Dump/Audio
+    path.join(getAppDataPath(), 'SlippiPlayback', 'Dump', 'Audio'),
+  ]
+  for (const dumpDir of dumpAudioDirs) {
+    for (const file of ['dtkdump.wav', 'dspdump.wav']) {
+      await fsPromises.unlink(path.join(dumpDir, file)).catch(() => {})
+    }
+  }
+
   logMain('record: spawning Dolphin', {
     dolphinPath: config.dolphinPath,
     args: dolphinArgs,

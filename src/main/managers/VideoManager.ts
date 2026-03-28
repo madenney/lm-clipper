@@ -634,6 +634,17 @@ export default class VideoManager {
       '--cout',
     ]
 
+    // Clean up leftover audio dump files so Dolphin doesn't prompt the user
+    const dolphinDirname = path.dirname(dolphinPath)
+    for (const dumpDir of [
+      path.join(dolphinDirname, 'User', 'Dump', 'Audio'),
+      path.join(app.getPath('appData'), 'SlippiPlayback', 'Dump', 'Audio'),
+    ]) {
+      for (const file of ['dtkdump.wav', 'dspdump.wav']) {
+        await fsPromises.unlink(path.join(dumpDir, file)).catch(() => {})
+      }
+    }
+
     logMain('playClipAsync: spawning Dolphin', {
       dolphinPath: path.resolve(dolphinPath),
       args,
@@ -824,6 +835,17 @@ export default class VideoManager {
     this.activeTmpDirs.add(tmpDir)
     const configFile = path.resolve(tmpDir, 'testDolphinConfig.json')
     await fsPromises.writeFile(configFile, JSON.stringify(dolphinDolphinConfig))
+
+    // Clean up leftover audio dump files so Dolphin doesn't prompt the user
+    const testDolphinDir = path.dirname(dolphinPath)
+    for (const dumpDir of [
+      path.join(testDolphinDir, 'User', 'Dump', 'Audio'),
+      path.join(app.getPath('appData'), 'SlippiPlayback', 'Dump', 'Audio'),
+    ]) {
+      for (const file of ['dtkdump.wav', 'dspdump.wav']) {
+        await fsPromises.unlink(path.join(dumpDir, file)).catch(() => {})
+      }
+    }
 
     this.mainWindow.webContents.send('videoMsg', 'Launching Dolphin test...')
 

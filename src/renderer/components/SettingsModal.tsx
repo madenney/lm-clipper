@@ -431,28 +431,6 @@ export default function SettingsModal({
         }
         return (
           <div className="settings-list">
-            {categoryKey === 'paths' && onRunSetupWizard && (
-              <div className="settings-item">
-                <div className="settings-item-info">
-                  <span className="settings-item-label">Setup Wizard</span>
-                  <span className="settings-item-desc">
-                    Guided setup for Dolphin and ISO paths
-                  </span>
-                </div>
-                <div className="settings-item-control">
-                  <button
-                    type="button"
-                    className="settings-action-btn"
-                    onClick={() => {
-                      onClose()
-                      onRunSetupWizard()
-                    }}
-                  >
-                    Run Wizard
-                  </button>
-                </div>
-              </div>
-            )}
             {items.map((c: any) => {
               const isWide =
                 c.type === 'openFile' ||
@@ -481,6 +459,43 @@ export default function SettingsModal({
                 </div>
               )
             })}
+            {categoryKey === 'paths' && onRunSetupWizard && (
+              <div className="settings-item">
+                <div className="settings-item-info">
+                  <span className="settings-item-label">Setup Wizard</span>
+                  <span className="settings-item-desc">
+                    Guided setup for Dolphin and ISO paths
+                  </span>
+                </div>
+                <div
+                  className="settings-item-control"
+                  style={{ display: 'flex', gap: 8 }}
+                >
+                  <button
+                    type="button"
+                    className="settings-action-btn"
+                    onClick={() => {
+                      handleChange('dolphinPath', '')
+                      handleChange('ssbmIsoPath', '')
+                      handleChange('outputPath', '')
+                      handleChange('ffmpegPath', '')
+                    }}
+                  >
+                    Clear Paths
+                  </button>
+                  <button
+                    type="button"
+                    className="settings-action-btn"
+                    onClick={() => {
+                      onClose()
+                      onRunSetupWizard()
+                    }}
+                  >
+                    Run Wizard
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )
       }
