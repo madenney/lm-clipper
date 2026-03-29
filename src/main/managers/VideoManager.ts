@@ -1005,6 +1005,34 @@ export default class VideoManager {
       })
     }
 
+    // On Windows, spawning `dolphin -h` opens a blocking GUI dialog.
+    // Validate by checking the path instead.
+    if (os.platform() === 'win32') {
+      const lower = dolphinPath.toLowerCase().replace(/\\/g, '/')
+      if (lower.includes('/playback/')) {
+        return reply(event, 'validateDolphinPath', requestId, {
+          valid: true,
+          message: 'Slippi Dolphin Playback detected.',
+        })
+      }
+      if (
+        lower.includes('slippi') &&
+        !lower.includes('playback')
+      ) {
+        return reply(event, 'validateDolphinPath', requestId, {
+          valid: false,
+          message:
+            'This appears to be Slippi Dolphin Online/Netplay, not the Playback build. The Playback build is in a "playback" folder.',
+        })
+      }
+      return reply(event, 'validateDolphinPath', requestId, {
+        valid: false,
+        message:
+          'Could not confirm this is the Playback build. Make sure the path includes a "playback" folder.',
+      })
+    }
+
+    // On Linux/macOS, spawn dolphin -h and check for playback-specific flags
     try {
       const output = await new Promise<string>((resolve, reject) => {
         const proc = spawn(dolphinPath, ['-h'], { timeout: 10000 })

@@ -1,4 +1,5 @@
 import '@testing-library/jest-dom'
+import { act } from 'react'
 import { render } from '@testing-library/react'
 import App from '../renderer/App'
 import { config as defaultConfig } from '../constants/defaults'
@@ -21,6 +22,10 @@ beforeAll(() => {
 
 describe('App', () => {
   it('should render', () => {
-    expect(render(<App />)).toBeTruthy()
+    let result: any
+    act(() => {
+      result = render(<App />)
+    })
+    expect(result).toBeTruthy()
   })
 })
