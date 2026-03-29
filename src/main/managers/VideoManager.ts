@@ -1015,10 +1015,7 @@ export default class VideoManager {
           message: 'Slippi Dolphin Playback detected.',
         })
       }
-      if (
-        lower.includes('slippi') &&
-        !lower.includes('playback')
-      ) {
+      if (lower.includes('slippi') && !lower.includes('playback')) {
         return reply(event, 'validateDolphinPath', requestId, {
           valid: false,
           message:
