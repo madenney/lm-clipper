@@ -475,10 +475,16 @@ export default function SettingsModal({
                     type="button"
                     className="settings-action-btn"
                     onClick={() => {
-                      handleChange('dolphinPath', '')
-                      handleChange('ssbmIsoPath', '')
-                      handleChange('outputPath', '')
-                      handleChange('ffmpegPath', '')
+                      const cleared = {
+                        dolphinPath: '',
+                        ssbmIsoPath: '',
+                        outputPath: '',
+                        ffmpegPath: '',
+                      }
+                      setConfig({ ...config, ...cleared })
+                      Object.entries(cleared).forEach(([key, value]) =>
+                        ipcBridge.updateConfig({ key, value }),
+                      )
                     }}
                   >
                     Clear Paths
