@@ -131,6 +131,8 @@ export function Tray({
     'actionStateFilter',
     'reverse',
     'edgeguard',
+    'edgeguard2',
+    'edgeguardFilter',
   ])
   const isClips = useMemo(() => {
     if (!archive || activeFilterIndex < 0) return false
@@ -156,10 +158,23 @@ export function Tray({
   const totalClips = useMemo(() => {
     if (!archive) return 0
     // For unprocessed game filter, show files table count
-    if (isGameFilter && !activeFilter?.isProcessed) return archive.files
-    if (activeFilter) return activeFilter.results || 0
+    if (isGameFilter && !activeFilter?.isProcessed) return archive.files ?? 0
+    if (activeFilter) return activeFilter.results ?? 0
     return 0
   }, [archive, activeFilterId, isGameFilter, activeFilter])
+
+  // Whether the active total is actually known yet. While a count is still
+  // hydrating (null), we fetch a page optimistically rather than gating on a
+  // total of 0 — so the clips show immediately and only the total spins.
+  // Plain derived value (no hook) to keep the hook list stable.
+  let totalKnown = true
+  if (archive) {
+    if (isGameFilter && !activeFilter?.isProcessed) {
+      totalKnown = archive.files != null
+    } else if (activeFilter) {
+      totalKnown = activeFilter.results != null
+    }
+  }
 
   const prevTotalClipsRef = useRef(totalClips)
 
@@ -285,9 +300,11 @@ export function Tray({
       return
     }
 
-    // Nothing to fetch — clear everything immediately (e.g. new empty project)
+    // Nothing to fetch — clear everything immediately (e.g. new empty project).
+    // But if the count is merely still hydrating (unknown), don't clear — fetch
+    // optimistically below so clips appear while the total spins.
     const currentTotal = totalClipsRef.current
-    if (currentTotal === 0 && !isActiveFilterRunning) {
+    if (currentTotal === 0 && totalKnown && !isActiveFilterRunning) {
       setClips([])
       setLightData([])
       setFetchedTotal(0)
@@ -323,9 +340,13 @@ export function Tray({
       // Fetch visible + buffer for both modes
       // When viewing a running filter or importing into game filter, don't cap by totalClips — just fetch what we can
       const isLiveUpdating = isActiveFilterRunning
-      const targetCount = isLiveUpdating
-        ? numPerPage
-        : Math.min(numPerPage, fetchTotal)
+      // When the total isn't known yet (count still hydrating), fetch a full
+      // page optimistically instead of capping by an as-yet-unknown total.
+      const countUnknown = !totalKnown
+      const targetCount =
+        isLiveUpdating || countUnknown
+          ? numPerPage
+          : Math.min(numPerPage, fetchTotal)
       const limit = isDom
         ? Math.min(targetCount, clipDisplayConfig.limits.maxDomElements)
         : targetCount
@@ -360,9 +381,17 @@ export function Tray({
         (response: {
           items: (ClipInterface | FileInterface | LiteItem)[]
           total: number
+          error?: string
         }) => {
           if (currentFetchId !== fetchIdRef.current) return
-          const { items, total: dbTotal } = response
+          // A timed-out / errored reply has no items — never set state to
+          // undefined (that would make clips.length throw on the next render).
+          const items = Array.isArray(response?.items) ? response.items : null
+          if (!items) {
+            setIsLoading(false)
+            return
+          }
+          const dbTotal = response.total
 
           if (isDom) {
             setClips(items as ClipData[])
@@ -875,7 +904,9 @@ export function Tray({
   const displayTotal = isLiveUpdating ? fetchedTotal : totalClips
   const totalDataPages =
     numPerPage > 0 ? Math.max(1, Math.ceil(displayTotal / numPerPage)) : 1
-  const hasContent = displayTotal > 0 || (isLiveUpdating && loadedCount > 0)
+  // Count may still be hydrating; treat optimistically-loaded clips as content.
+  const countPending = !totalKnown && !isLiveUpdating
+  const hasContent = displayTotal > 0 || loadedCount > 0
 
   return (
     <div className="tray" ref={containerRef}>
@@ -884,7 +915,12 @@ export function Tray({
         <div className="tray-info">
           <span className="tray-count">
             Showing {showCount.toLocaleString()} /{' '}
-            {displayTotal.toLocaleString()} {isClips ? 'clips' : 'games'}
+            {countPending ? (
+              <span className="tray-count-spinner" title="Counting…" />
+            ) : (
+              displayTotal.toLocaleString()
+            )}{' '}
+            {isClips ? 'clips' : 'games'}
           </span>
         </div>
         {lightData.length > 0 && (

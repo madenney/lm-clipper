@@ -4,7 +4,11 @@
 import { ReactElement, useState, useRef, useEffect, useMemo } from 'react'
 import { cloneDeep } from 'lodash'
 import { filtersConfig } from 'constants/config'
-import { ConfigInterface, ShallowFilterInterface } from '../../constants/types'
+import { ShallowFilterInterface, PositionZones } from '../../constants/types'
+import { ZONE_STAGE_IDS } from '../../constants/stageGeometry'
+import edgeRectangles from '../../constants/rectangles'
+import StageZoneModal from './StageZoneModal'
+import ipcBridge from '../ipcBridge'
 
 export function DeferredInput({
   value,
@@ -84,7 +88,6 @@ function isCustomN(n: string) {
 
 type FilterControlsProps = {
   filter: ShallowFilterInterface
-  config: ConfigInterface
   namesList: { name: string; total: number }[]
   connectCodesList: { name: string; total: number }[]
   namesLoading: boolean
@@ -98,7 +101,6 @@ type FilterControlsProps = {
 
 export default function FilterControls({
   filter,
-  config,
   namesList,
   connectCodesList,
   namesLoading,
@@ -117,6 +119,9 @@ export default function FilterControls({
   const [multiSearch, setMultiSearch] = useState('')
   const [expandedNthRows, setExpandedNthRows] = useState<Set<string>>(new Set())
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
+  const [zoneModalOpen, setZoneModalOpen] = useState(false)
+  const [edgeRectModalOpen, setEdgeRectModalOpen] = useState(false)
+  const [edgeRectMsg, setEdgeRectMsg] = useState('')
 
   const filteredNames = useMemo(() => {
     if (namesLoading || (!multiSearch && !multiOpen)) return namesList
@@ -675,7 +680,6 @@ export default function FilterControls({
   }
 
   function renderNthMoves(f: ShallowFilterInterface, nthMovesOption: any) {
-    const advanced = !!config.advancedMode
     const moves = f.params?.[nthMovesOption.id] || []
 
     return (
@@ -707,130 +711,8 @@ export default function FilterControls({
           </button>
         </div>
         {moves.map((move: any, index: number) =>
-          advanced
-            ? renderNthRowAdvanced(f, nthMovesOption, move, index)
-            : renderNthRowFriendly(f, nthMovesOption, move, index),
+          renderNthRowFriendly(f, nthMovesOption, move, index),
         )}
-      </div>
-    )
-  }
-
-  function renderNthRowAdvanced(
-    f: ShallowFilterInterface,
-    nthMovesOption: any,
-    move: any,
-    index: number,
-  ) {
-    return (
-      <div key={`${move.n}-${index}`} className="filter-nth-row">
-        <label
-          className="filter-nth-field"
-          title="Move position in the combo (0-based). Positive = from start, negative = from end."
-        >
-          <span className="filter-nth-field-label">N</span>
-          <input
-            className="filter-control-input filter-nth-input"
-            value={move.n}
-            onChange={(e) => {
-              const filterClone = cloneDeep(f)
-              filterClone.params[nthMovesOption.id][index].n = e.target.value
-              updateFilter(filterClone, f)
-            }}
-          />
-        </label>
-        <label
-          className="filter-nth-field"
-          title="Maximum frame gap between this move and the previous move"
-        >
-          <span className="filter-nth-field-label">T Max</span>
-          <input
-            className="filter-control-input filter-nth-input"
-            value={move.t}
-            onChange={(e) => {
-              const filterClone = cloneDeep(f)
-              filterClone.params[nthMovesOption.id][index].t = e.target.value
-              updateFilter(filterClone, f)
-            }}
-          />
-        </label>
-        <label
-          className="filter-nth-field"
-          title="Minimum frame gap between this move and the previous move"
-        >
-          <span className="filter-nth-field-label">T Min</span>
-          <input
-            className="filter-control-input filter-nth-input"
-            value={move.tMin || ''}
-            onChange={(e) => {
-              const filterClone = cloneDeep(f)
-              filterClone.params[nthMovesOption.id][index].tMin = e.target.value
-              updateFilter(filterClone, f)
-            }}
-          />
-        </label>
-        <label
-          className="filter-nth-field"
-          title="Damage constraint for this move (min or max depending on the dropdown)"
-        >
-          <span className="filter-nth-field-label">D</span>
-          <div className="filter-nth-damage-row">
-            <select
-              className="filter-nth-select-small"
-              value={move.dMode || 'min'}
-              onChange={(e) => {
-                const filterClone = cloneDeep(f)
-                filterClone.params[nthMovesOption.id][index].dMode =
-                  e.target.value
-                updateFilter(filterClone, f)
-              }}
-            >
-              <option value="min">Min</option>
-              <option value="max">Max</option>
-            </select>
-            <input
-              className="filter-control-input filter-nth-input"
-              value={move.d}
-              onChange={(e) => {
-                const filterClone = cloneDeep(f)
-                filterClone.params[nthMovesOption.id][index].d = e.target.value
-                updateFilter(filterClone, f)
-              }}
-            />
-          </div>
-        </label>
-        <div
-          className="filter-nth-field filter-nth-field-move"
-          title="Which attack move to match at this position"
-        >
-          <span className="filter-nth-field-label">Move</span>
-          {renderMultiDropdown(
-            `${f.id}:nth:${index}`,
-            'moveId',
-            nthMovesOption.options || [],
-            Array.isArray(move.moveId)
-              ? move.moveId
-              : move.moveId
-                ? [move.moveId]
-                : [],
-            (next) => {
-              const filterClone = cloneDeep(f)
-              filterClone.params[nthMovesOption.id][index].moveId = next
-              updateFilter(filterClone, f)
-            },
-          )}
-        </div>
-        <button
-          type="button"
-          className="filter-nth-delete"
-          onClick={() => {
-            const filterClone = cloneDeep(f)
-            filterClone.params[nthMovesOption.id].splice(index, 1)
-            updateFilter(filterClone, f)
-          }}
-          title="Remove this move rule"
-        >
-          ✕
-        </button>
       </div>
     )
   }
@@ -1462,42 +1344,86 @@ export default function FilterControls({
           )
         })()}
       {positionOptions.length > 0 &&
-        expandedGroups.has(`${filter.id}:position`) && (
-          <div className="filter-controls-grid" style={{ marginTop: 8 }}>
-            {positionOptions.map((option: any) => {
-              const value = filter.params?.[option.id] ?? ''
-              return (
-                <label
-                  className="filter-control"
-                  key={option.id}
-                  title={option.tooltip || undefined}
+        expandedGroups.has(`${filter.id}:position`) &&
+        (() => {
+          const zones: PositionZones = filter.params?.positionZones || {}
+          const zonedCount = ZONE_STAGE_IDS.filter(
+            (sid) => zones[sid]?.comboer || zones[sid]?.comboee,
+          ).length
+          return (
+            <>
+              <div className="filter-zone-row" style={{ marginTop: 8 }}>
+                <button
+                  type="button"
+                  className="filter-button filter-zone-btn"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setZoneModalOpen(true)
+                  }}
                 >
-                  <span className="filter-control-label">
-                    {!hasParser && option.id.startsWith('comboer')
-                      ? option.name.replace('Comboer', 'Player 1')
-                      : !hasParser && option.id.startsWith('comboee')
-                        ? option.name.replace('Comboee', 'Player 2')
-                        : option.name}
-                  </span>
-                  <input
-                    className="filter-control-input"
-                    inputMode="numeric"
-                    value={value}
-                    placeholder="Any"
-                    onChange={(event) => {
-                      const raw = event.target.value
-                      if (raw !== '' && !/^-?\d*$/.test(raw)) return
-                      const filterClone = cloneDeep(filter)
-                      filterClone.params[option.id] = raw
-                      updateFilter(filterClone, filter)
-                    }}
-                  />
-                </label>
-              )
-            })}
-          </div>
-        )}
+                  🎯 Draw Zone
+                </button>
+                <span className="filter-zone-summary">
+                  {zonedCount === 0
+                    ? 'no stage zones — or set X/Y below'
+                    : `zones on ${zonedCount} stage${zonedCount === 1 ? '' : 's'}`}
+                </span>
+              </div>
+              <div className="filter-controls-grid" style={{ marginTop: 8 }}>
+                {positionOptions.map((option: any) => {
+                  const value = filter.params?.[option.id] ?? ''
+                  return (
+                    <label
+                      className="filter-control"
+                      key={option.id}
+                      title={option.tooltip || undefined}
+                    >
+                      <span className="filter-control-label">
+                        {!hasParser && option.id.startsWith('comboer')
+                          ? option.name.replace('Comboer', 'Player 1')
+                          : !hasParser && option.id.startsWith('comboee')
+                            ? option.name.replace('Comboee', 'Player 2')
+                            : option.name}
+                      </span>
+                      <input
+                        className="filter-control-input"
+                        inputMode="numeric"
+                        value={value}
+                        placeholder="Any"
+                        onChange={(event) => {
+                          const raw = event.target.value
+                          if (raw !== '' && !/^-?\d*$/.test(raw)) return
+                          const filterClone = cloneDeep(filter)
+                          filterClone.params[option.id] = raw
+                          updateFilter(filterClone, filter)
+                        }}
+                      />
+                    </label>
+                  )
+                })}
+              </div>
+            </>
+          )
+        })()}
       {nthMovesOption && renderNthMoves(filter, nthMovesOption)}
+      {(filter.type === 'edgeguard' || filter.type === 'edgeguard2') && (
+        <div className="filter-zone-row" style={{ marginTop: 8 }}>
+          <button
+            type="button"
+            className="filter-button filter-zone-btn"
+            onClick={(e) => {
+              e.stopPropagation()
+              setEdgeRectMsg('')
+              setEdgeRectModalOpen(true)
+            }}
+          >
+            ◳ Edit Edge Rectangles
+          </button>
+          <span className="filter-zone-summary">
+            {edgeRectMsg || 'dev: tune & save edgeguard zones'}
+          </span>
+        </div>
+      )}
       {filter.type === 'custom' &&
         (() => {
           const customParams: {
@@ -1773,6 +1699,63 @@ export default function FilterControls({
             </div>
           )
         })()}
+      {zoneModalOpen && (
+        <StageZoneModal
+          initialZones={filter.params?.positionZones || {}}
+          initialStageId={(() => {
+            const zones: PositionZones = filter.params?.positionZones || {}
+            return (
+              ZONE_STAGE_IDS.find(
+                (sid) => zones[sid]?.comboer || zones[sid]?.comboee,
+              ) ?? ZONE_STAGE_IDS[0]
+            )
+          })()}
+          hasParser={hasParser}
+          onClose={() => setZoneModalOpen(false)}
+          onApply={(nextZones) => {
+            const filterClone = cloneDeep(filter)
+            filterClone.params.positionZones = nextZones
+            updateFilter(filterClone, filter)
+            setZoneModalOpen(false)
+          }}
+        />
+      )}
+      {edgeRectModalOpen && (
+        <StageZoneModal
+          mode="edgeRects"
+          initialStageId={ZONE_STAGE_IDS[0]}
+          hasParser={hasParser}
+          initialZones={
+            ZONE_STAGE_IDS.reduce(
+              (acc, sid) => {
+                const r = (edgeRectangles as any)[sid]
+                if (r) acc[sid] = { edge: r.edge, bz: r.bz }
+                return acc
+              },
+              {} as Record<number, any>,
+            ) as any
+          }
+          onClose={() => setEdgeRectModalOpen(false)}
+          onApply={(nextRects) => {
+            const payload: Record<number, any> = {}
+            for (const sid of ZONE_STAGE_IDS) {
+              const r = (edgeRectangles as any)[sid]
+              if (!r) continue
+              const edited = (nextRects as any)[sid] || {}
+              payload[sid] = {
+                name: r.name,
+                bz: edited.bz || r.bz,
+                edge: edited.edge || r.edge,
+              }
+            }
+            ipcBridge.saveEdgeRectangles(payload, (res: any) => {
+              if (res?.error) setEdgeRectMsg(`Save failed: ${res.error}`)
+              else setEdgeRectMsg('Saved to rectangles.ts — rebuild to apply')
+            })
+            setEdgeRectModalOpen(false)
+          }}
+        />
+      )}
     </div>
   )
 }

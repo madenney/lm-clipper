@@ -29,28 +29,55 @@ npm test                   # Run Jest tests
 
 ```
 Main Process (src/main/)
-├── main.ts           # Entry: BrowserWindow, app lifecycle
-├── controller.ts     # IPC handlers, orchestrates all operations
-├── db.ts             # SQLite schema & queries (better-sqlite3)
-├── slpToVideo.ts     # Video generation (Dolphin + ffmpeg)
-└── workflow.ts       # Batch processing automation
+├── main.ts             # Entry: BrowserWindow, app lifecycle
+├── controller.ts       # IPC registration, wires renderer ↔ managers
+├── managers/           # Domain orchestrators owned by controller
+│   ├── ImportManager.ts
+│   ├── FilterExecutor.ts
+│   ├── VideoManager.ts
+│   ├── ClipManager.ts
+│   ├── ConsoleManager.ts
+│   └── CodeEditorManager.ts
+├── db.ts               # SQLite schema & queries (better-sqlite3)
+├── dbConnection.ts     # Global singleton DB connection
+├── dbAsync.ts          # Async DB helpers
+├── DbWorker.ts         # Background DB worker
+├── ImportCountWorker.ts / NameCountWorker.ts  # Aggregation workers
+├── slpToVideo.ts       # Video generation (Dolphin + ffmpeg)
+├── workflow.ts         # Batch processing automation
+├── menu.ts             # Application menu / accelerators
+├── perfLogger.ts       # Perf instrumentation
+└── logger.ts           # electron-log wrapper
 
 Renderer Process (src/renderer/)
-├── App.tsx           # Root component
-├── ipcBridge.ts      # IPC request-response wrapper
+├── App.tsx             # Root component
+├── ipcBridge.ts        # IPC request-response wrapper
 ├── components/
-│   ├── Main.tsx      # Split layout container
-│   ├── Top.tsx       # Menu bar (New/Open/Import)
-│   ├── Filters2.tsx  # Filter controls (left panel)
-│   └── Tray.tsx      # Results display (right panel)
-└── hooks/            # useResultsFetcher, useWebglPipeline, etc.
+│   ├── Main.tsx        # Split layout container
+│   ├── Top.tsx         # Menu bar (New/Open/Import)
+│   ├── Filters.tsx + FilterCard/FilterControls/FilterModals
+│   ├── Tray/           # Results display (right panel)
+│   ├── Clip/           # Clip preview / playback
+│   ├── SettingsModal.tsx, SetupWizard.tsx, SlpzWizard.tsx, ZipWizard.tsx
+│   └── AppConsole.tsx, UpdateBanner.tsx, LoadingScreen.tsx, …
+├── hooks/              # useResultsFetcher, useWebglPipeline, etc.
+├── workers/            # Renderer-side web workers
+└── codeEditor.tsx      # Secondary BrowserWindow for the JS code editor
 
 Models (src/models/)
-├── Archive.ts        # File collection management
-├── Filter.ts         # Filter execution with worker pool
-├── Worker.ts         # Worker thread entry (runs filter methods)
-└── methods/          # Filter implementations (slpParser2, comboFilter, etc.)
+├── Archive.ts          # File collection management
+├── File.ts             # Per-file model
+├── Filter.ts           # Filter execution with worker pool (Filter.run3)
+├── Worker.ts           # Worker thread entry (runs filter methods)
+├── ImportWorker.ts     # Import-specific worker
+└── methods/            # Filter implementations (slpParser, comboFilter,
+                        #   comboDetection, edgeguard, koDirection, sort, …)
 ```
+
+`controller.ts` is now thin: it registers IPC handlers and delegates to
+the managers in `src/main/managers/`. When adding a new IPC operation,
+prefer extending an existing manager over adding logic directly to
+`controller.ts`.
 
 ### IPC Communication Pattern
 
@@ -66,11 +93,11 @@ Request-response with requestId tracking. Renderer calls `ipcBridge.someMethod(c
 
 ### Key Data Flows
 
-**Import:** Files dropped → `ipcBridge.importDroppedSlpFiles()` → `Archive.addFiles()` → worker pool parses → `db.insertFiles()`
+**Import:** Files dropped → `ipcBridge.importDroppedSlpFiles()` → `ImportManager` → `Archive` + parser worker pool (`Filter.run3` on the `files` method) → SQLite
 
-**Filter:** User configures → `ipcBridge.runFilter()` → `Filter.run3()` → workers execute method → results to SQLite → UI updates
+**Filter:** User configures → `ipcBridge.runFilter()` / `runFilters()` → `FilterExecutor._executeFilter` → `Filter.run3()` slices work across `Worker.ts` instances → results to SQLite → UI updates
 
-**Video:** Clip selected → `ipcBridge.generateVideo()` → `slpToVideo.ts` spawns Dolphin + ffmpeg → outputs .mp4
+**Video:** Clip selected → `ipcBridge.generateVideo()` → `VideoManager` → `slpToVideo.ts` spawns Dolphin + ffmpeg → `.mp4`
 
 ## Key Directories
 

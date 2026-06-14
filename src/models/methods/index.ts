@@ -8,9 +8,12 @@ import trim from './trim'
 import koDirection from './koDirection'
 import custom from './custom'
 import edgeguard from './edgeguard'
+import edgeguard2 from './edgeguard2'
+import edgeguardFilter from './edgeguardFilter'
 import deduplicate from './deduplicate'
 import zeroToDeaths from './zerotoDeaths'
 import afkDetection from './afkDetection'
+import stageCenter from './stageCenter'
 
 /**
  * Filter method signature. Each method takes data + params (+ optional emitter)
@@ -30,9 +33,12 @@ const methods: Record<string, FilterMethod> = {
   koDirection,
   custom,
   edgeguard,
+  edgeguard2,
+  edgeguardFilter,
   deduplicate,
   zeroToDeaths,
   afkDetection,
+  stageCenter,
 }
 
 export default methods

@@ -154,7 +154,13 @@ const configuration: webpack.Configuration = {
       debug: true,
     }),
 
-    new ReactRefreshWebpackPlugin(),
+    // Exclude the WebGL/density module workers: they run in a WorkerGlobalScope
+    // where the HMR runtime's importScripts() of RefreshUtils fails, throwing an
+    // "Uncaught NetworkError ... importScripts" overlay. HMR isn't useful in a
+    // worker anyway. Dev-only — production never includes react-refresh.
+    new ReactRefreshWebpackPlugin({
+      exclude: [/node_modules/, /[\\/]workers[\\/]/],
+    }),
 
     new HtmlWebpackPlugin({
       filename: path.join('index.html'),

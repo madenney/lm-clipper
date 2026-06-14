@@ -7,8 +7,20 @@
  * requests sequentially on its own thread.
  */
 import { parentPort } from 'worker_threads'
+import { appendFileSync } from 'fs'
 import Database from 'better-sqlite3'
 import { archive as defaultArchive } from '../constants/defaults'
+
+// TEMP DIAGNOSTIC — remove once tray-load slowness is confirmed fixed.
+const DBG = '/tmp/dbworker-perf.log'
+const dbg = (line: string) => {
+  try {
+    appendFileSync(DBG, `${new Date().toISOString()} ${line}\n`)
+  } catch (_) {
+    // ignore
+  }
+}
+dbg('=== DbWorker started (build with itemsOrderBy fix) ===')
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -17,6 +29,7 @@ type DbRequest = {
   dbPath: string
 } & (
   | { method: 'getTableCount'; tableId: string }
+  | { method: 'getFilterCount'; tableId: string }
   | { method: 'getTableDuration'; tableId: string }
   | { method: 'getAllIds'; tableId: string }
   | { method: 'getProcessedSourceIds'; tableId: string }
@@ -106,6 +119,64 @@ function handleGetTableCount(db: Database.Database, tableId: string): number {
   return row?.count ?? 0
 }
 
+// Persist a freshly-computed count into the metadata cache so the next project
+// open can show it instantly without a full-table COUNT(*).
+function cacheFilterCount(
+  db: Database.Database,
+  tableId: string,
+  count: number,
+) {
+  const row = db.prepare('SELECT extra FROM metadata LIMIT 1').get() as
+    | { extra: string }
+    | undefined
+  if (!row) return
+  let extra: any = {}
+  try {
+    extra = JSON.parse(row.extra || '{}')
+  } catch (_) {
+    extra = {}
+  }
+  if (tableId === 'files') {
+    extra.cachedFileCount = count
+  } else {
+    extra.cachedCounts = extra.cachedCounts || {}
+    extra.cachedCounts[tableId] = count
+  }
+  db.prepare('UPDATE metadata SET extra = ?').run(JSON.stringify(extra))
+}
+
+// Lazy per-table count used to hydrate the UI after open. Computes COUNT(*)
+// (a full scan on big tables — that's why it runs off the open path), caches
+// the result, and returns it. Creates a missing filter table rather than
+// throwing so a partially-built project still loads.
+function handleGetFilterCount(db: Database.Database, tableId: string): number {
+  validateTableId(tableId)
+  let count: number
+  try {
+    const row = db
+      .prepare(`SELECT COUNT(*) AS count FROM "${tableId}"`)
+      .get() as { count: number } | undefined
+    count = row?.count ?? 0
+  } catch (_) {
+    if (tableId !== 'files') {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS "${tableId}" (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          JSON TEXT,
+          sort_order INTEGER DEFAULT NULL
+        )
+      `)
+    }
+    count = 0
+  }
+  try {
+    cacheFilterCount(db, tableId, count)
+  } catch (_) {
+    // caching is best-effort; never fail the count on a cache-write error
+  }
+  return count
+}
+
 function handleGetTableDuration(
   db: Database.Database,
   tableId: string,
@@ -152,11 +223,25 @@ function handleGetTableDuration(
   return row?.total ?? 0
 }
 
+// Choose the ORDER BY for displaying rows. Default to the integer primary key
+// (`id`) — that's an index walk, so LIMIT/OFFSET is instant even on 48M+ rows.
+// Only fall back to the custom-sort ordering when a sort has actually been
+// applied, which we detect by the presence of the expression index that
+// updateSortOrder creates. (We can't cheaply test `sort_order IS NOT NULL` —
+// on a 48M-row table with no custom sort, that scan alone takes ~30s. And for
+// an unsorted table COALESCE(sort_order, id) === id, so `id` is identical.)
+function itemsOrderBy(db: Database.Database, tableId: string): string {
+  const sorted = db
+    .prepare(
+      "SELECT 1 FROM sqlite_master WHERE type='index' AND name = ? LIMIT 1",
+    )
+    .get(`idx_${tableId}_sortorder`)
+  return sorted ? 'COALESCE(sort_order, id), id' : 'id'
+}
+
 function handleGetAllIds(db: Database.Database, tableId: string): string[] {
   validateTableId(tableId)
-  const colNames = getTableColumns(db, tableId)
-  const hasSortOrder = colNames.has('sort_order')
-  const orderBy = hasSortOrder ? 'COALESCE(sort_order, id), id' : 'id'
+  const orderBy = itemsOrderBy(db, tableId)
   const rows = db
     .prepare(`SELECT id FROM "${tableId}" ORDER BY ${orderBy}`)
     .all() as { id: number }[]
@@ -226,12 +311,17 @@ function handleGetItems(
   offset: number,
 ): any[] {
   validateTableId(tableId)
-  const colNames = getTableColumns(db, tableId)
-  const hasSortOrder = colNames.has('sort_order')
-  const orderBy = hasSortOrder ? 'COALESCE(sort_order, id), id' : 'id'
-  return db
+  const __t = Date.now()
+  const orderBy = itemsOrderBy(db, tableId)
+  const __tOrder = Date.now()
+  const rows = db
     .prepare(`SELECT * FROM "${tableId}" ORDER BY ${orderBy} LIMIT ? OFFSET ?`)
     .all(limit, offset)
+  dbg(
+    `getItems table=${tableId} orderBy="${orderBy}" limit=${limit} offset=${offset} ` +
+      `chooseOrderMs=${__tOrder - __t} queryMs=${Date.now() - __tOrder} rows=${(rows as any[]).length}`,
+  )
+  return rows
 }
 
 function handleGetItemsLite(
@@ -343,47 +433,24 @@ function handleGetMetadata(db: Database.Database) {
     needsUpdate = true
   }
 
-  // Use cached file count if available, otherwise count and cache it
-  if (extra.cachedFileCount !== undefined && extra.cachedFileCount >= 0) {
-    metadata.files = extra.cachedFileCount
-  } else {
-    const countRow = db
-      .prepare('SELECT COUNT(*) AS count FROM files')
-      .get() as { count: number }
-    metadata.files = countRow.count
-    needsUpdate = true
-  }
+  // Counts are loaded lazily (see getFilterCount). Opening a project must never
+  // block on a full-table COUNT(*) — on a multi-million-row table that scan
+  // takes tens of seconds. So we only fill in counts we already have cached;
+  // anything uncached is left null, and the renderer shows a spinner and
+  // hydrates it in the background after the window is already interactive.
+  metadata.files =
+    extra.cachedFileCount !== undefined && extra.cachedFileCount >= 0
+      ? extra.cachedFileCount
+      : null
 
-  const newCachedCounts: Record<string, number> = {}
   for (const filter of metadata.filters) {
-    try {
-      if (
-        filter.isProcessed &&
-        cachedCounts[filter.id] !== undefined &&
-        cachedCounts[filter.id] >= 0
-      ) {
-        filter.results = cachedCounts[filter.id]
-      } else {
-        const countResult = db
-          .prepare(`SELECT COUNT(*) AS count FROM "${filter.id}"`)
-          .get() as { count: number }
-        filter.results = countResult.count
-      }
-      newCachedCounts[filter.id] = filter.results
-    } catch (_) {
-      validateTableId(filter.id)
-      db.exec(`
-        CREATE TABLE IF NOT EXISTS "${filter.id}" (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          JSON TEXT,
-          sort_order INTEGER DEFAULT NULL
-        )
-      `)
-      filter.results = 0
-      filter.isProcessed = false
-      needsUpdate = true
-    }
+    filter.results =
+      cachedCounts[filter.id] !== undefined && cachedCounts[filter.id] >= 0
+        ? cachedCounts[filter.id]
+        : null
   }
+  // Preserve the existing cache untouched; lazy counts update it as they resolve.
+  const newCachedCounts: Record<string, number> = cachedCounts
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS filter_runs (
@@ -435,7 +502,9 @@ function handleGetMetadata(db: Database.Database) {
     if (metadata.cachedCounts) {
       extraObj.cachedCounts = metadata.cachedCounts
     }
-    extraObj.cachedFileCount = metadata.files
+    if (typeof metadata.files === 'number') {
+      extraObj.cachedFileCount = metadata.files
+    }
     const extraStr = JSON.stringify(extraObj)
     db.prepare(
       'UPDATE metadata SET name = ?, path = ?, createdAt = ?, extra = ?',
@@ -459,6 +528,7 @@ if (!parentPort) {
 parentPort.on('message', (msg: DbRequest) => {
   const post = (response: DbResponse) => parentPort?.postMessage(response)
 
+  const __t0 = Date.now()
   try {
     const db = getDb(msg.dbPath)
     let data: any
@@ -466,6 +536,9 @@ parentPort.on('message', (msg: DbRequest) => {
     switch (msg.method) {
       case 'getTableCount':
         data = handleGetTableCount(db, msg.tableId)
+        break
+      case 'getFilterCount':
+        data = handleGetFilterCount(db, msg.tableId)
         break
       case 'getTableDuration':
         data = handleGetTableDuration(db, msg.tableId)
@@ -580,6 +653,13 @@ parentPort.on('message', (msg: DbRequest) => {
           },
         )
         txn(msg.updates)
+        // Create an expression index matching the custom-sort ORDER BY so
+        // getItems/getAllIds stay fast, and so itemsOrderBy() can detect (via
+        // this index's existence) that this table is custom-sorted. Dropped
+        // automatically if the filter table is later recreated on a re-run.
+        db.exec(
+          `CREATE INDEX IF NOT EXISTS "idx_${msg.tableId}_sortorder" ON "${msg.tableId}"(COALESCE(sort_order, id), id)`,
+        )
         data = null
         break
       }
@@ -617,9 +697,16 @@ parentPort.on('message', (msg: DbRequest) => {
         throw new Error(`Unknown method: ${(msg as any).method}`)
     }
 
+    const __dur = Date.now() - __t0
+    if (__dur > 200) {
+      dbg(
+        `SLOW method=${msg.method} ${(msg as any).tableId || ''} totalMs=${__dur}`,
+      )
+    }
     post({ id: msg.id, type: 'result', data })
   } catch (error) {
     const errorText = error instanceof Error ? error.message : String(error)
+    dbg(`ERROR method=${msg.method} totalMs=${Date.now() - __t0} ${errorText}`)
     post({ id: msg.id, type: 'error', error: errorText })
   }
 })

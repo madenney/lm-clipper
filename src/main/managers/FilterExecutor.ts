@@ -9,6 +9,7 @@ import {
   updateFilterRunProgressAsync,
 } from '../dbAsync'
 import { RequestEnvelope, unpackRequest, reply } from '../ipcUtils'
+import { resolveInputId, getDescendantIds } from '../../lib/filterGraph'
 import type ConsoleManager from './ConsoleManager'
 
 export default class FilterExecutor {
@@ -67,9 +68,18 @@ export default class FilterExecutor {
     }
   }
 
-  private broadcastRunningFilters() {
+  // Guarded send: workers can outlive the window (e.g. a resume still running
+  // when the window is closed/reloaded). Sending to a destroyed webContents
+  // throws "Object has been destroyed", which surfaced as a crash dialog that
+  // kept reappearing. Drop the message instead.
+  private send(channel: string, payload: unknown) {
     if (this.mainWindow?.isDestroyed?.()) return
-    this.mainWindow.webContents.send('currentlyRunningFilter', {
+    if (this.mainWindow?.webContents?.isDestroyed?.()) return
+    this.mainWindow.webContents.send(channel, payload)
+  }
+
+  private broadcastRunningFilters() {
+    this.send('currentlyRunningFilter', {
       running: Array.from(this.runningFilterIndices),
     })
   }
@@ -103,8 +113,12 @@ export default class FilterExecutor {
       })
     }
 
-    const prevResultsTableId =
-      filterIndex === 0 ? 'files' : archive.filters[filterIndex - 1].id
+    const branchingOn = this.getConfig().branchingEnabled === true
+    const prevResultsTableId = resolveInputId(
+      archive.filters,
+      filterIndex,
+      branchingOn,
+    )
 
     // If this filter is already running, abort it first
     const existingController = this.runningFilterControllers.get(filterId)
@@ -138,7 +152,7 @@ export default class FilterExecutor {
         newItemCount?: number
       }) => {
         const { total, current, newItemCount } = eventUpdate
-        this.mainWindow.webContents.send('filterUpdate', {
+        this.send('filterUpdate', {
           filterId,
           filterIndex,
           total,
@@ -159,10 +173,14 @@ export default class FilterExecutor {
       errors: filterErrors,
       logs: filterLogs,
       lastProgress,
+      missing = 0,
+      corrupt = 0,
+      examples = [],
+      durationMs,
     } = filterResult
 
     if (filterErrors.length > 0) {
-      this.mainWindow.webContents.send('filterError', {
+      this.send('filterError', {
         filterId,
         filterLabel: filterJSON.label,
         errors: filterErrors,
@@ -176,7 +194,7 @@ export default class FilterExecutor {
     }
 
     if (filterLogs && filterLogs.length > 0) {
-      this.mainWindow.webContents.send('filterLogs', {
+      this.send('filterLogs', {
         filterId,
         filterLabel: filterJSON.label,
         logs: filterLogs,
@@ -184,6 +202,20 @@ export default class FilterExecutor {
       for (const l of filterLogs) {
         this.consoleManager.pushConsoleLog('info', `[${filterJSON.label}] ${l}`)
       }
+    }
+
+    if (missing > 0 || corrupt > 0) {
+      const parts: string[] = []
+      if (missing > 0)
+        parts.push(
+          `${missing.toLocaleString()} file(s) not found (moved/deleted)`,
+        )
+      if (corrupt > 0) parts.push(`${corrupt.toLocaleString()} unreadable`)
+      const eg = examples.length > 0 ? ` e.g. ${examples[0]}` : ''
+      this.consoleManager.pushConsoleLog(
+        'error',
+        `[${filterJSON.label}] ${parts.join(', ')} — skipped.${eg}`,
+      )
     }
 
     this.consoleManager.pushConsoleLog(
@@ -198,8 +230,14 @@ export default class FilterExecutor {
     let filterMessage = ''
     if (filterIndex > 0) {
       const currentArchive = this.getArchive()
-      const prevFilterId = currentArchive?.filters[filterIndex - 1]?.id
-      if (prevFilterId && this.runningFilterControllers.has(prevFilterId)) {
+      const prevFilterId = currentArchive
+        ? resolveInputId(currentArchive.filters, filterIndex, branchingOn)
+        : undefined
+      if (
+        prevFilterId &&
+        prevFilterId !== 'files' &&
+        this.runningFilterControllers.has(prevFilterId)
+      ) {
         try {
           const prevCount = await getTableCountAsync(archive.path, prevFilterId)
           filterMessage =
@@ -221,7 +259,7 @@ export default class FilterExecutor {
       this.filterCancelIds.delete(filterId)
       await deleteFilterRunAsync(archive.path, filterId)
       if (archive.resetFiltersFrom) {
-        await archive.resetFiltersFrom(filterIndex)
+        await archive.resetFiltersFrom(filterIndex, branchingOn)
       }
       const metadata = await getMetaData(archive.path)
       this.setArchive(new Archive(metadata))
@@ -267,21 +305,26 @@ export default class FilterExecutor {
           // Normal completion: mark processed, reset downstream
           if (refreshedFilter) {
             refreshedFilter.isProcessed = true
+            if (typeof durationMs === 'number') {
+              refreshedFilter.lastRunMs = durationMs
+            }
           }
 
-          const refreshedIndex = newArchive.filters.findIndex(
-            (f) => f.id === filterId,
+          // Only invalidate filters that actually read from this one (directly
+          // or transitively). In a plain linear chain that's "everything below";
+          // with branches it leaves unrelated branches untouched.
+          const descendants = getDescendantIds(
+            newArchive.filters,
+            filterId,
+            branchingOn,
           )
-          if (
-            refreshedIndex >= 0 &&
-            refreshedIndex + 1 < newArchive.filters.length
-          ) {
-            const downstream = newArchive.filters.slice(refreshedIndex + 1)
-            for (const df of downstream) {
-              if (!this.runningFilterControllers.has(df.id)) {
-                df.isProcessed = false
-                df.results = 0
-              }
+          for (const df of newArchive.filters) {
+            if (
+              descendants.has(df.id) &&
+              !this.runningFilterControllers.has(df.id)
+            ) {
+              df.isProcessed = false
+              df.results = 0
             }
           }
 
@@ -395,11 +438,12 @@ export default class FilterExecutor {
 
     const config = this.getConfig()
     const numFilterThreads = config.numFilterThreads || 1
+    const branchingOn = config.branchingEnabled === true
     const batchAbort = new AbortController()
 
-    let prevResultsTableId = 'files'
     for (let i = 0; i < archive.filters.length; i += 1) {
       const filterJSON = archive.filters[i]
+      const prevResultsTableId = resolveInputId(archive.filters, i, branchingOn)
       const filter = new Filter(filterJSON)
       this.activeFilter = filter
       this.consoleManager.startConsole('filter', filterJSON.label)
@@ -414,7 +458,7 @@ export default class FilterExecutor {
         numFilterThreads,
         (eventUpdate: { current: number; total: number }) => {
           const { total, current } = eventUpdate
-          this.mainWindow.webContents.send('filterUpdate', {
+          this.send('filterUpdate', {
             filterId: filterJSON.id,
             filterIndex: i,
             total,
@@ -427,10 +471,11 @@ export default class FilterExecutor {
         terminated,
         errors: filterErrors,
         logs: filterLogs,
+        durationMs,
       } = filterResult
 
       if (filterErrors.length > 0) {
-        this.mainWindow.webContents.send('filterError', {
+        this.send('filterError', {
           filterId: filterJSON.id,
           filterLabel: filterJSON.label,
           errors: filterErrors,
@@ -438,7 +483,7 @@ export default class FilterExecutor {
       }
 
       if (filterLogs && filterLogs.length > 0) {
-        this.mainWindow.webContents.send('filterLogs', {
+        this.send('filterLogs', {
           filterId: filterJSON.id,
           filterLabel: filterJSON.label,
           logs: filterLogs,
@@ -459,14 +504,14 @@ export default class FilterExecutor {
 
       if (terminated || batchAbort.signal.aborted) {
         if (archive.resetFiltersFrom) {
-          await archive.resetFiltersFrom(i)
+          await archive.resetFiltersFrom(i, branchingOn)
         }
         break
       }
 
       filterJSON.isProcessed = true
       filterJSON.results = 0
-      prevResultsTableId = filterJSON.id
+      if (typeof durationMs === 'number') filterJSON.lastRunMs = durationMs
     }
 
     if (archive.saveMetaData) await archive.saveMetaData()

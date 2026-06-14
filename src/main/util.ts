@@ -71,6 +71,14 @@ export function getSlpzPath() {
   }
 }
 
+export function getAssetPath(...segments: string[]) {
+  const root =
+    process.env.NODE_ENV === 'development'
+      ? path.resolve(app.getAppPath(), 'assets')
+      : path.resolve(process.resourcesPath, 'assets')
+  return path.resolve(root, ...segments)
+}
+
 export function getFFMPEGPath() {
   if (process.env.NODE_ENV === 'development') {
     return 'ffmpeg'

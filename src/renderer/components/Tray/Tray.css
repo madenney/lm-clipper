@@ -214,6 +214,18 @@
   }
 }
 
+/* Inline spinner shown in place of the total count while it hydrates */
+.tray-count-spinner {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  vertical-align: -1px;
+  border: 2px solid #444;
+  border-top-color: #888;
+  border-radius: 50%;
+  animation: tray-spin 0.8s linear infinite;
+}
+
 /* Pagination controls */
 .tray-pagination {
   position: absolute;

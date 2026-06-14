@@ -43,6 +43,16 @@ if (isDebug) {
 
 process.on('uncaughtException', (error) => {
   logMain('uncaughtException', error)
+  // "Object has been destroyed" is a benign race: an async task (typically a
+  // filter/import worker that outlived the window) tried to send to a
+  // webContents that was already closed or reloaded. It is NOT fatal. Swallow
+  // it — do not tear down the controller (which would brick the running app)
+  // and do not let it bubble to Electron's blocking error dialog (which froze
+  // the app into an unrecoverable modal that even electronmon couldn't restart).
+  const message = error instanceof Error ? error.message : String(error)
+  if (/Object has been destroyed/i.test(message)) {
+    return
+  }
   shutdownCleanup()
 })
 
@@ -232,6 +242,9 @@ const createWindow = async () => {
   })
 
   mainWindow.on('closed', () => {
+    // Tear down any in-flight filter/import/video workers so they don't keep
+    // running headless and emitting to a window that no longer exists.
+    if (controller) controller.cleanup()
     mainWindow = null
   })
 

@@ -26,6 +26,11 @@ const LONG_RUNNING_CHANNELS = new Set([
   'recordClip',
   'addFilesManual',
   'addDroppedFiles',
+  // Opening a project can legitimately take a while on a large DB; never reap
+  // these as "stale" or the renderer gets an error reply and can crash.
+  'archive',
+  'openExistingArchive',
+  'newProject',
 ])
 
 const nextRequestId = () => {
@@ -161,6 +166,14 @@ export default {
   addFilter(type: string, handler?: ResponseHandler<any>) {
     return request('addFilter', type, 'addFilter', handler)
   },
+  saveEdgeRectangles(rectangles: any, handler?: ResponseHandler<any>) {
+    return request(
+      'saveEdgeRectangles',
+      rectangles,
+      'saveEdgeRectangles',
+      handler,
+    )
+  },
   removeFilter(id: string, handler?: ResponseHandler<any>) {
     return request('removeFilter', id, 'removeFilter', handler)
   },
@@ -196,6 +209,12 @@ export default {
       'getTableDuration',
       handler,
     )
+  },
+  getFilterCount(
+    filterId: string,
+    handler?: ResponseHandler<{ filterId: string; count: number }>,
+  ) {
+    return request('getFilterCount', { filterId }, 'getFilterCount', handler)
   },
   getNames(handler?: ResponseHandler<any>) {
     return request('getNames', null, 'getNames', handler)

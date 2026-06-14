@@ -10,7 +10,35 @@ export const config = {
   disableScreenShake: false,
   hideTags: false,
   hideNames: false,
-  overlaySource: false,
+  overlayEnabled: false,
+  overlayPattern: '{date} {time} - {source}',
+  overlayPosition: 'bottom-left' as const,
+  overlaySourceRules: [
+    {
+      id: 'netplay',
+      marker: 'netplay',
+      extract: 'nextSegment' as const,
+      value: '',
+      prefix: '',
+      suffix: ' netplay',
+    },
+    {
+      id: 'tournament',
+      marker: 'tournament',
+      extract: 'nextSegment' as const,
+      value: '',
+      prefix: '',
+      suffix: '',
+    },
+    {
+      id: 'ranked_anonymized',
+      marker: 'ranked_anonymized',
+      extract: 'fixed' as const,
+      value: 'Anonymous Ranked',
+      prefix: '',
+      suffix: '',
+    },
+  ],
   fixedCamera: false,
   noElectricSFX: false,
   noCrowdNoise: false,
@@ -135,6 +163,20 @@ return clips.filter(clip => {
 
     // ── Combos ──
     {
+      name: 'Zero to Death',
+      category: 'Combos',
+      description: 'Combos that started near 0% and ended in a kill',
+      code: `// Keep combos that started at or below the threshold % and killed
+const threshold = Number(params.startThreshold) || 0
+return clips.filter(clip => {
+  if (!clip.combo || !clip.combo.didKill) return false
+  return clip.combo.startPercent <= threshold
+})`,
+      customParams: [{ name: 'startThreshold', type: 'int', value: '5' }],
+      builtIn: true,
+      requiresParser: true,
+    },
+    {
       name: 'Damage Range',
       category: 'Combos',
       description: 'Filter combos by total damage dealt',
@@ -165,6 +207,33 @@ return clips.filter(clip => {
   return moveIds.some(id => clip.combo.moves.some(m => m.moveId === id))
 })`,
       customParams: [{ name: 'moveIds', type: 'array', value: '17' }],
+      builtIn: true,
+      requiresParser: true,
+    },
+    {
+      name: 'Move Count',
+      category: 'Combos',
+      description: 'Keep combos with at least/at most N of a move',
+      code: `// Keep combos containing a move a min/max number of times
+// e.g. moveIds 9, min 4 = at least 4 down tilts
+// Move IDs: 2-4=jab 5=rapid-jab 6=dash-attack 7=ftilt 8=utilt 9=dtilt
+// 10=fsmash 11=usmash 12=dsmash 13=nair 14=fair 15=bair 16=uair 17=dair
+// 18=neutral-b 19=side-b 20=up-b 21=down-b 50=grab 52=pummel 53-56=throws
+const moveIds = new Set(params.moveIds.map(Number))
+const min = Number(params.min) || 0
+const max = Number(params.max) || 0
+return clips.filter(clip => {
+  if (!clip.combo?.moves) return false
+  const count = clip.combo.moves.filter(m => moveIds.has(m.moveId)).length
+  if (min && count < min) return false
+  if (max && count > max) return false
+  return true
+})`,
+      customParams: [
+        { name: 'moveIds', type: 'array', value: '9' },
+        { name: 'min', type: 'int', value: '4' },
+        { name: 'max', type: 'int', value: '0' },
+      ],
       builtIn: true,
       requiresParser: true,
     },

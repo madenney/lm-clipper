@@ -21,10 +21,24 @@ import readline from 'readline'
 import { SlippiGame } from '@slippi/slippi-js'
 import os from 'os'
 
-import { pad } from '../lib'
+import { buildReplayVars, applyPattern } from '../lib/overlayTokens'
 import { getFFMPEGPath } from './util'
+import { renderOverlayPng } from './overlayRenderer'
 import { logMain, getLogPath } from './logger'
-import { ConfigInterface, ReplayInterface } from '../constants/types'
+import {
+  ConfigInterface,
+  ReplayInterface,
+  OverlaySourceRule,
+} from '../constants/types'
+
+/** Pull the first WxH resolution out of an ffmpeg stderr dump. */
+const parseVideoDimensions = (
+  stderr: string,
+): { width: number; height: number } | null => {
+  const m = stderr.match(/Video:.*?[, ](\d{2,5})x(\d{2,5})/)
+  if (!m) return null
+  return { width: parseInt(m[1], 10), height: parseInt(m[2], 10) }
+}
 
 export type VideoWorkerStatus = {
   replayPath: string
@@ -103,24 +117,16 @@ const killDolphinOnEndFrame = (proc: ChildProcessWithoutNullStreams) => {
 const resolveFilenamePattern = (
   pattern: string,
   replay: ReplayInterface,
+  sourceRules?: OverlaySourceRule[],
 ): string => {
-  const m = replay.meta || {}
   const unsafeChars = /[<>:"/\\|?*\x00-\x1f]/g // eslint-disable-line no-control-regex
   const sanitize = (s: string) => s.replace(unsafeChars, '_').trim()
 
-  const vars: Record<string, string> = {
-    character1: sanitize(m.character1 || 'Unknown'),
-    character2: sanitize(m.character2 || 'Unknown'),
-    player1: sanitize(m.player1 || 'P1'),
-    player2: sanitize(m.player2 || 'P2'),
-    stage: sanitize(m.stage || 'Unknown'),
-    date: m.date || 'unknown-date',
-    time: m.time || '0000',
-    index: pad(replay.index, 4),
-    kills: m.didKill ? 'kill' : 'nokill',
-    damage: m.damage !== undefined ? String(m.damage) : '0',
-    moves: m.moves !== undefined ? String(m.moves) : '0',
-  }
+  // Shared token values (raw), sanitised here for filesystem safety. The
+  // pattern's own '/' separators are preserved to allow folder structure.
+  const raw = buildReplayVars(replay, sourceRules)
+  const vars: Record<string, string> = {}
+  for (const key of Object.keys(raw)) vars[key] = sanitize(raw[key])
 
   return pattern.replace(/\{(\w+)\}/g, (match, key) => vars[key] ?? match)
 }
@@ -133,7 +139,11 @@ const processOneReplay = async (
   onError?: (_msg: string) => void,
 ): Promise<boolean> => {
   const outputPattern = config.outputFilenamePattern || '{index}'
-  const resolvedName = resolveFilenamePattern(outputPattern, replay)
+  const resolvedName = resolveFilenamePattern(
+    outputPattern,
+    replay,
+    config.overlaySourceRules,
+  )
   // resolvedName may contain path separators for folder structure
   const outputDir = path.resolve(config.outputPath, path.dirname(resolvedName))
   const fileBasename = path.basename(resolvedName)
@@ -326,23 +336,81 @@ const processOneReplay = async (
 
   if (signal.stopped || signal.cancelled) return false
 
+  // 4b. Build the overlay PNG (optional). Rendered at the clip's true
+  // resolution (parsed from ffmpeg's stderr) and composited during the final
+  // encode below via ffmpeg's overlay filter.
+  let overlayPngPath: string | null = null
+  if (config.overlayEnabled) {
+    const vars = buildReplayVars(replay, config.overlaySourceRules)
+    const overlayText = applyPattern(config.overlayPattern || '', vars).trim()
+    const dims = parseVideoDimensions(trimStderr)
+    if (overlayText && dims) {
+      const pngPath = basePath('-overlay.png')
+      try {
+        const ok = await renderOverlayPng(
+          overlayText,
+          dims.width,
+          dims.height,
+          config.overlayPosition || 'bottom-left',
+          pngPath,
+        )
+        if (ok) overlayPngPath = pngPath
+      } catch (err) {
+        logMain('record: overlay render failed', err)
+      }
+    } else {
+      logMain('record: overlay skipped', {
+        hasText: Boolean(overlayText),
+        dims,
+      })
+    }
+  }
+
+  const overlayFilter =
+    '[0:v][1:v]scale2ref[base][ovr];' +
+    '[base][ovr]overlay=0:0,pad=ceil(iw/2)*2:ceil(ih/2)*2[outv]'
+
+  if (signal.stopped || signal.cancelled) return false
+
   // 5. Convert to MP4 (optional)
   if (config.convertToMp4) {
-    const mp4Args = [
-      '-i',
-      basePath('.avi'),
-      '-vf',
-      'scale=trunc(iw/2)*2:trunc(ih/2)*2',
-      '-c:v',
-      'libx264',
-      '-b:v',
-      `${config.bitrateKbps}k`,
-      '-c:a',
-      'aac',
-      '-b:a',
-      '128k',
-      basePath('.mp4'),
-    ]
+    const mp4Args = overlayPngPath
+      ? [
+          '-i',
+          basePath('.avi'),
+          '-i',
+          overlayPngPath,
+          '-filter_complex',
+          overlayFilter,
+          '-map',
+          '[outv]',
+          '-map',
+          '0:a?',
+          '-c:v',
+          'libx264',
+          '-b:v',
+          `${config.bitrateKbps}k`,
+          '-c:a',
+          'aac',
+          '-b:a',
+          '128k',
+          basePath('.mp4'),
+        ]
+      : [
+          '-i',
+          basePath('.avi'),
+          '-vf',
+          'scale=trunc(iw/2)*2:trunc(ih/2)*2',
+          '-c:v',
+          'libx264',
+          '-b:v',
+          `${config.bitrateKbps}k`,
+          '-c:a',
+          'aac',
+          '-b:a',
+          '128k',
+          basePath('.mp4'),
+        ]
     logMain('record: spawning ffmpeg mp4 convert', { args: mp4Args })
 
     const mp4Process = spawn(ffmpegPath, mp4Args, {
@@ -366,6 +434,51 @@ const processOneReplay = async (
 
     // Delete the .avi now that we have the .mp4
     await fsPromises.unlink(basePath('.avi')).catch(() => {})
+  } else if (overlayPngPath) {
+    // No MP4 conversion: burn the overlay into the .avi itself.
+    const overlaidPath = basePath('-overlaid.avi')
+    const aviOverlayArgs = [
+      '-i',
+      basePath('.avi'),
+      '-i',
+      overlayPngPath,
+      '-filter_complex',
+      overlayFilter,
+      '-map',
+      '[outv]',
+      '-map',
+      '0:a?',
+      '-c:v',
+      'libx264',
+      '-b:v',
+      `${config.bitrateKbps}k`,
+      '-c:a',
+      'copy',
+      overlaidPath,
+    ]
+    const aviProcess = spawn(ffmpegPath, aviOverlayArgs, {
+      stdio: ['ignore', 'ignore', 'pipe'],
+    })
+    signal.activeProcesses.add(aviProcess)
+    aviProcess.on('error', (err) => {
+      logMain('record: ffmpeg avi overlay spawn error', err)
+    })
+    let aviStderr = ''
+    aviProcess.stderr!.on('data', (chunk: Buffer) => {
+      aviStderr += chunk.toString()
+    })
+    const aviCode = await exit(aviProcess)
+    signal.activeProcesses.delete(aviProcess)
+    if (aviCode === 0) {
+      await fsPromises.rename(overlaidPath, basePath('.avi')).catch((err) => {
+        logMain('record: avi overlay rename failed', err)
+      })
+    } else {
+      logMain(`record: ffmpeg avi overlay failed (code ${aviCode})`, {
+        stderr: aviStderr.slice(-2000),
+      })
+      await fsPromises.unlink(overlaidPath).catch(() => {})
+    }
   }
 
   // 6. Delete intermediates
@@ -374,6 +487,9 @@ const processOneReplay = async (
     fsPromises.unlink(basePath('-unmerged.avi')).catch(() => {}),
     fsPromises.unlink(basePath('-unmerged.wav')).catch(() => {}),
     fsPromises.unlink(basePath('-merged.avi')).catch(() => {}),
+    ...(overlayPngPath
+      ? [fsPromises.unlink(overlayPngPath).catch(() => {})]
+      : []),
   ])
 
   return true
@@ -523,6 +639,187 @@ const processReplays = async (
   }, 2000)
 }
 
+// Resolves the three Dolphin ini paths (game settings, graphics, dolphin)
+// for the active platform.
+const resolveDolphinIniPaths = (config: ConfigInterface) => {
+  // Linux
+  if (os.type() === 'Linux') {
+    const dolphinDirname = path.resolve(getAppDataPath(), 'SlippiPlayback')
+    return {
+      gameSettingsPath: path.join(dolphinDirname, 'GameSettings', 'GALE01.ini'),
+      graphicsSettingsPath: path.join(dolphinDirname, 'Config', 'GFX.ini'),
+      dolphinSettingsPath: path.join(dolphinDirname, 'Config', 'Dolphin.ini'),
+    }
+  }
+  // Windows
+  const dolphinDirname = path.dirname(config.dolphinPath)
+  return {
+    gameSettingsPath: path.join(
+      dolphinDirname,
+      'User',
+      'GameSettings',
+      'GALE01.ini',
+    ),
+    graphicsSettingsPath: path.join(
+      dolphinDirname,
+      'User',
+      'Config',
+      'GFX.ini',
+    ),
+    dolphinSettingsPath: path.join(
+      dolphinDirname,
+      'User',
+      'Config',
+      'Dolphin.ini',
+    ),
+  }
+}
+
+// Builds the GALE01.ini [Gecko] / [Gecko_Enabled] / [Gecko_Disabled] body from
+// the current config. Shared by recording (configureDolphin) and playback so
+// the play window reflects the same rendering toggles as recording.
+const buildGeckoSettings = (config: ConfigInterface): string[] => {
+  // gameMusicOn is injected for recording jobs; fall back to the raw setting
+  // so playback (which passes the plain config) behaves identically.
+  const gameMusicOn =
+    (config as { gameMusicOn?: boolean }).gameMusicOn ?? config.gameMusic
+
+  // Custom gecko codes go in the [Gecko] section as definitions
+  const geckoDefinitions: string[] = []
+  const customGeckoCodes = config.customGeckoCodes || []
+  for (const gc of customGeckoCodes) {
+    if (gc.name && gc.code) {
+      geckoDefinitions.push(`$${gc.name}`)
+      // Each line of the code block is a hex line
+      for (const line of gc.code.split('\n')) {
+        const trimmed = line.trim()
+        if (trimmed) geckoDefinitions.push(trimmed)
+      }
+    }
+  }
+
+  const settings: string[] = ['[Gecko]']
+
+  // Inline definitions for codes not in the playback GALE01r2.ini
+  if (config.freezeFD) {
+    settings.push('$Freeze FD Background')
+    settings.push('0421AAE0 48000008')
+  }
+  if (config.centerHud) {
+    settings.push('$Center Align 2P HUD')
+    settings.push('C216E9AC 00000009')
+    settings.push('887F0061 2C030003')
+    settings.push('41820030 887F0085')
+    settings.push('2C030003 41820024')
+    settings.push('887F00A9 2C030003')
+    settings.push('40820018 887F00CD')
+    settings.push('2C030003 4082000C')
+    settings.push('38600002 4800000C')
+    settings.push('887F0000 5463F77E')
+    settings.push('60000000 00000000')
+  }
+  if (config.flashRedLCancel) {
+    settings.push('$Flash Red Failed L-Cancel A')
+    settings.push('C20C0148 0000000C')
+    settings.push('387F0488 899E0564')
+    settings.push('2C0C00D4 41820008')
+    settings.push('4800004C 39800091')
+    settings.push('999E0564 3D80437F')
+    settings.push('919E0518 3D80C200')
+    settings.push('919E0524 3D800000')
+    settings.push('919E051C 919E0520')
+    settings.push('919E0528 919E052C')
+    settings.push('919E0530 3D80C280')
+    settings.push('919E0534 3D80800C')
+    settings.push('618C0150 7D8903A6')
+    settings.push('4E800420 00000000')
+    settings.push('$Flash Red Failed L-Cancel B')
+    settings.push('C208D690 00000009')
+    settings.push('3D808048 818C9D30')
+    settings.push('558C443E 2C0C0208')
+    settings.push('40820020 818DB61C')
+    settings.push('898C0000 8965000C')
+    settings.push('7C0C5800 4182000C')
+    settings.push('88A5067F 48000018')
+    settings.push('88A5067F 2C050007')
+    settings.push('4180000C 398000D4')
+    settings.push('99830564 00000000')
+  }
+
+  // Write custom code definitions
+  settings.push(...geckoDefinitions)
+
+  settings.push('[Gecko_Enabled]')
+  if (!gameMusicOn) settings.push('$Optional: Game Music OFF')
+  if (config.hideHud) settings.push('$Optional: Hide HUD')
+  if (config.hideTags) settings.push('$Optional: Hide Tags')
+  if (config.fixedCamera) settings.push('$Optional: Fixed Camera Always')
+  if (config.widescreen !== false) settings.push('$Optional: Widescreen 16:9')
+  if (config.disableScreenShake)
+    settings.push('$Optional: Disable Screen Shake')
+  if (config.noElectricSFX) settings.push('$Optional: No Electric SFX')
+  if (config.noCrowdNoise) settings.push('$Optional: Prevent Crowd Noises')
+  if (!config.enableChants)
+    settings.push('$Optional: Prevent Character Crowd Chants')
+  if (config.disableMagnifyingGlass)
+    settings.push('$Optional: Disable Magnifying-glass HUD')
+  if (config.freezeFD) settings.push('$Freeze FD Background')
+  if (config.centerHud) settings.push('$Center Align 2P HUD')
+  if (config.developMode) settings.push('$Optional: Enable Develop Mode')
+  if (config.flashRedLCancel) {
+    settings.push('$Flash Red Failed L-Cancel A')
+    settings.push('$Flash Red Failed L-Cancel B')
+  }
+  // Enable custom gecko codes
+  for (const gc of customGeckoCodes) {
+    if (gc.name && gc.code && gc.enabled) {
+      settings.push(`$${gc.name}`)
+    }
+  }
+
+  settings.push('[Gecko_Disabled]')
+  if (config.hideNames) settings.push('$Optional: Show Player Names')
+  // Codes left in [Gecko_Enabled] when the toggle is off would otherwise keep
+  // whatever the base GALE01r2.ini / a previous job set. Explicitly disable the
+  // optional rendering codes when their toggle is off so they never go stale
+  // (e.g. Hide HUD persisting into the play window after a prior recording).
+  if (!config.hideHud) settings.push('$Optional: Hide HUD')
+  if (!config.hideTags) settings.push('$Optional: Hide Tags')
+  if (!config.fixedCamera) settings.push('$Optional: Fixed Camera Always')
+  if (config.widescreen === false) settings.push('$Optional: Widescreen 16:9')
+  if (!config.disableScreenShake)
+    settings.push('$Optional: Disable Screen Shake')
+  if (!config.noElectricSFX) settings.push('$Optional: No Electric SFX')
+  if (!config.noCrowdNoise) settings.push('$Optional: Prevent Crowd Noises')
+  if (!config.disableMagnifyingGlass)
+    settings.push('$Optional: Disable Magnifying-glass HUD')
+  if (!config.developMode) settings.push('$Optional: Enable Develop Mode')
+  // Disabled custom gecko codes
+  for (const gc of customGeckoCodes) {
+    if (gc.name && gc.code && !gc.enabled) {
+      settings.push(`$${gc.name}`)
+    }
+  }
+
+  return settings
+}
+
+// Writes only the GALE01.ini gecko codes from the current config. Used by the
+// play window so toggling rendering options (Hide HUD, etc.) takes effect on
+// playback without needing to run a recording first.
+export const writeGeckoCodes = async (config: ConfigInterface) => {
+  const { gameSettingsPath } = resolveDolphinIniPaths(config)
+  try {
+    await fsPromises.mkdir(path.dirname(gameSettingsPath), { recursive: true })
+  } catch {
+    // directory likely already exists
+  }
+  await fsPromises.writeFile(
+    gameSettingsPath,
+    buildGeckoSettings(config).join('\n'),
+  )
+}
+
 const configureDolphin = async (
   config: ConfigInterface,
   eventEmitter: (_msg: string) => void,
@@ -533,39 +830,11 @@ const configureDolphin = async (
     platform: os.type(),
   })
   eventEmitter('Configuring Dolphin...')
-  let gameSettingsPath = null
-  let graphicsSettingsPath = null
-  let dolphinSettingsPath = null
+  const { gameSettingsPath, graphicsSettingsPath, dolphinSettingsPath } =
+    resolveDolphinIniPaths(config)
 
-  // Linux
-  if (os.type() === 'Linux') {
-    const dolphinDirname = path.resolve(getAppDataPath(), 'SlippiPlayback')
-    gameSettingsPath = path.join(dolphinDirname, 'GameSettings', 'GALE01.ini')
-    graphicsSettingsPath = path.join(dolphinDirname, 'Config', 'GFX.ini')
-    dolphinSettingsPath = path.join(dolphinDirname, 'Config', 'Dolphin.ini')
-
-    // Windows
-  } else {
-    const dolphinDirname = path.dirname(config.dolphinPath)
-    gameSettingsPath = path.join(
-      dolphinDirname,
-      'User',
-      'GameSettings',
-      'GALE01.ini',
-    )
-    graphicsSettingsPath = path.join(
-      dolphinDirname,
-      'User',
-      'Config',
-      'GFX.ini',
-    )
-    dolphinSettingsPath = path.join(
-      dolphinDirname,
-      'User',
-      'Config',
-      'Dolphin.ini',
-    )
-
+  // Windows: ensure the game settings file exists before reading it
+  if (os.type() !== 'Linux') {
     try {
       await fsPromises.access(gameSettingsPath)
     } catch {
@@ -581,110 +850,8 @@ const configureDolphin = async (
     throw new Error('Error: could not find game settings file')
   }
 
-  // Game settings
-  // Custom gecko codes go in the [Gecko] section as definitions
-  const geckoDefinitions: string[] = []
-  const customGeckoCodes = config.customGeckoCodes || []
-  for (const gc of customGeckoCodes) {
-    if (gc.name && gc.code) {
-      geckoDefinitions.push(`$${gc.name}`)
-      // Each line of the code block is a hex line
-      for (const line of gc.code.split('\n')) {
-        const trimmed = line.trim()
-        if (trimmed) geckoDefinitions.push(trimmed)
-      }
-    }
-  }
-
-  let newSettings: string[] = ['[Gecko]']
-
-  // Inline definitions for codes not in the playback GALE01r2.ini
-  if (config.freezeFD) {
-    newSettings.push('$Freeze FD Background')
-    newSettings.push('0421AAE0 48000008')
-  }
-  if (config.centerHud) {
-    newSettings.push('$Center Align 2P HUD')
-    newSettings.push('C216E9AC 00000009')
-    newSettings.push('887F0061 2C030003')
-    newSettings.push('41820030 887F0085')
-    newSettings.push('2C030003 41820024')
-    newSettings.push('887F00A9 2C030003')
-    newSettings.push('40820018 887F00CD')
-    newSettings.push('2C030003 4082000C')
-    newSettings.push('38600002 4800000C')
-    newSettings.push('887F0000 5463F77E')
-    newSettings.push('60000000 00000000')
-  }
-  if (config.flashRedLCancel) {
-    newSettings.push('$Flash Red Failed L-Cancel A')
-    newSettings.push('C20C0148 0000000C')
-    newSettings.push('387F0488 899E0564')
-    newSettings.push('2C0C00D4 41820008')
-    newSettings.push('4800004C 39800091')
-    newSettings.push('999E0564 3D80437F')
-    newSettings.push('919E0518 3D80C200')
-    newSettings.push('919E0524 3D800000')
-    newSettings.push('919E051C 919E0520')
-    newSettings.push('919E0528 919E052C')
-    newSettings.push('919E0530 3D80C280')
-    newSettings.push('919E0534 3D80800C')
-    newSettings.push('618C0150 7D8903A6')
-    newSettings.push('4E800420 00000000')
-    newSettings.push('$Flash Red Failed L-Cancel B')
-    newSettings.push('C208D690 00000009')
-    newSettings.push('3D808048 818C9D30')
-    newSettings.push('558C443E 2C0C0208')
-    newSettings.push('40820020 818DB61C')
-    newSettings.push('898C0000 8965000C')
-    newSettings.push('7C0C5800 4182000C')
-    newSettings.push('88A5067F 48000018')
-    newSettings.push('88A5067F 2C050007')
-    newSettings.push('4180000C 398000D4')
-    newSettings.push('99830564 00000000')
-  }
-
-  // Write custom code definitions
-  newSettings.push(...geckoDefinitions)
-
-  newSettings.push('[Gecko_Enabled]')
-  if (!config.gameMusicOn) newSettings.push('$Optional: Game Music OFF')
-  if (config.hideHud) newSettings.push('$Optional: Hide HUD')
-  if (config.hideTags) newSettings.push('$Optional: Hide Tags')
-  if (config.fixedCamera) newSettings.push('$Optional: Fixed Camera Always')
-  if (config.widescreen !== false)
-    newSettings.push('$Optional: Widescreen 16:9')
-  if (config.disableScreenShake)
-    newSettings.push('$Optional: Disable Screen Shake')
-  if (config.noElectricSFX) newSettings.push('$Optional: No Electric SFX')
-  if (config.noCrowdNoise) newSettings.push('$Optional: Prevent Crowd Noises')
-  if (!config.enableChants)
-    newSettings.push('$Optional: Prevent Character Crowd Chants')
-  if (config.disableMagnifyingGlass)
-    newSettings.push('$Optional: Disable Magnifying-glass HUD')
-  if (config.freezeFD) newSettings.push('$Freeze FD Background')
-  if (config.centerHud) newSettings.push('$Center Align 2P HUD')
-  if (config.developMode) newSettings.push('$Optional: Enable Develop Mode')
-  if (config.flashRedLCancel) {
-    newSettings.push('$Flash Red Failed L-Cancel A')
-    newSettings.push('$Flash Red Failed L-Cancel B')
-  }
-  // Enable custom gecko codes
-  for (const gc of customGeckoCodes) {
-    if (gc.name && gc.code && gc.enabled) {
-      newSettings.push(`$${gc.name}`)
-    }
-  }
-
-  newSettings.push('[Gecko_Disabled]')
-  if (config.hideNames) newSettings.push('$Optional: Show Player Names')
-  // Disabled custom gecko codes
-  for (const gc of customGeckoCodes) {
-    if (gc.name && gc.code && !gc.enabled) {
-      newSettings.push(`$${gc.name}`)
-    }
-  }
-
+  // Game settings (gecko codes)
+  let newSettings: string[] = buildGeckoSettings(config)
   await fsPromises.writeFile(gameSettingsPath, newSettings.join('\n'))
 
   // Graphics settings

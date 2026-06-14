@@ -78,6 +78,13 @@ export function getTableCountAsync(
   return call(dbPath, 'getTableCount', { tableId })
 }
 
+export function getFilterCountAsync(
+  dbPath: string,
+  tableId: string,
+): Promise<number> {
+  return call(dbPath, 'getFilterCount', { tableId })
+}
+
 export function getTableDurationAsync(
   dbPath: string,
   tableId: string,

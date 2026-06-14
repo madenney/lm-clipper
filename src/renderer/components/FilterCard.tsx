@@ -1,7 +1,7 @@
 import { MouseEvent, DragEvent, KeyboardEvent } from 'react'
 import { cloneDeep } from 'lodash'
 import { filtersConfig } from 'constants/config'
-import { ConfigInterface, ShallowFilterInterface } from '../../constants/types'
+import { ShallowFilterInterface } from '../../constants/types'
 import FilterControls, { DeferredInput } from './FilterControls'
 import ipcBridge from '../ipcBridge'
 
@@ -16,13 +16,21 @@ type FilterCardProps = {
   dragTransform: string
   filterMsg: string
   liveResults: number | undefined
-  resultsCount: number
-  config: ConfigInterface
+  resultsCount: number | null
   namesList: { name: string; total: number }[]
   connectCodesList: { name: string; total: number }[]
   namesLoading: boolean
   codesLoading: boolean
   hasParser: boolean
+  // Branching: valid input sources for this filter (Files + filters above it)
+  // and the positional default (the card directly above). `indentLevel` is the
+  // filter's depth in the input tree (linear continuations inherit their source's
+  // depth, so a whole branch subtree stays nested together). `isBranchPoint` =
+  // this card reads from something OTHER than the card directly above it.
+  inputOptions: { id: string; label: string }[]
+  defaultInputId: string
+  indentLevel: number
+  isBranchPoint: boolean
   onToggleCollapse: (
     _event: MouseEvent<HTMLButtonElement>,
     _filterId: string,
@@ -57,12 +65,15 @@ export default function FilterCard({
   filterMsg,
   liveResults,
   resultsCount,
-  config,
   namesList,
   connectCodesList,
   namesLoading,
   codesLoading,
   hasParser,
+  inputOptions,
+  defaultInputId,
+  indentLevel,
+  isBranchPoint,
   onToggleCollapse,
   onClick,
   onDoubleClick,
@@ -83,8 +94,13 @@ export default function FilterCard({
       data-filter-index={filterIndex}
       className={`filter ${isActive ? 'filter-active' : ''} ${
         isGameFilter ? 'filter-pinned' : ''
-      } ${isCollapsed ? 'filter-collapsed' : ''} ${isDragging ? 'filter-dragging' : ''}`}
-      style={dragTransform ? { transform: dragTransform } : undefined}
+      } ${isCollapsed ? 'filter-collapsed' : ''} ${isDragging ? 'filter-dragging' : ''} ${
+        indentLevel > 0 ? 'filter-branch' : ''
+      }`}
+      style={{
+        ...(dragTransform ? { transform: dragTransform } : {}),
+        ...(indentLevel > 0 ? { marginLeft: indentLevel * 18 } : {}),
+      }}
       role="button"
       tabIndex={0}
       onKeyDown={(e: KeyboardEvent<HTMLDivElement>) => {
@@ -134,9 +150,17 @@ export default function FilterCard({
         <div className="filter-meta">
           <div className="filter-results">
             Results:{' '}
-            {isRunning
-              ? (liveResults ?? 0).toLocaleString()
-              : (liveResults ?? resultsCount ?? 0).toLocaleString()}
+            {isRunning ? (
+              (liveResults ?? 0).toLocaleString()
+            ) : (liveResults ?? resultsCount) == null ? (
+              <span
+                className="filter-results-spinner"
+                title="Counting…"
+                aria-label="Counting"
+              />
+            ) : (
+              (liveResults ?? resultsCount)!.toLocaleString()
+            )}
           </div>
           {filterMsg && !/^\d+\/\d+$/.test(filterMsg) ? (
             <div className="filterMsg">
@@ -164,9 +188,39 @@ export default function FilterCard({
             ''
           )}
         </div>
+        {!isGameFilter && inputOptions.length > 1 && (
+          <div
+            className="filter-input-source"
+            onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => e.stopPropagation()}
+            role="presentation"
+          >
+            <span className="filter-input-source-label">
+              {isBranchPoint ? '⑂ reads from' : 'Input'}
+            </span>
+            <select
+              className="filter-input-source-select"
+              value={filter.inputId ?? defaultInputId}
+              onChange={(e) => {
+                const val = e.target.value
+                const filterClone = cloneDeep(filter)
+                // Picking the positional default clears inputId so the filter
+                // keeps following the card above it through reorders.
+                if (val === defaultInputId) delete filterClone.inputId
+                else filterClone.inputId = val
+                onUpdate(filterClone, filter)
+              }}
+            >
+              {inputOptions.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
         <FilterControls
           filter={filter}
-          config={config}
           namesList={namesList}
           connectCodesList={connectCodesList}
           namesLoading={namesLoading}

@@ -39,7 +39,9 @@ export const buildShallowArchive = (
     path: archive.path,
     name: archive.name,
     createdAt: archive.createdAt,
-    files: archive.files || 0,
+    // Preserve null (= count not yet hydrated) so the renderer shows a spinner
+    // instead of a misleading 0 and knows to lazily fetch the real count.
+    files: archive.files ?? null,
     filters: (archive.filters || []).map((filter) => ({
       id: filter.id,
       type: filter.type,

@@ -16,7 +16,7 @@ import {
   ReplayInterface,
 } from '../../constants/types'
 import Archive from '../../models/Archive'
-import slpToVideo, { VideoJobController } from '../slpToVideo'
+import slpToVideo, { VideoJobController, writeGeckoCodes } from '../slpToVideo'
 import { updateEfbScale, createOutputDirectory, getFFMPEGPath } from '../util'
 import { getMetaData } from '../db'
 import { logMain, getLogPath } from '../logger'
@@ -114,7 +114,6 @@ export default class VideoManager {
       noElectricSFX,
       noCrowdNoise,
       disableMagnifyingGlass,
-      overlaySource,
     } = config
 
     const effectiveNumCPUs = numCPUs || 1
@@ -141,7 +140,6 @@ export default class VideoManager {
       hideHud,
       hideTags,
       hideNames,
-      overlaySource,
       disableScreenShake,
       disableChants: !enableChants,
       noElectricSFX,
@@ -300,23 +298,21 @@ export default class VideoManager {
           }
         }
 
-        // Try to get video duration via ffprobe
+        // Total duration: the merged "final" file when concatenating, otherwise
+        // the sum of every individual clip. (Previously this probed only the
+        // last clip, so the modal reported a single ~5s clip as the total.)
         let duration: number | null = null
-        const playFile =
-          allFiles.find((f) => f.startsWith('final')) ||
-          allFiles[allFiles.length - 1]
-        if (playFile) {
-          try {
-            const ffmpegDir = path.dirname(getFFMPEGPath())
-            const ffprobePath =
-              ffmpegDir === '.'
-                ? 'ffprobe'
-                : path.resolve(
-                    ffmpegDir,
-                    `ffprobe${process.platform === 'win32' ? '.exe' : ''}`,
-                  )
-            const probePath = path.resolve(videoConfig.outputPath, playFile)
-            duration = await new Promise<number | null>((resolve) => {
+        try {
+          const ffmpegDir = path.dirname(getFFMPEGPath())
+          const ffprobePath =
+            ffmpegDir === '.'
+              ? 'ffprobe'
+              : path.resolve(
+                  ffmpegDir,
+                  `ffprobe${process.platform === 'win32' ? '.exe' : ''}`,
+                )
+          const probeDuration = (file: string) =>
+            new Promise<number | null>((resolve) => {
               execFile(
                 ffprobePath,
                 [
@@ -325,7 +321,7 @@ export default class VideoManager {
                   '-print_format',
                   'json',
                   '-show_format',
-                  probePath,
+                  path.resolve(videoConfig.outputPath, file),
                 ],
                 { timeout: 10000 },
                 (err, stdout) => {
@@ -340,9 +336,32 @@ export default class VideoManager {
                 },
               )
             })
-          } catch {
-            // ffprobe not available, skip duration
+
+          const finalFile = allFiles.find((f) => f.startsWith('final'))
+          if (finalFile) {
+            // Concatenated output — the single merged file is the full length.
+            duration = await probeDuration(finalFile)
+          } else if (clips.length > 0) {
+            // Separate clips — sum them all, with bounded concurrency so we
+            // don't spawn hundreds of ffprobe processes at once.
+            const CONCURRENCY = 16
+            let total = 0
+            let any = false
+            for (let i = 0; i < clips.length; i += CONCURRENCY) {
+              const batch = clips.slice(i, i + CONCURRENCY)
+              // eslint-disable-next-line no-await-in-loop
+              const durs = await Promise.all(batch.map(probeDuration))
+              for (const d of durs) {
+                if (d != null) {
+                  total += d
+                  any = true
+                }
+              }
+            }
+            duration = any ? total : null
           }
+        } catch {
+          // ffprobe not available — leave duration null
         }
 
         completedClipCount = clips.length
@@ -434,7 +453,6 @@ export default class VideoManager {
       noElectricSFX,
       noCrowdNoise,
       disableMagnifyingGlass,
-      overlaySource,
     } = config
 
     const effectiveNumCPUs = numCPUs || 1
@@ -471,7 +489,6 @@ export default class VideoManager {
       hideHud,
       hideTags,
       hideNames,
-      overlaySource,
       disableScreenShake,
       disableChants: !enableChants,
       noElectricSFX,
@@ -617,6 +634,15 @@ export default class VideoManager {
     }
 
     await updateEfbScale(dolphinPath, playbackResolution ?? 2)
+
+    // Apply current gecko/rendering toggles (Hide HUD, widescreen, etc.) so the
+    // play window reflects the latest settings instead of whatever a prior
+    // recording last wrote to GALE01.ini.
+    try {
+      await writeGeckoCodes(config)
+    } catch (err) {
+      logMain('playClipAsync: failed to write gecko codes', err)
+    }
 
     const tmpDir = await fsPromises.mkdtemp(
       path.join(os.tmpdir(), 'lm-clipper-'),

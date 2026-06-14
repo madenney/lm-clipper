@@ -54,6 +54,24 @@ export type NthMoveDef = {
   dMax?: string
 }
 
+// A rectangular position box in Melee world coordinates.
+export type StageZoneBox = {
+  xMin: number
+  xMax: number
+  yMin: number
+  yMax: number
+}
+
+// Per-player position boxes for a single stage.
+export type StageZoneEntry = {
+  comboer?: StageZoneBox
+  comboee?: StageZoneBox
+}
+
+// Position zones keyed by Slippi stage id. Drawn via the Stage Zone picker;
+// the Action State filter applies the box matching each clip's stage.
+export type PositionZones = Record<number, StageZoneEntry>
+
 export type ActionStateFilterParams = {
   maxFiles?: string
   startFrom?: string
@@ -73,6 +91,8 @@ export type ActionStateFilterParams = {
   comboeeMaxX?: string
   comboeeMinY?: string
   comboeeMaxY?: string
+  // Per-stage position boxes (override the flat scalar X/Y fields above).
+  positionZones?: PositionZones
 }
 
 export type EdgeguardParams = {
@@ -83,6 +103,47 @@ export type EdgeguardParams = {
   comboeeTag?: string[] | string
   comboeeCC?: string[] | string
   stageFilter?: (string | number)[]
+}
+
+export type Edgeguard2Params = {
+  comboerChar?: (string | number)[]
+  comboeeChar?: (string | number)[]
+  comboerTag?: string[] | string
+  comboerCC?: string[] | string
+  comboeeTag?: string[] | string
+  comboeeCC?: string[] | string
+  stageFilter?: (string | number)[]
+  minOffstageFrames?: string
+  rangeLeniency?: string
+  requireEdgeguarderCommit?: boolean
+  includeLedgeSteals?: boolean
+  maxLookbackFrames?: string
+}
+
+export type EdgeguardFilterParams = {
+  minHits?: string
+  maxHits?: string
+  minOffstageFrames?: string
+  maxOffstageFrames?: string
+  maxLedgeDist?: string
+  minDepthX?: string
+  maxMinY?: string
+  minScore?: string
+  // Tri-state: '' = any, 'yes' = required, 'no' = excluded.
+  blockedByHit?: string
+  ledgeSteal?: string
+  edgeguarderOffstage?: string
+  comboerChar?: (string | number)[]
+  comboeeChar?: (string | number)[]
+  comboerTag?: string[] | string
+  comboerCC?: string[] | string
+  comboeeTag?: string[] | string
+  comboeeCC?: string[] | string
+}
+
+export type StageCenterParams = {
+  maxDistance: string
+  useComboer?: boolean
 }
 
 export type ZeroToDeathsParams = {
@@ -128,7 +189,10 @@ export type FilterParams =
   | ComboFilterParams
   | ActionStateFilterParams
   | EdgeguardParams
+  | Edgeguard2Params
+  | EdgeguardFilterParams
   | ZeroToDeathsParams
+  | StageCenterParams
   | AfkDetectionParams
   | KoDirectionParams
   | RemoveStarKOFramesParams
@@ -175,6 +239,34 @@ export interface CustomGeckoCode {
   enabled: boolean
 }
 
+export type OverlayPosition =
+  | 'bottom-left'
+  | 'bottom-right'
+  | 'top-left'
+  | 'top-right'
+
+/**
+ * A rule for deriving the {source} overlay token from a clip's file path.
+ * Rules are evaluated in order; the first whose `marker` is found in the path
+ * wins. The extracted value is prefixed with `prefix` to form the final string.
+ */
+export interface OverlaySourceRule {
+  id: string
+  // Path must contain this segment for the rule to match. Empty = always match
+  // (use as a catch-all fallback at the end of the list).
+  marker: string
+  // How to derive the value once matched:
+  //  - nextSegment: the path segment immediately after `marker`
+  //  - fixed:       the literal text in `value`
+  //  - regex:       first capture group of `value` (a regex) tested against the path
+  extract: 'nextSegment' | 'fixed' | 'regex'
+  value: string
+  // Wrap the extracted value: prefix + value + suffix.
+  // e.g. prefix "" + value "DaShizWiz" + suffix " netplay" => "DaShizWiz netplay"
+  prefix: string
+  suffix: string
+}
+
 export interface ConfigInterface {
   recentProjects: RecentProject[]
   outputPath: string
@@ -185,7 +277,10 @@ export interface ConfigInterface {
   disableScreenShake: boolean
   hideTags: boolean
   hideNames: boolean
-  overlaySource: boolean
+  overlayEnabled: boolean
+  overlayPattern: string
+  overlayPosition: OverlayPosition
+  overlaySourceRules: OverlaySourceRule[]
   fixedCamera: boolean
   noElectricSFX: boolean
   noCrowdNoise: boolean
@@ -218,8 +313,17 @@ export interface ConfigInterface {
   includeDefaultFilters: boolean
   savedCustomFilters: SavedCustomFilter[]
   testMode?: boolean
+  // Advanced: lets a filter read from any earlier filter (or raw Files) instead
+  // of just the one above it, turning the chain into a tree. Default off; when
+  // off, saved branch links are preserved but ignored (chain runs linearly).
+  branchingEnabled?: boolean
   warnOnParserDelete?: boolean
-  advancedMode?: boolean
+  // Long-run reset warnings come in three independent severity tiers by last-run
+  // duration (≥60s, ≥10m, ≥1h). Each flag, when false, silences just that tier's
+  // "are you sure?" prompt. Set via each modal's "Don't warn me again" checkbox.
+  warnOnReset60s?: boolean
+  warnOnReset10m?: boolean
+  warnOnReset1h?: boolean
   fullscreen?: boolean
   widescreen?: boolean
   freezeFD?: boolean
@@ -279,6 +383,21 @@ export interface ClipInterface {
     }[]
   }
   recordingParams?: { [key: string]: any }
+  // Edgeguard 2: heuristic interestingness score + metrics for the offstage
+  // sequence (attached so a downstream Sort can rank by it).
+  edgeguardScore?: number
+  edgeguardMetrics?: {
+    offstageFrames: number
+    hits: number
+    recoveryFrame: number | null
+    minLedgeDist: number
+    blockedByHit: boolean
+    ledgeSteal: boolean
+    edgeguarderOffstage: boolean
+    maxDepthX: number
+    minY: number
+    score: number
+  }
 }
 
 export interface LiteItem {
@@ -300,9 +419,16 @@ export interface FilterInterface {
   label: string
   isProcessed: boolean
   params: Record<string, any>
-  results: number
+  // null = count not yet known (hydrated lazily after open; UI shows a spinner)
+  results: number | null
   resumable?: boolean
   resumeProgress?: { processed: number; totalInput: number }
+  // Branching: id of the filter (or 'files') this filter reads from. Unset =
+  // reads from the filter directly above it in the list (legacy linear chain).
+  inputId?: string
+  // Wall-clock ms the last successful run took. Drives the long-run reset
+  // warning so we don't silently nuke an expensive (e.g. 15-hour) run.
+  lastRunMs?: number
   run3?(
     dbPath: string,
     prevTable: string,
@@ -321,9 +447,13 @@ export interface ShallowFilterInterface {
   label: string
   isProcessed: boolean
   params: Record<string, any>
-  results: number
+  // null = count not yet known (hydrated lazily after open; UI shows a spinner)
+  results: number | null
   resumable?: boolean
   resumeProgress?: { processed: number; totalInput: number }
+  // See FilterInterface for these two.
+  inputId?: string
+  lastRunMs?: number
 }
 
 export interface CustomParamDef {
@@ -346,13 +476,17 @@ export interface SavedCustomFilter {
   category?: string
   description?: string
   requiresParser?: boolean
+  // When set, this catalog entry adds a native filter of this type instead of
+  // a custom JS template (used for frame-data filters that can't be JS code).
+  nativeType?: string
 }
 
 export interface ShallowArchiveInterface {
   path: string
   name: string
   createdAt: number
-  files: number
+  // null = file count not yet known (hydrated lazily after open)
+  files: number | null
   filters: ShallowFilterInterface[]
   savedCustomFilters?: SavedCustomFilter[]
 }
@@ -361,7 +495,7 @@ export interface ArchiveInterface {
   path: string
   name: string
   createdAt: number
-  files: number
+  files: number | null
   filters: FilterInterface[]
   savedCustomFilters?: SavedCustomFilter[]
   // save?(): void
@@ -404,7 +538,10 @@ export interface ArchiveInterface {
   addFilter?(newFilterJSON: FilterInterface): Promise<ArchiveInterface>
   deleteFilter?(filterId: string): Promise<ArchiveInterface>
   saveMetaData?(): Promise<void>
-  resetFiltersFrom?(startIndex: number): Promise<void>
+  resetFiltersFrom?(
+    startIndex: number,
+    branchingEnabled?: boolean,
+  ): Promise<void>
 }
 
 export interface ReplayInterface {
@@ -463,6 +600,9 @@ interface WorkerMessageProgress {
 interface WorkerMessageDone {
   type: 'done'
   results: number
+  missing?: number
+  corrupt?: number
+  examples?: string[]
 }
 
 interface WorkerMessageError {

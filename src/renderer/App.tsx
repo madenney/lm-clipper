@@ -1,4 +1,11 @@
-import { Component, useState, useEffect, useMemo, ReactNode } from 'react'
+import {
+  Component,
+  useState,
+  useEffect,
+  useMemo,
+  useRef,
+  ReactNode,
+} from 'react'
 
 import './styles/App.css'
 import { ArchiveContext, ConfigContext } from './context/AppContext'
@@ -78,6 +85,10 @@ export default function App() {
       setConfig(nextConfig || null)
     })
     ipcBridge.getArchive((nextArchive) => {
+      if (nextArchive?.error) {
+        console.error('Error loading archive:', nextArchive.error)
+        return
+      }
       setArchive(nextArchive || null)
     })
 
@@ -136,6 +147,10 @@ export default function App() {
         ipcBridge.cancelImport()
         ipcBridge.cancelVideo()
         ipcBridge.getArchive((nextArchive) => {
+          if (nextArchive?.error) {
+            console.error('Error refreshing archive:', nextArchive.error)
+            return
+          }
           setArchive(nextArchive || null)
         })
       },
@@ -264,6 +279,54 @@ export default function App() {
       window.removeEventListener('unhandledrejection', handleRejection)
     }
   }, [])
+
+  // Lazy count hydration. getMetadata returns instantly with unknown counts left
+  // as null (so opening a huge project never blocks). Here we fill those counts
+  // in after the fact — one background request per filter — and patch them into
+  // the archive as each resolves, so the UI shows spinners that turn into numbers
+  // instead of freezing on open. A per-path ref prevents duplicate requests.
+  const countHydrationRef = useRef<{
+    path: string | null
+    requested: Set<string>
+  }>({ path: null, requested: new Set() })
+  useEffect(() => {
+    if (!archive?.path || !Array.isArray(archive.filters)) return
+    const state = countHydrationRef.current
+    if (state.path !== archive.path) {
+      state.path = archive.path
+      state.requested = new Set()
+    }
+    const archivePath = archive.path
+    const requestCount = (id: string) => {
+      if (state.requested.has(id)) return
+      state.requested.add(id)
+      ipcBridge.getFilterCount(id, (res) => {
+        if (!res || res.filterId == null) return
+        setArchive((prev) => {
+          if (!prev || prev.path !== archivePath) return prev
+          if (id === 'files') {
+            return prev.files == null ? { ...prev, files: res.count } : prev
+          }
+          return {
+            ...prev,
+            filters: prev.filters.map((f) =>
+              f.id === id && f.results == null
+                ? { ...f, results: res.count }
+                : f,
+            ),
+          }
+        })
+      })
+    }
+    // Request the filter counts first (downstream filters are usually tiny and
+    // return instantly), then the SLP files count last — it's a full scan of
+    // the (often huge) files table, and the single DB worker processes these
+    // serially, so doing it last keeps the cheap counts from waiting behind it.
+    for (const f of archive.filters) {
+      if (f.results == null) requestCount(f.id)
+    }
+    if (archive.files == null) requestCount('files')
+  }, [archive, setArchive])
 
   useEffect(() => {
     const removeListener = window.electron.ipcRenderer.on(

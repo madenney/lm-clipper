@@ -1,16 +1,29 @@
 /* eslint-disable jsx-a11y/no-noninteractive-element-interactions */
 /* eslint-disable jsx-a11y/no-static-element-interactions */
 /* eslint-disable jsx-a11y/click-events-have-key-events */
-import { useState, useEffect, Dispatch, SetStateAction } from 'react'
+import {
+  useState,
+  useEffect,
+  useContext,
+  Dispatch,
+  SetStateAction,
+} from 'react'
 import { videoConfig } from 'constants/config'
 
-import { ConfigInterface, CustomGeckoCode } from '../../constants/types'
+import {
+  ConfigInterface,
+  CustomGeckoCode,
+  OverlaySourceRule,
+  OverlayPosition,
+} from '../../constants/types'
+import { resolveSource } from '../../lib/overlayTokens'
+import { hasActiveBranches, FILES_TABLE } from '../../lib/filterGraph'
+import { ArchiveContext } from '../context/AppContext'
 import ipcBridge from '../ipcBridge'
 import GeckoCodeList from './GeckoCodeList'
 
 // IDs that moved out of the settings modal
 const hiddenFromSettings = new Set([
-  'advancedMode',
   'testMode',
   'testDolphin',
   'outputFilenamePattern', // rendered custom in Output section
@@ -21,6 +34,7 @@ const settingsSections = [
   { key: 'general', label: 'General' },
   { key: 'paths', label: 'Paths' },
   { key: 'output', label: 'Output' },
+  { key: 'overlay', label: 'Overlay' },
   { key: 'video', label: 'Video' },
   { key: 'rendering', label: 'Gecko Codes' },
   { key: 'performance', label: 'Performance' },
@@ -43,6 +57,37 @@ const patternVariables = [
   { key: 'moves', label: 'Moves', example: '6' },
 ]
 
+// Tokens offered in the overlay pattern builder (superset of filename tokens:
+// adds path-derived {source}, {filename}, {folder}, {parentfolder}).
+const overlayVariables = [
+  { key: 'source', label: 'Source', example: 'Mang0 netplay' },
+  { key: 'date', label: 'Date', example: '2026-03-07' },
+  { key: 'time', label: 'Time', example: '1430' },
+  { key: 'player1', label: 'Player 1', example: 'Mang0' },
+  { key: 'player2', label: 'Player 2', example: 'Zain' },
+  { key: 'character1', label: 'Character 1', example: 'Fox' },
+  { key: 'character2', label: 'Character 2', example: 'Marth' },
+  { key: 'stage', label: 'Stage', example: 'FD' },
+  { key: 'damage', label: 'Damage', example: '84' },
+  { key: 'moves', label: 'Moves', example: '6' },
+  { key: 'filename', label: 'Filename', example: 'Game_20230202T075353' },
+  { key: 'folder', label: 'Folder', example: 'DaShizWiz' },
+  { key: 'parentfolder', label: 'Parent Folder', example: 'netplay' },
+]
+
+const overlayPositions: { key: OverlayPosition; label: string }[] = [
+  { key: 'bottom-left', label: 'Bottom Left' },
+  { key: 'bottom-right', label: 'Bottom Right' },
+  { key: 'top-left', label: 'Top Left' },
+  { key: 'top-right', label: 'Top Right' },
+]
+
+const overlayExtractLabels: Record<OverlaySourceRule['extract'], string> = {
+  nextSegment: 'Next folder after marker',
+  fixed: 'Fixed text',
+  regex: 'Regex capture',
+}
+
 type SettingsModalProps = {
   config: ConfigInterface
   setConfig: Dispatch<SetStateAction<ConfigInterface | null>>
@@ -59,6 +104,9 @@ export default function SettingsModal({
   onRunSetupWizard,
 }: SettingsModalProps) {
   const [activeSection, setActiveSection] = useState<SettingsSection>('general')
+  const [overlaySamplePath, setOverlaySamplePath] = useState(
+    '/replays/netplay/DaShizWiz/2023/Game_20230202T075353.slp',
+  )
   const [resetConfirm, setResetConfirm] = useState(false)
   const [appVersion, setAppVersion] = useState('')
   const [logsPath, setLogsPath] = useState('')
@@ -68,6 +116,17 @@ export default function SettingsModal({
   const [updateCheckStatus, setUpdateCheckStatus] = useState<
     'idle' | 'checking' | 'up-to-date' | 'available' | 'error'
   >('idle')
+  // Confirm before disabling branching while the open project still has branches.
+  const [branchDisableConfirm, setBranchDisableConfirm] = useState(false)
+
+  const archiveCtx = useContext(ArchiveContext)
+  const archiveFilters = archiveCtx?.archive?.filters ?? []
+  const branchCount = archiveFilters.filter((f, i) => {
+    if (!f.inputId) return false
+    const positional = i === 0 ? FILES_TABLE : archiveFilters[i - 1].id
+    return f.inputId !== positional
+  }).length
+  const projectHasBranches = hasActiveBranches(archiveFilters)
 
   useEffect(() => {
     const removeVersionListener = window.electron.ipcRenderer.on(
@@ -183,7 +242,18 @@ export default function SettingsModal({
               type="checkbox"
               id={c.id}
               checked={config[c.id]}
-              onChange={(e) => handleChange(c.id, e.target.checked)}
+              onChange={(e) => {
+                // Disabling branching while branches exist needs a heads-up.
+                if (
+                  c.id === 'branchingEnabled' &&
+                  !e.target.checked &&
+                  projectHasBranches
+                ) {
+                  setBranchDisableConfirm(true)
+                  return
+                }
+                handleChange(c.id, e.target.checked)
+              }}
             />
             <span className="settings-toggle-slider" />
           </label>
@@ -374,10 +444,300 @@ export default function SettingsModal({
     )
   }
 
+  function insertOverlayToken(key: string) {
+    const input = document.getElementById(
+      'overlay-pattern-input',
+    ) as HTMLInputElement | null
+    if (!input) return
+    const start = input.selectionStart ?? input.value.length
+    const end = input.selectionEnd ?? start
+    const val = input.value
+    const token = `{${key}}`
+    const newVal = val.slice(0, start) + token + val.slice(end)
+    handleChange('overlayPattern', newVal)
+    requestAnimationFrame(() => {
+      input.focus()
+      const pos = start + token.length
+      input.setSelectionRange(pos, pos)
+    })
+  }
+
+  function updateSourceRules(rules: OverlaySourceRule[]) {
+    handleChange('overlaySourceRules', rules)
+  }
+
+  function patchRule(index: number, patch: Partial<OverlaySourceRule>) {
+    const rules = (config.overlaySourceRules || []).map((r, i) =>
+      i === index ? { ...r, ...patch } : r,
+    )
+    updateSourceRules(rules)
+  }
+
+  function addRule() {
+    const rules = [...(config.overlaySourceRules || [])]
+    rules.push({
+      id: `rule_${Date.now()}`,
+      marker: '',
+      extract: 'nextSegment',
+      value: '',
+      prefix: '',
+      suffix: '',
+    })
+    updateSourceRules(rules)
+  }
+
+  function removeRule(index: number) {
+    updateSourceRules(
+      (config.overlaySourceRules || []).filter((_, i) => i !== index),
+    )
+  }
+
+  function moveRule(index: number, dir: -1 | 1) {
+    const rules = [...(config.overlaySourceRules || [])]
+    const target = index + dir
+    if (target < 0 || target >= rules.length) return
+    ;[rules[index], rules[target]] = [rules[target], rules[index]]
+    updateSourceRules(rules)
+  }
+
+  function getOverlayPreview(pattern: string): string {
+    const vars: Record<string, string> = {}
+    for (const v of overlayVariables) vars[v.key] = v.example
+    // {source} is computed live from the sample path + configured rules
+    vars.source = resolveSource(
+      overlaySamplePath,
+      config.overlaySourceRules || [],
+    )
+    return pattern.replace(/\{(\w+)\}/g, (match, key) => vars[key] ?? match)
+  }
+
+  function renderOverlaySection() {
+    const enabled = config.overlayEnabled
+    const pattern = config.overlayPattern || ''
+    const rules = config.overlaySourceRules || []
+    const preview = getOverlayPreview(pattern)
+    const sourcePreview = resolveSource(overlaySamplePath, rules)
+
+    return (
+      <div className="pattern-editor">
+        <div className="settings-item overlay-toggle-row">
+          <div className="settings-item-info">
+            <label className="settings-item-label" htmlFor="overlay-enabled">
+              Add overlay
+            </label>
+            <div className="settings-item-desc">
+              Draws a text label onto every exported clip.
+            </div>
+          </div>
+          <div className="settings-item-control">
+            <label className="settings-toggle">
+              <input
+                type="checkbox"
+                id="overlay-enabled"
+                checked={enabled}
+                onChange={(e) =>
+                  handleChange('overlayEnabled', e.target.checked)
+                }
+              />
+              <span className="settings-toggle-slider" />
+            </label>
+          </div>
+        </div>
+
+        {enabled && (
+          <>
+            <div className="pattern-editor-row">
+              <label
+                className="settings-item-label"
+                htmlFor="overlay-pattern-input"
+              >
+                Overlay text
+              </label>
+              <input
+                type="text"
+                id="overlay-pattern-input"
+                className="settings-path-input"
+                value={pattern}
+                onChange={(e) => handleChange('overlayPattern', e.target.value)}
+                placeholder="{date} {time} - {source}"
+              />
+            </div>
+
+            <div className="pattern-variables">
+              <span className="pattern-variables-label">Click to insert:</span>
+              {overlayVariables.map((v) => (
+                <button
+                  key={v.key}
+                  type="button"
+                  className="pattern-var-btn"
+                  onClick={() => insertOverlayToken(v.key)}
+                  title={`${v.label} — e.g. "${v.example}"`}
+                >
+                  {`{${v.key}}`}
+                </button>
+              ))}
+            </div>
+
+            <div className="pattern-preview overlay-preview">
+              <span className="pattern-preview-label">Preview:</span>
+              <div className="overlay-preview-box">{preview || ' '}</div>
+            </div>
+
+            <div className="pattern-editor-row">
+              <label className="settings-item-label" htmlFor="overlay-position">
+                Position
+              </label>
+              <select
+                id="overlay-position"
+                className="settings-select"
+                value={config.overlayPosition || 'bottom-left'}
+                onChange={(e) =>
+                  handleChange(
+                    'overlayPosition',
+                    e.target.value as OverlayPosition,
+                  )
+                }
+              >
+                {overlayPositions.map((p) => (
+                  <option key={p.key} value={p.key}>
+                    {p.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="overlay-rules">
+              <div className="overlay-rules-header">
+                <span className="settings-item-label">
+                  Source rules — define what <code>{'{source}'}</code> resolves
+                  to
+                </span>
+                <div className="overlay-rules-desc">
+                  Each clip&apos;s file path is checked against these rules
+                  top-to-bottom; the first whose marker is found wins.
+                </div>
+              </div>
+
+              <div className="overlay-rules-sample">
+                <label className="settings-item-label" htmlFor="overlay-sample">
+                  Test path
+                </label>
+                <input
+                  type="text"
+                  id="overlay-sample"
+                  className="settings-path-input"
+                  value={overlaySamplePath}
+                  onChange={(e) => setOverlaySamplePath(e.target.value)}
+                />
+                <span className="overlay-sample-result">
+                  → <strong>{sourcePreview || '(no match)'}</strong>
+                </span>
+              </div>
+
+              {rules.map((rule, i) => (
+                <div className="overlay-rule" key={rule.id}>
+                  <input
+                    type="text"
+                    className="overlay-rule-marker"
+                    placeholder="marker (e.g. netplay)"
+                    value={rule.marker}
+                    onChange={(e) => patchRule(i, { marker: e.target.value })}
+                    title="Path must contain this folder segment to match. Empty = always match (fallback)."
+                  />
+                  <select
+                    className="overlay-rule-extract"
+                    value={rule.extract}
+                    onChange={(e) =>
+                      patchRule(i, {
+                        extract: e.target.value as OverlaySourceRule['extract'],
+                      })
+                    }
+                  >
+                    {(['nextSegment', 'fixed', 'regex'] as const).map((ex) => (
+                      <option key={ex} value={ex}>
+                        {overlayExtractLabels[ex]}
+                      </option>
+                    ))}
+                  </select>
+                  {rule.extract !== 'nextSegment' && (
+                    <input
+                      type="text"
+                      className="overlay-rule-value"
+                      placeholder={
+                        rule.extract === 'fixed' ? 'text' : 'regex (1st group)'
+                      }
+                      value={rule.value}
+                      onChange={(e) => patchRule(i, { value: e.target.value })}
+                    />
+                  )}
+                  <input
+                    type="text"
+                    className="overlay-rule-prefix"
+                    placeholder="prefix"
+                    value={rule.prefix}
+                    onChange={(e) => patchRule(i, { prefix: e.target.value })}
+                    title="Text before the value"
+                  />
+                  <input
+                    type="text"
+                    className="overlay-rule-suffix"
+                    placeholder="suffix"
+                    value={rule.suffix}
+                    onChange={(e) => patchRule(i, { suffix: e.target.value })}
+                    title='Text after the value, e.g. " netplay"'
+                  />
+                  <div className="overlay-rule-actions">
+                    <button
+                      type="button"
+                      className="overlay-rule-btn"
+                      onClick={() => moveRule(i, -1)}
+                      disabled={i === 0}
+                      title="Move up"
+                    >
+                      ↑
+                    </button>
+                    <button
+                      type="button"
+                      className="overlay-rule-btn"
+                      onClick={() => moveRule(i, 1)}
+                      disabled={i === rules.length - 1}
+                      title="Move down"
+                    >
+                      ↓
+                    </button>
+                    <button
+                      type="button"
+                      className="overlay-rule-btn overlay-rule-del"
+                      onClick={() => removeRule(i)}
+                      title="Delete rule"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                </div>
+              ))}
+
+              <button
+                type="button"
+                className="overlay-add-rule"
+                onClick={addRule}
+              >
+                + Add rule
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    )
+  }
+
   function renderSectionContent(section: SettingsSection) {
     switch (section) {
       case 'output':
         return renderOutputSection()
+
+      case 'overlay':
+        return renderOverlaySection()
 
       case 'rendering': {
         const renderingItems = videoConfig.filter(
@@ -688,6 +1048,50 @@ export default function SettingsModal({
       }}
     >
       <div className="settings-modal" onClick={(e) => e.stopPropagation()}>
+        {branchDisableConfirm && (
+          <div
+            className="filter-warn-overlay"
+            role="presentation"
+            onClick={() => setBranchDisableConfirm(false)}
+          >
+            <div
+              className="filter-warn-modal filter-warn-medium"
+              role="presentation"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="filter-warn-title">Disable filter branching?</div>
+              <div className="filter-warn-body">
+                This project has{' '}
+                <strong>
+                  {branchCount} branched filter{branchCount === 1 ? '' : 's'}
+                </strong>
+                . Disabling branching runs the chain linearly — each filter
+                reads from the one directly above it — until you turn branching
+                back on. Your branch settings are kept and will be restored when
+                you re-enable it.
+              </div>
+              <div className="filter-warn-actions">
+                <button
+                  type="button"
+                  className="filter-warn-btn filter-warn-btn-secondary"
+                  onClick={() => setBranchDisableConfirm(false)}
+                >
+                  Keep branching on
+                </button>
+                <button
+                  type="button"
+                  className="filter-warn-btn filter-warn-btn-danger"
+                  onClick={() => {
+                    handleChange('branchingEnabled', false)
+                    setBranchDisableConfirm(false)
+                  }}
+                >
+                  Disable branching
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
         <div className="settings-header">
           <h2 className="settings-title">Settings</h2>
           <button

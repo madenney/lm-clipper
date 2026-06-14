@@ -31,12 +31,15 @@ import {
   getItemsLiteAsync,
 } from '../main/dbAsync'
 import { asyncForEach, getWorkerExecArgv } from '../lib'
+import { getDescendantIds } from '../lib/filterGraph'
 
 export default class Archive {
   path: string
   name: string
   createdAt: number
-  files: number
+  // null = count not yet known (hydrated lazily after open); preserve it so the
+  // renderer can show a spinner instead of a misleading 0.
+  files: number | null
   filters: FilterInterface[]
   savedCustomFilters: SavedCustomFilter[]
 
@@ -46,7 +49,7 @@ export default class Archive {
     this.path = archiveJSON.path
     this.name = archiveJSON.name
     this.createdAt = archiveJSON.createdAt
-    this.files = archiveJSON.files || 0
+    this.files = archiveJSON.files ?? null
     this.filters = archiveJSON.filters || []
     this.savedCustomFilters = archiveJSON.savedCustomFilters || []
   }
@@ -253,8 +256,20 @@ export default class Archive {
     await this.saveMetaData()
   }
 
-  async resetFiltersFrom(startIndex: number) {
-    const filtersToReset = this.filters.slice(startIndex)
+  async resetFiltersFrom(startIndex: number, branchingEnabled = true) {
+    // Reset the filter at startIndex plus every filter that reads from it
+    // (transitively). In a linear chain that's "everything below startIndex";
+    // with branches it leaves unrelated branches' results intact.
+    const root = this.filters[startIndex]
+    if (!root) return
+    const descendants = getDescendantIds(
+      this.filters,
+      root.id,
+      branchingEnabled,
+    )
+    const filtersToReset = this.filters.filter(
+      (f, i) => i === startIndex || descendants.has(f.id),
+    )
     await asyncForEach(filtersToReset, async (filterJSON) => {
       await deleteFilter(this.path, filterJSON.id)
       await createFilter(this.path, filterJSON.id)
@@ -268,7 +283,8 @@ export default class Archive {
     // Build cached counts from current filter results
     const cachedCounts: Record<string, number> = {}
     for (const filter of this.filters) {
-      if (filter.isProcessed) {
+      // Only cache real, known counts — a null means "not yet hydrated".
+      if (filter.isProcessed && typeof filter.results === 'number') {
         cachedCounts[filter.id] = filter.results
       }
     }
@@ -282,7 +298,9 @@ export default class Archive {
         label: string
         isProcessed: boolean
         params: Record<string, any>
-        results: number
+        results: number | null
+        inputId?: string
+        lastRunMs?: number
       }[]
       savedCustomFilters?: SavedCustomFilter[]
       cachedCounts?: Record<string, number>
@@ -297,6 +315,10 @@ export default class Archive {
         isProcessed: filter.isProcessed,
         params: filter.params,
         results: filter.results,
+        ...(filter.inputId ? { inputId: filter.inputId } : {}),
+        ...(typeof filter.lastRunMs === 'number'
+          ? { lastRunMs: filter.lastRunMs }
+          : {}),
       })),
       cachedCounts,
     }
@@ -322,6 +344,10 @@ export default class Archive {
         resumable: filter.resumable,
         ...(filter.resumeProgress
           ? { resumeProgress: filter.resumeProgress }
+          : {}),
+        ...(filter.inputId ? { inputId: filter.inputId } : {}),
+        ...(typeof filter.lastRunMs === 'number'
+          ? { lastRunMs: filter.lastRunMs }
           : {}),
       })),
       savedCustomFilters: this.savedCustomFilters || [],

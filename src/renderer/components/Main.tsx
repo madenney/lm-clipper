@@ -155,6 +155,44 @@ type MainProps = {
   clearPendingAction: () => void
 }
 
+// Number input that allows clearing/intermediate edits while typing and only
+// coerces to a valid (>= min) integer on blur/Enter. A plain controlled
+// `parseInt(value) || min` input snaps back to min the instant the field is
+// emptied, which makes it impossible to backspace and retype.
+function FooterNumberInput({
+  value,
+  min,
+  onCommit,
+}: {
+  value: number
+  min: number
+  onCommit: (_n: number) => void
+}) {
+  const [local, setLocal] = useState(String(value))
+  useEffect(() => {
+    setLocal(String(value))
+  }, [value])
+  const commit = () => {
+    const n = parseInt(local, 10)
+    const next = Number.isNaN(n) ? min : Math.max(min, n)
+    if (next !== value) onCommit(next)
+    setLocal(String(next))
+  }
+  return (
+    <input
+      type="number"
+      className="footer-input"
+      value={local}
+      min={min}
+      onChange={(e) => setLocal(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+      }}
+    />
+  )
+}
+
 export default function Main({
   archive,
   setArchive,
@@ -283,7 +321,7 @@ export default function Main({
   })
 
   // Determine if showing games or clips
-  const activeFilterType = archive?.filters.find(
+  const activeFilterType = archive?.filters?.find(
     (f) => f.id === activeFilterId,
   )?.type
   const isShowingGames =
@@ -722,14 +760,10 @@ export default function Main({
             title="Number of Dolphin instances for recording"
           >
             <span className="footer-setting-label">Dolphins</span>
-            <input
-              type="number"
-              className="footer-input"
+            <FooterNumberInput
               value={config.numCPUs}
               min={1}
-              onChange={(e) =>
-                handleConfigChange('numCPUs', parseInt(e.target.value, 10) || 1)
-              }
+              onCommit={(n) => handleConfigChange('numCPUs', n)}
             />
           </div>
           <div
@@ -737,14 +771,10 @@ export default function Main({
             title="Max clips per Dolphin instance"
           >
             <span className="footer-setting-label">Max Clips</span>
-            <input
-              type="number"
-              className="footer-input"
+            <FooterNumberInput
               value={config.slice}
               min={1}
-              onChange={(e) =>
-                handleConfigChange('slice', parseInt(e.target.value, 10) || 1)
-              }
+              onCommit={(n) => handleConfigChange('slice', n)}
             />
           </div>
         </div>
@@ -941,21 +971,21 @@ export default function Main({
             ))}
           </div>
         )}
-        {consoleOpen && (
-          <AppConsole
-            consoleHeight={consoleHeight}
-            setConsoleHeight={setConsoleHeight}
-            onClose={() => setConsoleOpen(false)}
-            logEntries={consoleLogEntries}
-            onClearLogs={() => {
-              setConsoleLogEntries([])
-              setConsoleLogCount(0)
-              setConsoleHasError(false)
-            }}
-            snapshot={consoleSnapshot}
-          />
-        )}
       </div>
+      {consoleOpen && (
+        <AppConsole
+          consoleHeight={consoleHeight}
+          setConsoleHeight={setConsoleHeight}
+          onClose={() => setConsoleOpen(false)}
+          logEntries={consoleLogEntries}
+          onClearLogs={() => {
+            setConsoleLogEntries([])
+            setConsoleLogCount(0)
+            setConsoleHasError(false)
+          }}
+          snapshot={consoleSnapshot}
+        />
+      )}
       {videoCompletedInfo && (
         /* eslint-disable jsx-a11y/no-static-element-interactions, jsx-a11y/click-events-have-key-events */
         <div

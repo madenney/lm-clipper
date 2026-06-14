@@ -11,6 +11,7 @@ import os from 'os'
 import path from 'path'
 import fs, { promises as fsPromises } from 'fs'
 import { getWorkerExecArgv } from '../lib'
+import { getDescendantIds } from '../lib/filterGraph'
 import { config as defaultConfig } from '../constants/defaults'
 import { filtersConfig } from '../constants/config'
 import {
@@ -25,6 +26,7 @@ import { setFFMPEGPathOverride } from './slpToVideo'
 import { getMetaData, createDB } from './db'
 import {
   getTableCountAsync,
+  getFilterCountAsync,
   getTableDurationAsync,
   getAllIdsAsync,
   deleteFilterRunAsync,
@@ -49,6 +51,45 @@ function getDefaultProjectDir(): string {
     return path.resolve(xdgData, 'lm-clipper')
   }
   return path.resolve(app.getPath('documents'), 'LM Clipper')
+}
+
+// Regenerate the source of src/constants/rectangles.ts from edited rectangles.
+type RectBox = { xMin: number; xMax: number; yMin: number; yMax: number }
+function buildRectanglesFile(
+  rects: Record<string, { name: string; bz: RectBox; edge: RectBox }>,
+): string {
+  const fmt = (b: RectBox) =>
+    `{ xMin: ${b.xMin}, xMax: ${b.xMax}, yMin: ${b.yMin}, yMax: ${b.yMax} }`
+  const ids = Object.keys(rects)
+    .map((k) => parseInt(k, 10))
+    .filter((n) => !Number.isNaN(n))
+    .sort((a, b) => a - b)
+  const entries = ids
+    .map((id) => {
+      const e = rects[id]
+      const name = String(e.name).replace(/'/g, "\\'")
+      return `  ${id}: {\n    name: '${name}',\n    bz: ${fmt(e.bz)},\n    edge: ${fmt(e.edge)},\n  },`
+    })
+    .join('\n')
+  return `// Stage boundary rectangles for edgeguard detection
+// Keyed by Slippi stage ID. Coordinates define right-side regions;
+// the left side is mirrored by negating X values.
+//   bz   – blast zone (outside = death)
+//   edge – ledge/edge region used to detect offstage situations
+
+const rectangles: Record<
+  number,
+  {
+    name: string
+    bz: { xMin: number; xMax: number; yMin: number; yMax: number }
+    edge: { xMin: number; xMax: number; yMin: number; yMax: number }
+  }
+> = {
+${entries}
+}
+
+export default rectangles
+`
 }
 
 export default class Controller {
@@ -858,6 +899,18 @@ export default class Controller {
     const [moved] = filters.splice(fromIndex, 1)
     filters.splice(toIndex, 0, moved)
 
+    // A filter may only read from `files` or a filter ABOVE it. If a move turned
+    // an explicit inputId into a forward (or self) reference, drop it so the
+    // filter reverts to reading from the card directly above it.
+    for (let i = 0; i < filters.length; i += 1) {
+      const inputId = filters[i].inputId
+      if (!inputId || inputId === 'files') continue
+      const sourceIdx = filters.findIndex((f) => f.id === inputId)
+      if (sourceIdx === -1 || sourceIdx >= i) {
+        delete filters[i].inputId
+      }
+    }
+
     // Mark all filters from the earliest affected index onward as unprocessed
     const start = Math.min(fromIndex, toIndex)
     for (let i = start; i < filters.length; i += 1) {
@@ -908,6 +961,52 @@ export default class Controller {
     }
   }
 
+  // Dev tuning tool: rewrite src/constants/rectangles.ts from edited edgeguard
+  // rectangles (the Stage Zone editor in edge-rect mode). Only works in dev,
+  // where the source tree exists on disk.
+  async saveEdgeRectangles(
+    event: IpcMainEvent,
+    data: RequestEnvelope<
+      Record<
+        string,
+        {
+          name: string
+          bz: { xMin: number; xMax: number; yMin: number; yMax: number }
+          edge: { xMin: number; xMax: number; yMin: number; yMax: number }
+        }
+      >
+    >,
+  ) {
+    const { requestId, payload } =
+      unpackRequest<
+        Record<string, { name: string; bz: RectBox; edge: RectBox }>
+      >(data)
+    if (!payload || typeof payload !== 'object') {
+      return reply(event, 'saveEdgeRectangles', requestId, {
+        error: 'missing rectangles',
+      })
+    }
+    try {
+      const filePath = path.resolve(
+        app.getAppPath(),
+        'src',
+        'constants',
+        'rectangles.ts',
+      )
+      await fsPromises.access(filePath)
+      await fsPromises.writeFile(filePath, buildRectanglesFile(payload))
+      return reply(event, 'saveEdgeRectangles', requestId, {
+        success: true,
+        path: filePath,
+      })
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error)
+      return reply(event, 'saveEdgeRectangles', requestId, {
+        error: `Could not write rectangles.ts (only works in dev): ${msg}`,
+      })
+    }
+  }
+
   async updateFilter(
     event: IpcMainEvent,
     data: RequestEnvelope<{
@@ -935,9 +1034,20 @@ export default class Controller {
         isProcessed: false,
         results: 0,
       })
-      this.archive.filters.slice(filterIndex + 1).forEach((filter) => {
-        filter.isProcessed = false
-        filter.results = 0
+      // Invalidate only filters that read from this one (transitively). In a
+      // linear chain that's everything below; with branches it leaves unrelated
+      // branches alone.
+      const editedId = this.archive.filters[filterIndex].id
+      const descendants = getDescendantIds(
+        this.archive.filters,
+        editedId,
+        this.config.branchingEnabled === true,
+      )
+      this.archive.filters.forEach((filter) => {
+        if (descendants.has(filter.id)) {
+          filter.isProcessed = false
+          filter.results = 0
+        }
       })
       if (this.archive.saveMetaData) await this.archive.saveMetaData()
       return reply(
@@ -980,6 +1090,14 @@ export default class Controller {
     console.log('Selected filter: ', filterId)
 
     try {
+      // Use the already-known cached count instead of a fresh COUNT(*). On a
+      // 48M-row table that scan is ~30s and was running on EVERY page fetch,
+      // blocking the whole tray. The count is already in the in-memory archive
+      // (hydrated on open); only fall back to a live count if it's unknown.
+      const cachedTotal =
+        filterId === 'files'
+          ? this.archive.files
+          : this.archive.filters.find((f) => f.id === filterId)?.results
       const [items, total] = await Promise.all([
         this.archive.getItems({
           filterId,
@@ -989,7 +1107,9 @@ export default class Controller {
           limit,
           lite,
         }),
-        getTableCountAsync(this.archive.path, filterId),
+        typeof cachedTotal === 'number'
+          ? Promise.resolve(cachedTotal)
+          : getTableCountAsync(this.archive.path, filterId),
       ])
       reply(event, 'getResults', requestId, { items, total })
     } catch (error) {
@@ -1032,6 +1152,49 @@ export default class Controller {
     } catch (error) {
       console.error('[getTableDuration] error:', error)
       return reply(event, 'getTableDuration', requestId, 0)
+    }
+  }
+
+  // Lazy count hydration: the renderer calls this per-filter after a project
+  // opens to fill in the result counts that getMetadata intentionally left null
+  // (so open never blocks on a full-table COUNT(*)). Runs in the DbWorker thread
+  // and caches the result for instant subsequent opens.
+  async getFilterCount(
+    event: IpcMainEvent,
+    data: RequestEnvelope<{ filterId: string }>,
+  ) {
+    const { requestId, payload } = unpackRequest<{ filterId: string }>(data)
+    if (!this.archive || !payload?.filterId) {
+      return reply(event, 'getFilterCount', requestId, {
+        filterId: payload?.filterId,
+        count: 0,
+      })
+    }
+    try {
+      const count = await getFilterCountAsync(
+        this.archive.path,
+        payload.filterId,
+      )
+      // Keep the in-memory archive's count in sync so getResults can use it
+      // instead of a fresh COUNT(*) on subsequent fetches.
+      if (this.archive) {
+        if (payload.filterId === 'files') {
+          this.archive.files = count
+        } else {
+          const f = this.archive.filters.find((x) => x.id === payload.filterId)
+          if (f) f.results = count
+        }
+      }
+      return reply(event, 'getFilterCount', requestId, {
+        filterId: payload.filterId,
+        count,
+      })
+    } catch (error) {
+      console.error('[getFilterCount] error:', error)
+      return reply(event, 'getFilterCount', requestId, {
+        filterId: payload.filterId,
+        count: 0,
+      })
     }
   }
 
@@ -1210,6 +1373,7 @@ export default class Controller {
     ipcMain.on('setDefaultOutputPath', this.setDefaultOutputPath.bind(this))
     ipcMain.on('getDirectory', this.getDirectory.bind(this))
     ipcMain.on('getArchive', this.getArchive.bind(this))
+    ipcMain.on('getFilterCount', this.getFilterCount.bind(this))
     ipcMain.on(
       'getImportStatus',
       this.importManager.getImportStatusHandler.bind(this.importManager),
@@ -1238,6 +1402,7 @@ export default class Controller {
     )
     ipcMain.on('closeArchive', this.closeArchive.bind(this))
     ipcMain.on('addFilter', this.addFilter.bind(this))
+    ipcMain.on('saveEdgeRectangles', this.saveEdgeRectangles.bind(this))
     ipcMain.on('updateFilter', this.updateFilter.bind(this))
     ipcMain.on('reorderFilter', this.reorderFilter.bind(this))
     ipcMain.on('removeFilter', this.removeFilter.bind(this))

@@ -25,10 +25,16 @@ const METHODS_WITH_EMITTER = new Set([
   'comboFilter',
   'custom',
   'edgeguard',
+  'edgeguard2',
+  'edgeguardFilter',
   'zeroToDeaths',
   'files',
   'actionStateFilter',
   'afkDetection',
+  'reverse',
+  'deduplicate',
+  'removeStarKOFrames',
+  'stageCenter',
 ])
 
 function postMessage(message: WorkerMessage) {
@@ -156,6 +162,9 @@ function run() {
       let buffer: Record<string, unknown>[] = []
       let processed = 0
       let skippedCount = 0
+      let missingCount = 0
+      let corruptCount = 0
+      const readErrorExamples: string[] = []
       let lastProgressTime = 0
       let currentBottom = slice.bottom
 
@@ -203,9 +212,20 @@ function run() {
             const res = method(item, params)
             if (res && typeof res === 'object' && 'combos' in res) {
               // slpParser returns { combos, lastFrame }
-              const { combos, lastFrame } = res as {
+              const { combos, lastFrame, readError } = res as {
                 combos: Record<string, unknown>[]
                 lastFrame?: number
+                readError?: 'missing' | 'corrupt'
+              }
+              if (readError) {
+                if (readError === 'missing') missingCount++
+                else corruptCount++
+                if (
+                  readErrorExamples.length < 3 &&
+                  typeof item.path === 'string'
+                ) {
+                  readErrorExamples.push(item.path)
+                }
               }
               if (Array.isArray(combos)) {
                 for (let i = 0; i < combos.length; i += 1) {
@@ -255,7 +275,13 @@ function run() {
         results: totalInserted,
         skipped: skippedCount,
       })
-      postMessage({ type: 'done', results: totalInserted })
+      postMessage({
+        type: 'done',
+        results: totalInserted,
+        missing: missingCount,
+        corrupt: corruptCount,
+        examples: readErrorExamples,
+      })
     } else {
       // Non-parser filters: process in chunks to avoid OOM
       const total = slice.top - slice.bottom + 1
@@ -272,7 +298,9 @@ function run() {
         'removeStarKOFrames',
         'koDirection',
         'edgeguard',
+        'edgeguard2',
         'afkDetection',
+        'stageCenter',
       ])
       const isSlow = slowTypes.has(type)
       const effectiveChunkSize = isSlow

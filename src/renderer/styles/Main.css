@@ -137,8 +137,7 @@
   justify-content: space-between;
   padding: 0 16px;
   box-sizing: border-box;
-  overflow-x: hidden;
-  overflow-y: visible;
+  overflow: hidden;
   gap: 8px;
 }
 
@@ -648,7 +647,7 @@
 
 .footer-console {
   position: absolute;
-  bottom: 100%;
+  bottom: 56px;
   left: 0;
   right: 0;
   background: #141414;

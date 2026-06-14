@@ -10,7 +10,11 @@ import {
   useEffect,
 } from 'react'
 import '../styles/Filters.css'
-import { filtersConfig } from 'constants/config'
+import {
+  filtersConfig,
+  REQUIRED_PRODUCER,
+  PRODUCER_LABEL,
+} from 'constants/config'
 import ipcBridge from '../ipcBridge'
 import useIpcListener from '../hooks/useIpcListener'
 import {
@@ -26,7 +30,76 @@ import {
   FilterErrorModal,
   FilterLogsModal,
   ParserWarningModal,
+  ConfirmResetModal,
+  ResetWarnSeverity,
 } from './FilterModals'
+import { validInputsFor, FILES_TABLE } from '../../lib/filterGraph'
+
+// Re-running a processed filter discards its results. We warn first, in three
+// independent severity tiers by last-run duration. Ordered low→high: for a given
+// run we surface the LOWEST tier the duration qualifies for that the user hasn't
+// silenced — so a brand-new user re-running a 1-hour filter sees only the 60s
+// warning, then (next time) the 10m one, then the 1h one. Each tier's checkbox
+// silences only that tier.
+const RESET_WARN_TIERS: {
+  key: 'warnOnReset60s' | 'warnOnReset10m' | 'warnOnReset1h'
+  thresholdMs: number
+  label: string
+  severity: ResetWarnSeverity
+}[] = [
+  {
+    key: 'warnOnReset60s',
+    thresholdMs: 60 * 1000,
+    label: '1 minute',
+    severity: 'low',
+  },
+  {
+    key: 'warnOnReset10m',
+    thresholdMs: 10 * 60 * 1000,
+    label: '10 minutes',
+    severity: 'medium',
+  },
+  {
+    key: 'warnOnReset1h',
+    thresholdMs: 60 * 60 * 1000,
+    label: '1 hour',
+    severity: 'high',
+  },
+]
+
+// Native (frame-data) filters that can't be expressed as JS templates but are
+// surfaced in the Browse Templates modal. `nativeType` tells addFilter to add
+// the native filter type instead of a custom JS template.
+const nativeCatalogFilters: SavedCustomFilter[] = [
+  {
+    name: 'Stage Center Distance',
+    code: '',
+    nativeType: 'stageCenter',
+    builtIn: true,
+    category: 'Advanced',
+    requiresParser: true,
+    description:
+      "Keep combos that started within X pixels of the stage's center vertical line.",
+  },
+  {
+    name: 'Edgeguards (experimental)',
+    code: '',
+    nativeType: 'edgeguard',
+    builtIn: true,
+    category: 'Advanced',
+    description:
+      'Parse replays for edgeguard sequences. Experimental — loads full frame data.',
+  },
+  {
+    name: 'Edgeguards Parser',
+    code: '',
+    nativeType: 'edgeguard2',
+    builtIn: true,
+    category: 'Advanced',
+    description:
+      'Smarter edgeguards: clips the full offstage sequence, scores it by hits/duration/depth, and catches no-contact ledge-steals. Tags each clip with metrics the Edgeguards Filter can refine.',
+  },
+]
 
 type FiltersProps = {
   archive: ShallowArchiveInterface | null
@@ -59,7 +132,17 @@ export default function Filters({
     { name: string; total: number }[]
   >([])
   const [codesLoading, setCodesLoading] = useState(true)
-  const [parserWarning, setParserWarning] = useState<string[] | null>(null)
+  const [parserWarning, setParserWarning] = useState<{
+    producer: string
+    dependents: string[]
+  } | null>(null)
+  const [resetConfirm, setResetConfirm] = useState<{
+    filter: ShallowFilterInterface
+    tier: (typeof RESET_WARN_TIERS)[number]
+  } | null>(null)
+  // Session-local mirror of each tier's "don't warn me again" choice so it takes
+  // effect immediately (the config prop only refreshes on reload).
+  const [suppressedTiers, setSuppressedTiers] = useState<Set<string>>(new Set())
   const [filterError, setFilterError] = useState<{
     filterLabel: string
     errors: string[]
@@ -197,6 +280,26 @@ export default function Filters({
   }
 
   function runFilter(filter: ShallowFilterInterface) {
+    if (!archive) return
+    // Guard expensive re-runs: surface the lowest-severity tier this run's
+    // duration qualifies for that the user hasn't silenced (config or session).
+    if (filter.isProcessed && typeof filter.lastRunMs === 'number') {
+      const ms = filter.lastRunMs
+      const tier = RESET_WARN_TIERS.find(
+        (t) =>
+          ms >= t.thresholdMs &&
+          config[t.key] !== false &&
+          !suppressedTiers.has(t.key),
+      )
+      if (tier) {
+        setResetConfirm({ filter, tier })
+        return
+      }
+    }
+    doRunFilter(filter)
+  }
+
+  function doRunFilter(filter: ShallowFilterInterface) {
     if (!archive) return
     setActiveFilterId(filter.id)
     setFilterMsgs((prev) => {
@@ -373,30 +476,44 @@ export default function Filters({
   }
 
   function deleteFilter(filter: FilterInterface) {
-    if (filter.type === 'slpParser' && archive) {
-      const dependentTypes = new Set(['comboFilter', 'reverse'])
-      const dependents = archive.filters.filter((f) =>
-        dependentTypes.has(f.type),
-      )
-      if (dependents.length > 0) {
-        setParserWarning(dependents.map((f) => f.label))
-        return
-      }
-      const idx = archive.filters.findIndex((f) => f.id === filter.id)
-      const inputCount = filter.isProcessed
-        ? idx > 0
-          ? archive.filters[idx - 1].results
-          : archive.files
-        : 0
-      if (
-        config.warnOnParserDelete !== false &&
-        inputCount >= 10000 &&
-        // eslint-disable-next-line no-alert
-        !window.confirm(
-          `This combo parser was run on ${inputCount.toLocaleString()} files. Are you sure you want to delete it?`,
+    if (archive) {
+      // Block deletion if any filter still depends on this one as its producer
+      // (e.g. deleting a combo parser with a combo filter below, or an
+      // Edgeguards Parser with an Edgeguards Filter below).
+      const dependentTypes = Object.entries(REQUIRED_PRODUCER)
+        .filter(([, parent]) => parent === filter.type)
+        .map(([dep]) => dep)
+      if (dependentTypes.length > 0) {
+        const dependents = archive.filters.filter((f) =>
+          dependentTypes.includes(f.type),
         )
-      ) {
-        return
+        if (dependents.length > 0) {
+          setParserWarning({
+            producer: PRODUCER_LABEL[filter.type] || filter.label,
+            dependents: dependents.map((f) => f.label),
+          })
+          return
+        }
+      }
+      // Combo parser only: extra confirm when it was run on a lot of files.
+      if (filter.type === 'slpParser') {
+        const idx = archive.filters.findIndex((f) => f.id === filter.id)
+        const inputCount =
+          (filter.isProcessed
+            ? idx > 0
+              ? archive.filters[idx - 1].results
+              : archive.files
+            : 0) ?? 0
+        if (
+          config.warnOnParserDelete !== false &&
+          inputCount >= 10000 &&
+          // eslint-disable-next-line no-alert
+          !window.confirm(
+            `This combo parser was run on ${inputCount.toLocaleString()} files. Are you sure you want to delete it?`,
+          )
+        ) {
+          return
+        }
       }
     }
     ipcBridge.removeFilter(filter.id, (response) => {
@@ -407,8 +524,6 @@ export default function Filters({
       setArchive(response)
     })
   }
-
-  const parserDependents = new Set(['comboFilter', 'reverse'])
 
   function canDropAt(
     filters: ShallowFilterInterface[],
@@ -422,21 +537,16 @@ export default function Filters({
 
     // Simulate the final order
     const types = filters.map((f) => f.type)
-    const movedType = types[from]
     const [moved] = types.splice(from, 1)
     const insertAt = to > from ? to - 1 : to
     types.splice(insertAt, 0, moved)
 
-    // Validate: every dependent must appear after the parser
-    const parserPos = types.indexOf('slpParser')
-    if (parserPos >= 0) {
-      for (let i = 0; i < parserPos; i += 1) {
-        if (parserDependents.has(types[i])) {
-          if (movedType === 'slpParser') {
-            return 'Combo parser must stay above dependent filters'
-          }
-          return 'This filter requires the combo parser above it'
-        }
+    // Validate every producer dependency: a filter that requires a producer
+    // type must have one of that type somewhere above it.
+    for (let i = 0; i < types.length; i += 1) {
+      const parent = REQUIRED_PRODUCER[types[i]]
+      if (parent && !types.slice(0, i).includes(parent)) {
+        return `This filter requires the ${PRODUCER_LABEL[parent] || parent} above it`
       }
     }
 
@@ -521,6 +631,33 @@ export default function Filters({
 
   function renderFilters() {
     if (!archive) return ''
+    const branchingOn = config.branchingEnabled === true
+
+    // Indent depth per filter (its position in the input tree). A linear
+    // continuation inherits its predecessor's depth so a whole branch subtree
+    // stays nested together; an explicit branch sits one level under its source.
+    const depthByIndex: number[] = []
+    archive.filters.forEach((f, i) => {
+      if (i === 0) {
+        depthByIndex[i] = 0
+        return
+      }
+      const positionalPrevId = archive.filters[i - 1].id
+      const effectiveInput =
+        branchingOn && f.inputId ? f.inputId : positionalPrevId
+      if (effectiveInput === positionalPrevId) {
+        depthByIndex[i] = depthByIndex[i - 1]
+      } else if (effectiveInput === FILES_TABLE) {
+        depthByIndex[i] = 0
+      } else {
+        const srcIdx = archive.filters.findIndex(
+          (ff) => ff.id === effectiveInput,
+        )
+        depthByIndex[i] =
+          srcIdx >= 0 ? (depthByIndex[srcIdx] ?? 0) + 1 : depthByIndex[i - 1]
+      }
+    })
+
     const entries = archive.filters.map((filter, index) => ({
       filter,
       index,
@@ -551,6 +688,27 @@ export default function Filters({
           const hasParser = archive.filters
             .slice(0, index)
             .some((f) => f.type === 'slpParser')
+
+          // Branching: this filter may read from Files (raw) or any filter above
+          // it. Default = the filter directly above (or Files for index 0).
+          // Only surfaced when branching is enabled; when off, the dropdown and
+          // indent are hidden (but saved inputIds stay in the data).
+          const defaultInputId =
+            index === 0 ? FILES_TABLE : archive.filters[index - 1].id
+          const inputOptions = branchingOn
+            ? validInputsFor(archive.filters, index).map((id) => ({
+                id,
+                label:
+                  id === FILES_TABLE
+                    ? 'Files (raw)'
+                    : (archive.filters.find((f) => f.id === id)?.label ?? id),
+              }))
+            : []
+          // The whole branch subtree is indented (depth); only the card that
+          // actually changes its source shows the "⑂ reads from" emphasis.
+          const indentLevel = branchingOn ? (depthByIndex[index] ?? 0) : 0
+          const isBranchPoint =
+            branchingOn && !!filter.inputId && filter.inputId !== defaultInputId
 
           // Compute translateY shift for live reorder preview
           let dragTransform = ''
@@ -585,12 +743,15 @@ export default function Filters({
               filterMsg={filterMsg}
               liveResults={liveResults[filter.id]}
               resultsCount={resultsCount}
-              config={config}
               namesList={namesList}
               connectCodesList={connectCodesList}
               namesLoading={namesLoading}
               codesLoading={codesLoading}
               hasParser={hasParser}
+              inputOptions={inputOptions}
+              defaultInputId={defaultInputId}
+              indentLevel={indentLevel}
+              isBranchPoint={isBranchPoint}
               onToggleCollapse={toggleFilterCollapse}
               onClick={() => setActiveFilterId(filter.id)}
               onDoubleClick={() => {
@@ -662,7 +823,12 @@ export default function Filters({
         <div className="filters-title">Filters</div>
         {archive && (
           <div className="filters-file-count">
-            {archive.files.toLocaleString()} SLP files
+            {archive.files == null ? (
+              <span className="filter-results-spinner" title="Counting…" />
+            ) : (
+              archive.files.toLocaleString()
+            )}{' '}
+            SLP files
           </div>
         )}
       </div>
@@ -683,19 +849,24 @@ export default function Filters({
           {dropdownOpen && (
             <div className="add-filter-menu">
               {(() => {
-                const hasParser = archive?.filters.some(
-                  (f) => f.type === 'slpParser',
-                )
-                const requiresParserId = new Set([
-                  'comboFilter',
-                  'reverse',
+                // These native filters are surfaced in the Browse Templates
+                // modal instead of the main dropdown.
+                const hiddenFilters = new Set([
                   'zeroToDeaths',
+                  'edgeguard',
+                  'edgeguard2',
+                  'stageCenter',
                 ])
-                const hiddenFilters = new Set(['edgeguard', 'zeroToDeaths'])
                 return filtersConfig
                   .filter((p) => p.id !== 'files' && !hiddenFilters.has(p.id))
                   .flatMap((p) => {
-                    const needsParser = requiresParserId.has(p.id) && !hasParser
+                    // Grey out a filter that needs an upstream producer until one
+                    // exists (combo filter → combo parser, edgeguard filter →
+                    // Edgeguards Parser).
+                    const parent = REQUIRED_PRODUCER[p.id]
+                    const needsParser =
+                      !!parent &&
+                      !archive?.filters.some((f) => f.type === parent)
                     const items = [
                       <div
                         key={p.id}
@@ -721,7 +892,7 @@ export default function Filters({
                         {needsParser && (
                           <span className="add-filter-hint">
                             {' '}
-                            - requires combo parser first
+                            - requires {PRODUCER_LABEL[parent] || parent} first
                           </span>
                         )}
                       </div>,
@@ -757,21 +928,48 @@ export default function Filters({
         </div>
       </div>
       {dragWarning && <div className="drag-warning-toast">{dragWarning}</div>}
+      {resetConfirm && (
+        <ConfirmResetModal
+          filterLabel={resetConfirm.filter.label}
+          durationMs={resetConfirm.filter.lastRunMs ?? 0}
+          severity={resetConfirm.tier.severity}
+          thresholdLabel={resetConfirm.tier.label}
+          onCancel={() => setResetConfirm(null)}
+          onConfirm={(dontAskAgain) => {
+            const { filter, tier } = resetConfirm
+            if (dontAskAgain) {
+              setSuppressedTiers((prev) => new Set(prev).add(tier.key))
+              ipcBridge.updateConfig({ key: tier.key, value: false })
+            }
+            setResetConfirm(null)
+            doRunFilter(filter)
+          }}
+        />
+      )}
       {parserWarning && (
         <ParserWarningModal
-          parserWarning={parserWarning}
+          producer={parserWarning.producer}
+          dependents={parserWarning.dependents}
           onDismiss={() => setParserWarning(null)}
         />
       )}
       {catalogOpen && (
         <TemplateCatalog
-          templates={config.savedCustomFilters || []}
+          templates={[
+            ...nativeCatalogFilters,
+            ...(config.savedCustomFilters || []),
+          ]}
           hasParser={
             archive?.filters.some((f) => f.type === 'slpParser') ?? false
           }
           onClose={() => setCatalogOpen(false)}
           onSelect={(tmpl: SavedCustomFilter) => {
             setCatalogOpen(false)
+            // Native filters add their real filter type directly.
+            if (tmpl.nativeType) {
+              addFilter({ target: { value: tmpl.nativeType } })
+              return
+            }
             // Find the index of this template in savedCustomFilters
             const allTemplates = config.savedCustomFilters || []
             const idx = allTemplates.findIndex(

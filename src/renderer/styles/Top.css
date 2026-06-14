@@ -952,6 +952,162 @@
     border-left: 3px solid #4a7a9d;
 }
 
+/* Overlay section */
+.overlay-toggle-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.settings-item-desc {
+    font-size: 13px;
+    color: #777;
+    margin-top: 2px;
+}
+
+/* WYSIWYG preview of the burned-in overlay (matches the rendered style) */
+.overlay-preview {
+    align-items: flex-start;
+}
+
+.overlay-preview-box {
+    display: inline-block;
+    font-family: 'Courier New', monospace;
+    font-weight: bold;
+    font-size: 14px;
+    color: #ffffff;
+    background: #202020;
+    border-radius: 2px;
+    padding: 4px 8px;
+    white-space: pre;
+}
+
+.overlay-rules {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    border-top: 1px solid #2a2a2a;
+    padding-top: 14px;
+}
+
+.overlay-rules-desc {
+    font-size: 13px;
+    color: #777;
+    line-height: 1.5;
+    margin-top: 4px;
+}
+
+.overlay-rules-desc code,
+.overlay-rules-header code {
+    font-family: monospace;
+    color: #a0d0a8;
+    background: #1a2a1e;
+    padding: 1px 5px;
+    border-radius: 3px;
+}
+
+.overlay-rules-sample {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    background: #141414;
+    border: 1px solid #2a2a2a;
+    border-radius: 6px;
+    padding: 8px 12px;
+}
+
+.overlay-rules-sample .settings-path-input {
+    flex: 1;
+    min-width: 200px;
+}
+
+.overlay-sample-result {
+    font-size: 13px;
+    color: #999;
+}
+
+.overlay-sample-result strong {
+    color: #c0f0c8;
+}
+
+.overlay-rule {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.overlay-rule input,
+.overlay-rule select {
+    background: #161616;
+    border: 1px solid #2e2e2e;
+    border-radius: 4px;
+    color: #d0d0d0;
+    padding: 5px 8px;
+    font-size: 13px;
+}
+
+.overlay-rule-marker {
+    width: 150px;
+}
+
+.overlay-rule-value,
+.overlay-rule-prefix,
+.overlay-rule-suffix {
+    width: 110px;
+}
+
+.overlay-rule-actions {
+    display: flex;
+    gap: 4px;
+    margin-left: auto;
+}
+
+.overlay-rule-btn {
+    background: #1a1a1a;
+    border: 1px solid #2e2e2e;
+    border-radius: 4px;
+    color: #aaa;
+    cursor: pointer;
+    width: 26px;
+    height: 26px;
+    font-size: 13px;
+}
+
+.overlay-rule-btn:hover:not(:disabled) {
+    background: #243828;
+    border-color: #4a9d5b;
+    color: #c0f0c8;
+}
+
+.overlay-rule-btn:disabled {
+    opacity: 0.35;
+    cursor: default;
+}
+
+.overlay-rule-del:hover:not(:disabled) {
+    background: #3a2020;
+    border-color: #9d4a4a;
+    color: #f0c0c0;
+}
+
+.overlay-add-rule {
+    align-self: flex-start;
+    padding: 6px 14px;
+    font-size: 13px;
+    color: #a0d0a8;
+    background: #1a2a1e;
+    border: 1px solid #2a3a2e;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.overlay-add-rule:hover {
+    background: #243828;
+    border-color: #4a9d5b;
+}
+
 /* Custom Gecko Codes */
 .gecko-custom-header {
     display: flex;

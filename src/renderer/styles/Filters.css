@@ -563,6 +563,24 @@
   cursor: default;
 }
 
+.filter-zone-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+
+.filter-zone-btn {
+  text-transform: none;
+  letter-spacing: 0.02em;
+}
+
+.filter-zone-summary {
+  font-size: 11px;
+  color: #8b91a0;
+  font-style: italic;
+}
+
 .filter-button-stop {
   border-color: #a04040;
   color: #ff9090;
@@ -857,6 +875,18 @@
   }
 }
 
+/* Inline spinner shown in place of a filter's result count while it hydrates */
+.filter-results-spinner {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  vertical-align: -1px;
+  border: 2px solid rgba(255, 255, 255, 0.15);
+  border-top-color: var(--filter-muted);
+  border-radius: 50%;
+  animation: filter-spin 0.8s linear infinite;
+}
+
 .filter-multi-item {
   display: flex;
   align-items: center;
@@ -1145,4 +1175,105 @@
 .filter-resume-dismiss:hover {
   background: rgba(160, 50, 50, 0.2);
   border-color: #8b4a4a;
+}
+
+/* Branching: per-filter input source selector */
+
+.filter-input-source {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0 2px;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--filter-muted);
+}
+
+.filter-input-source-label {
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.filter-input-source-select {
+  flex: 1;
+  min-width: 0;
+  max-width: 220px;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--filter-border);
+  border-radius: 6px;
+  background: var(--filter-bg);
+  color: #f5f6f8;
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.filter-input-source-select:hover {
+  border-color: var(--filter-accent);
+}
+
+/* A filter nested under a branch (indentLevel > 0). The left margin is applied
+   inline per depth; the cyan rail groups the branch subtree visually. Linear
+   chains (depth 0) never get this class, so they stay flush-left. */
+.filter-branch {
+  border-left: 2px solid #4fb6c6;
+}
+
+.filter-branch .filter-input-source-label {
+  color: #7fd3df;
+}
+
+/* Confirm-reset modal extras */
+
+.filter-warn-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--filter-muted);
+  cursor: pointer;
+  user-select: none;
+}
+
+.filter-warn-checkbox input {
+  cursor: pointer;
+}
+
+.filter-warn-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.filter-warn-btn-secondary {
+  align-self: auto;
+  margin-top: 0;
+}
+
+.filter-warn-btn-danger {
+  align-self: auto;
+  margin-top: 0;
+  background: rgba(190, 70, 70, 0.22);
+  border-color: #8b4a4a;
+}
+
+.filter-warn-btn-danger:hover {
+  background: rgba(200, 70, 70, 0.32);
+  border-color: #b56a6a;
+}
+
+/* Severity accent for the three reset-warning tiers (top border + glow). */
+.filter-warn-low {
+  border-top: 3px solid #5a9bd4;
+}
+
+.filter-warn-medium {
+  border-top: 3px solid #e0a23c;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(224, 162, 60, 0.25);
+}
+
+.filter-warn-high {
+  border-top: 3px solid #d65454;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(214, 84, 84, 0.35);
 }

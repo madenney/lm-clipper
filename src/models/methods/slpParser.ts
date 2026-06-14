@@ -1,3 +1,4 @@
+import { existsSync } from 'fs'
 import { SlippiGame } from '@slippi/slippi-js'
 import {
   FileInterface,
@@ -10,6 +11,10 @@ import { matchesPlayer, safeInt } from '../../lib/filterHelpers'
 type SlpParserResult = {
   combos: ClipInterface[]
   lastFrame?: number
+  // Set when the .slp file could not be read. 'missing' = file moved/deleted,
+  // 'corrupt' = file exists but failed to parse. Used by Worker.ts to report
+  // an aggregated summary instead of silently returning zero combos.
+  readError?: 'missing' | 'corrupt'
 }
 
 export default (
@@ -34,10 +39,10 @@ export default (
     return { combos: [] }
   }
 
-  const game = new SlippiGame(path)
   let combos
   let lastFrame: number | undefined
   try {
+    const game = new SlippiGame(path)
     const settings = game.getSettings()
     const frames = game.getFrames()
     if (!settings || !frames) return { combos: [] }
@@ -55,8 +60,10 @@ export default (
       }
     }
   } catch (e) {
-    console.warn('Broken file:', path)
-    return { combos: [] }
+    // Only stat on the failure path so the happy path pays nothing. A missing
+    // path means the file was moved/deleted (or its drive unmounted); otherwise
+    // the file exists but couldn't be parsed.
+    return { combos: [], readError: existsSync(path) ? 'corrupt' : 'missing' }
   }
   if (!combos || combos.length === 0) return { combos: [], lastFrame }
   const filteredCombos: ClipInterface[] = []

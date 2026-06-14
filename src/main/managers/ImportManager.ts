@@ -436,7 +436,7 @@ export default class ImportManager {
       fileCountBefore === 0 &&
       !terminated &&
       currentArchive &&
-      currentArchive.files > 0
+      (currentArchive.files ?? 0) > 0
     ) {
       const gameFilter = currentArchive.filters.find((f) => f.type === 'files')
       if (gameFilter) {

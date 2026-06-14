@@ -5,6 +5,24 @@ import { actionStates } from './actionStates'
 import { deathDirections } from './deathDirections'
 import { sortOptions } from '../models/methods/sort'
 
+// Filter types that strictly require an upstream "producer" filter of a given
+// type somewhere above them (mirrors combo parser → combo filter). Drives the
+// add-filter menu gating, reorder validation, and the delete-block warning so
+// you can't strand a consumer without the parser that feeds it.
+export const REQUIRED_PRODUCER: Record<string, string> = {
+  comboFilter: 'slpParser',
+  reverse: 'slpParser',
+  zeroToDeaths: 'slpParser',
+  stageCenter: 'slpParser',
+  edgeguardFilter: 'edgeguard2',
+}
+
+// Friendly name for a producer type, used in warnings ("requires … first").
+export const PRODUCER_LABEL: Record<string, string> = {
+  slpParser: 'combo parser',
+  edgeguard2: 'Edgeguards Parser',
+}
+
 export const filtersConfig = [
   {
     id: 'files',
@@ -271,6 +289,31 @@ export const filtersConfig = [
     ],
   },
   {
+    id: 'stageCenter',
+    label: 'Stage Center Distance',
+    tooltip:
+      "Keep combos that started within a distance (in pixels) of the stage's center vertical line",
+    options: [
+      {
+        name: 'Max Distance',
+        id: 'maxDistance',
+        type: 'int',
+        default: '20',
+        placeholder: '20',
+        tooltip:
+          'Maximum horizontal distance (pixels) from stage center (x=0) at the combo start. Lower = closer to the middle line.',
+      },
+      {
+        name: 'Measure Attacker',
+        id: 'useComboer',
+        type: 'checkbox',
+        default: false,
+        tooltip:
+          'Measure the attacker (comboer) position instead of the victim (comboee).',
+      },
+    ],
+  },
+  {
     id: 'reverse',
     label: 'Reverse Hit',
     tooltip: 'Filter for combos where the Nth hit was a reverse hitbox',
@@ -437,7 +480,7 @@ export const filtersConfig = [
   },
   {
     id: 'edgeguard',
-    label: 'Edgeguards',
+    label: 'Edgeguards (experimental)',
     tooltip: 'Parse for edgeguard sequences (experimental)',
     options: [
       {
@@ -496,6 +539,266 @@ export const filtersConfig = [
         options: legalStages,
         default: [],
         tooltip: 'Only parse edgeguards on these stages.',
+      },
+    ],
+  },
+  {
+    id: 'edgeguard2',
+    label: 'Edgeguards Parser',
+    tooltip:
+      'True edgeguards only: the victim makes a valid recovery attempt in range of the ledge, then the edgeguarder blocks the return (hit or ledge-steal) before the KO. Each clip is tagged with metrics that the Edgeguards Filter can refine.',
+    options: [
+      {
+        name: 'Edgeguarder Char',
+        id: 'comboerChar',
+        type: 'multiDropdown',
+        options: sortedCharacters,
+        default: [],
+        tooltip: 'Only keep edgeguards performed by these characters.',
+      },
+      {
+        name: 'Edgeguarder Tag',
+        id: 'comboerTag',
+        type: 'textInput',
+        default: [],
+        autocomplete: 'names',
+        tooltip: 'Only keep edgeguards by players with these tags.',
+      },
+      {
+        name: 'Edgeguarder CC',
+        id: 'comboerCC',
+        type: 'textInput',
+        default: [],
+        autocomplete: 'connectCodes',
+        tooltip: 'Only keep edgeguards by players with these connect codes.',
+      },
+      {
+        name: 'Edgeguardee Char',
+        id: 'comboeeChar',
+        type: 'multiDropdown',
+        options: sortedCharacters,
+        default: [],
+        tooltip: 'Only keep edgeguards against these characters.',
+      },
+      {
+        name: 'Edgeguardee Tag',
+        id: 'comboeeTag',
+        type: 'textInput',
+        default: [],
+        autocomplete: 'names',
+        tooltip: 'Only keep edgeguards against players with these tags.',
+      },
+      {
+        name: 'Edgeguardee CC',
+        id: 'comboeeCC',
+        type: 'textInput',
+        default: [],
+        autocomplete: 'connectCodes',
+        tooltip:
+          'Only keep edgeguards against players with these connect codes.',
+      },
+      {
+        name: 'Stage',
+        id: 'stageFilter',
+        type: 'multiDropdown',
+        options: legalStages,
+        default: [],
+        tooltip: 'Only parse edgeguards on these stages.',
+      },
+      {
+        name: 'Min Offstage Frames',
+        id: 'minOffstageFrames',
+        type: 'int',
+        default: '20',
+        tooltip:
+          'Reject quick deaths: the victim must spend at least this many frames offstage before the KO (60 = 1 second).',
+      },
+      {
+        name: 'Range Leniency %',
+        id: 'rangeLeniency',
+        type: 'int',
+        default: '100',
+        tooltip:
+          'Scales each character\'s recovery range when deciding if a recovery was "in range" (100 = use the built-in per-character range). Raise it (e.g. 130) to catch more borderline-deep recoveries; lower it (e.g. 80) to keep only clearly-recoverable situations.',
+      },
+      {
+        name: 'Require Edgeguarder Offstage',
+        id: 'requireEdgeguarderCommit',
+        type: 'checkbox',
+        default: false,
+        tooltip:
+          'Only keep sequences where the edgeguarder also went past the ledge (committed offstage to gimp).',
+      },
+      {
+        name: 'Include Ledge-Steals',
+        id: 'includeLedgeSteals',
+        type: 'checkbox',
+        default: true,
+        tooltip:
+          'Also catch no-contact edgeguards where the edgeguarder takes the ledge to deny the recovery.',
+      },
+      {
+        name: 'Max Lookback Frames',
+        id: 'maxLookbackFrames',
+        type: 'int',
+        default: '600',
+        tooltip:
+          'Cap how far back from the KO the offstage sequence can start (600 = 10 seconds). Bounds clip length.',
+      },
+    ],
+  },
+  {
+    id: 'edgeguardFilter',
+    label: 'Edgeguards Filter',
+    tooltip:
+      'Refine Edgeguards Parser results by their stored metrics (hits, offstage duration, ledge distance, depth, ledge-steals, etc.). Must come after an Edgeguards Parser.',
+    options: [
+      {
+        name: 'Min Hits',
+        id: 'minHits',
+        type: 'int',
+        default: '',
+        tooltip:
+          'Keep edgeguards where the victim was hit at least this many times.',
+      },
+      {
+        name: 'Max Hits',
+        id: 'maxHits',
+        type: 'int',
+        default: '',
+        tooltip:
+          'Keep edgeguards with at most this many hits (e.g. 0 for pure no-contact gimps).',
+      },
+      {
+        name: 'Min Offstage Frames',
+        id: 'minOffstageFrames',
+        type: 'int',
+        default: '',
+        tooltip:
+          'Keep edgeguards where the victim spent at least this many frames offstage (60 = 1s).',
+      },
+      {
+        name: 'Max Offstage Frames',
+        id: 'maxOffstageFrames',
+        type: 'int',
+        default: '',
+        tooltip: 'Keep edgeguards no longer than this many offstage frames.',
+      },
+      {
+        name: 'Max Ledge Distance',
+        id: 'maxLedgeDist',
+        type: 'int',
+        default: '',
+        tooltip:
+          'Keep only edgeguards where the victim got within this many units of the ledge (smaller = closer / more clearly recoverable).',
+      },
+      {
+        name: 'Min Horizontal Depth',
+        id: 'minDepthX',
+        type: 'int',
+        default: '',
+        tooltip:
+          'Keep edgeguards where the victim was taken at least this far out horizontally (larger = deeper offstage).',
+      },
+      {
+        name: 'Max Lowest Y',
+        id: 'maxMinY',
+        type: 'int',
+        default: '',
+        tooltip:
+          'Keep edgeguards where the victim dropped to at least this Y (negative = below the stage; e.g. -60 for deep spikes).',
+      },
+      {
+        name: 'Min Score',
+        id: 'minScore',
+        type: 'int',
+        default: '',
+        tooltip:
+          'Keep edgeguards scoring at least this. Higher = flashier. No hard max, but scores run ~3–40: ~3–5 is a barely-qualifying gimp, 5–15 is typical, and 20+ is a long, deep, or multi-hit sequence (or one where the edgeguarder chased offstage). Built from +3 per hit, +1 per ~30 offstage frames (~½s), +4 if the edgeguarder went offstage, +2 for a ledge-steal, plus horizontal & vertical depth. Empty = no minimum.',
+      },
+      {
+        name: 'Blocked by Hit',
+        id: 'blockedByHit',
+        type: 'dropdown',
+        options: [
+          { name: 'Required', id: 'yes' },
+          { name: 'Excluded', id: 'no' },
+        ],
+        default: '',
+        tooltip:
+          'Whether a hit landed after the recovery attempt (the edgeguarder knocked them back out).',
+      },
+      {
+        name: 'Ledge Steal',
+        id: 'ledgeSteal',
+        type: 'dropdown',
+        options: [
+          { name: 'Only ledge-steals', id: 'yes' },
+          { name: 'Exclude ledge-steals', id: 'no' },
+        ],
+        default: '',
+        tooltip:
+          'No-contact edgeguards where the edgeguarder took the ledge to deny the recovery.',
+      },
+      {
+        name: 'Edgeguarder Offstage',
+        id: 'edgeguarderOffstage',
+        type: 'dropdown',
+        options: [
+          { name: 'Required', id: 'yes' },
+          { name: 'Excluded', id: 'no' },
+        ],
+        default: '',
+        tooltip: 'Whether the edgeguarder committed past the ledge to gimp.',
+      },
+      {
+        name: 'Edgeguarder Char',
+        id: 'comboerChar',
+        type: 'multiDropdown',
+        options: sortedCharacters,
+        default: [],
+        tooltip: 'Only keep edgeguards performed by these characters.',
+      },
+      {
+        name: 'Edgeguarder Tag',
+        id: 'comboerTag',
+        type: 'textInput',
+        default: [],
+        autocomplete: 'names',
+        tooltip: 'Only keep edgeguards by players with these tags.',
+      },
+      {
+        name: 'Edgeguarder CC',
+        id: 'comboerCC',
+        type: 'textInput',
+        default: [],
+        autocomplete: 'connectCodes',
+        tooltip: 'Only keep edgeguards by players with these connect codes.',
+      },
+      {
+        name: 'Edgeguardee Char',
+        id: 'comboeeChar',
+        type: 'multiDropdown',
+        options: sortedCharacters,
+        default: [],
+        tooltip: 'Only keep edgeguards against these characters.',
+      },
+      {
+        name: 'Edgeguardee Tag',
+        id: 'comboeeTag',
+        type: 'textInput',
+        default: [],
+        autocomplete: 'names',
+        tooltip: 'Only keep edgeguards against players with these tags.',
+      },
+      {
+        name: 'Edgeguardee CC',
+        id: 'comboeeCC',
+        type: 'textInput',
+        default: [],
+        autocomplete: 'connectCodes',
+        tooltip:
+          'Only keep edgeguards against players with these connect codes.',
       },
     ],
   },
@@ -1012,6 +1315,15 @@ export const videoConfig = [
       'Automatically add a Combo Parser and Combo Filter when creating new projects.',
   },
   {
+    label: 'Enable Filter Branching',
+    default: false,
+    id: 'branchingEnabled',
+    type: 'checkbox',
+    category: 'general',
+    tooltip:
+      'Advanced: let each filter choose its input (raw Files or any filter above it) instead of always reading from the filter directly above. Turns the filter chain into a tree. When off, existing branch links are kept but the chain runs linearly.',
+  },
+  {
     label: 'Warn on Parser Delete',
     default: true,
     id: 'warnOnParserDelete',
@@ -1019,6 +1331,33 @@ export const videoConfig = [
     category: 'general',
     tooltip:
       'Show a confirmation dialog before deleting a combo parser that was run on many files.',
+  },
+  {
+    label: 'Warn on Reset (over 1 min)',
+    default: true,
+    id: 'warnOnReset60s',
+    type: 'checkbox',
+    category: 'general',
+    tooltip:
+      'Show a mild confirmation before re-running a filter whose last run took over 1 minute.',
+  },
+  {
+    label: 'Warn on Reset (over 10 min)',
+    default: true,
+    id: 'warnOnReset10m',
+    type: 'checkbox',
+    category: 'general',
+    tooltip:
+      'Show a confirmation before re-running a filter whose last run took over 10 minutes.',
+  },
+  {
+    label: 'Warn on Reset (over 1 hour)',
+    default: true,
+    id: 'warnOnReset1h',
+    type: 'checkbox',
+    category: 'general',
+    tooltip:
+      'Show a strong confirmation before re-running a filter whose last run took over an hour.',
   },
   {
     label: 'Send Anonymous Usage Data',
@@ -1030,15 +1369,6 @@ export const videoConfig = [
       'Sends anonymous stats to help improve LM Clipper. No personal data is collected.',
     tooltip:
       'Send anonymous usage statistics to help improve LM Clipper. No personal data is collected.',
-  },
-  {
-    label: 'Advanced Mode',
-    default: false,
-    id: 'advancedMode',
-    type: 'checkbox',
-    category: 'general',
-    tooltip:
-      'Show advanced options in filter controls, like raw Nth Moves fields.',
   },
   {
     label: 'Test Mode',

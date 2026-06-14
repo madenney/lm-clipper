@@ -96,6 +96,42 @@ const actionStates = [
     actionStateID: [212],
   },
   {
+    id: 217,
+    name: 'Pummel',
+    shortName: 'pummel',
+    actionStateID: [217],
+  },
+  {
+    id: 219,
+    name: 'Forward Throw',
+    shortName: 'fthrow',
+    actionStateID: [219],
+  },
+  {
+    id: 220,
+    name: 'Back Throw',
+    shortName: 'bthrow',
+    actionStateID: [220],
+  },
+  {
+    id: 221,
+    name: 'Up Throw',
+    shortName: 'uthrow',
+    actionStateID: [221],
+  },
+  {
+    id: 222,
+    name: 'Down Throw',
+    shortName: 'dthrow',
+    actionStateID: [222],
+  },
+  {
+    id: 'anyThrow',
+    name: 'Any Throw',
+    shortName: 'throw',
+    actionStateID: [219, 220, 221, 222],
+  },
+  {
     id: 233,
     name: 'Normal Roll',
     shortName: 'Normal Roll',

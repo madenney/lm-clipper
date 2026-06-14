@@ -25,7 +25,9 @@ export default class Filter {
   type: string
   isProcessed: boolean
   params: Record<string, any>
-  results: number
+  results: number | null
+  inputId?: string
+  lastRunMs?: number
   private _activeSlices: Slice[] | null = null
 
   constructor(filterJSON: FilterInterface) {
@@ -35,6 +37,8 @@ export default class Filter {
     this.isProcessed = filterJSON.isProcessed
     this.params = filterJSON.params
     this.results = filterJSON.results
+    this.inputId = filterJSON.inputId
+    this.lastRunMs = filterJSON.lastRunMs
   }
 
   async init(dbPath: string) {
@@ -70,7 +74,12 @@ export default class Filter {
     errors: string[]
     logs?: string[]
     lastProgress?: number
+    missing?: number
+    corrupt?: number
+    examples?: string[]
+    durationMs?: number
   }> {
+    const startedAt = Date.now()
     const resume = options?.resume === true
     const prevResultsLength = await getTableCountAsync(dbPath, prevTableId)
     let maxFiles = prevResultsLength
@@ -120,6 +129,9 @@ export default class Filter {
     this._activeSlices = slices
     const workerResults = new Array(slices.length).fill(0)
     const workerSkipped = new Array(slices.length).fill(0)
+    let missing = 0
+    let corrupt = 0
+    const examples: string[] = []
     const workers: Worker[] = []
     const errors: string[] = []
     const logs: string[] = []
@@ -165,9 +177,11 @@ export default class Filter {
           'slpParser',
           'actionStateFilter',
           'edgeguard',
+          'edgeguard2',
           'reverse',
           'removeStarKOFrames',
           'koDirection',
+          'stageCenter',
         ])
         const resourceLimits = slowIOTypes.has(this.type)
           ? { maxOldGenerationSizeMb: 1024 }
@@ -251,6 +265,13 @@ export default class Filter {
             }
 
             if (e.type === 'done') {
+              if (e.missing) missing += e.missing
+              if (e.corrupt) corrupt += e.corrupt
+              if (Array.isArray(e.examples)) {
+                for (const ex of e.examples) {
+                  if (examples.length < 3) examples.push(ex)
+                }
+              }
               workerDone = true
               clearTimeout(idleTimer)
               resolve()
@@ -315,13 +336,32 @@ export default class Filter {
     if (terminated) {
       this.isProcessed = false
       // Leave run record as-is so resume is available
-      return { terminated: true, errors, logs, lastProgress: finalProgress }
+      return {
+        terminated: true,
+        errors,
+        logs,
+        lastProgress: finalProgress,
+        missing,
+        corrupt,
+        examples,
+      }
     }
 
     // Successful completion: remove run record (via DbWorker for WAL consistency)
     await deleteFilterRunAsync(dbPath, this.id)
     this.isProcessed = true
-    return { terminated: false, errors, logs, lastProgress: finalProgress }
+    const durationMs = Date.now() - startedAt
+    this.lastRunMs = durationMs
+    return {
+      terminated: false,
+      errors,
+      logs,
+      lastProgress: finalProgress,
+      missing,
+      corrupt,
+      examples,
+      durationMs,
+    }
   }
 }
 

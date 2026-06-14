@@ -123,21 +123,28 @@ export default (
     const hasP1 = p1States.length > 0
     const hasP2 = p2States.length > 0
 
-    // Position bounds
-    const _comboerMinX = parseInt(comboerMinX, 10)
-    const _comboerMaxX = parseInt(comboerMaxX, 10)
-    const _comboerMinY = parseInt(comboerMinY, 10)
-    const _comboerMaxY = parseInt(comboerMaxY, 10)
-    const _comboeeMinX = parseInt(comboeeMinX, 10)
-    const _comboeeMaxX = parseInt(comboeeMaxX, 10)
-    const _comboeeMinY = parseInt(comboeeMinY, 10)
-    const _comboeeMaxY = parseInt(comboeeMaxY, 10)
+    // Position bounds. A per-stage zone (drawn in the Stage Zone picker)
+    // overrides the flat scalar X/Y fields for clips on that stage; stages
+    // without a zone fall back to the scalar fields (or no constraint).
+    const stageZone = params.positionZones?.[result.stage]
+    const zoneP1 = stageZone?.comboer
+    const zoneP2 = stageZone?.comboee
+    const _comboerMinX = zoneP1 ? zoneP1.xMin : parseInt(comboerMinX, 10)
+    const _comboerMaxX = zoneP1 ? zoneP1.xMax : parseInt(comboerMaxX, 10)
+    const _comboerMinY = zoneP1 ? zoneP1.yMin : parseInt(comboerMinY, 10)
+    const _comboerMaxY = zoneP1 ? zoneP1.yMax : parseInt(comboerMaxY, 10)
+    const _comboeeMinX = zoneP2 ? zoneP2.xMin : parseInt(comboeeMinX, 10)
+    const _comboeeMaxX = zoneP2 ? zoneP2.xMax : parseInt(comboeeMaxX, 10)
+    const _comboeeMinY = zoneP2 ? zoneP2.yMin : parseInt(comboeeMinY, 10)
+    const _comboeeMaxY = zoneP2 ? zoneP2.yMax : parseInt(comboeeMaxY, 10)
     const hasP1Pos =
+      !!zoneP1 ||
       !Number.isNaN(_comboerMinX) ||
       !Number.isNaN(_comboerMaxX) ||
       !Number.isNaN(_comboerMinY) ||
       !Number.isNaN(_comboerMaxY)
     const hasP2Pos =
+      !!zoneP2 ||
       !Number.isNaN(_comboeeMinX) ||
       !Number.isNaN(_comboeeMaxX) ||
       !Number.isNaN(_comboeeMinY) ||
