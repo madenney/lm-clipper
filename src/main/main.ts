@@ -261,6 +261,11 @@ const createWindow = async () => {
     // Check for updates in production
     if (app.isPackaged) {
       autoUpdater.autoDownload = false
+      // A build that is itself a prerelease (e.g. 2.0.0-beta.3) follows the
+      // beta channel; stable builds stay on the latest channel and never pull
+      // a prerelease. The matching beta.yml / latest.yml is selected
+      // automatically via detectUpdateChannel (default on).
+      autoUpdater.allowPrerelease = app.getVersion().includes('-')
       autoUpdater.logger = {
         info: (...args: unknown[]) => logMain('updater-info', ...args),
         warn: (...args: unknown[]) => logMain('updater-warn', ...args),

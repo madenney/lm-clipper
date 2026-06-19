@@ -40,13 +40,15 @@ To create a production build:
 npm run build
 ```
 
-To package for distribution:
+To package installers locally (without publishing):
 
 ```bash
-./build.sh
+npx electron-builder --linux --win
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for more details on development setup.
+Distribution builds are produced by GitHub Actions when a `v*` tag is pushed.
+See [RELEASING.md](RELEASING.md) for the release + auto-update process, and
+[CONTRIBUTING.md](CONTRIBUTING.md) for development setup.
 
 ## Usage
 

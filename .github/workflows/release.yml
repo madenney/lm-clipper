@@ -17,8 +17,6 @@ jobs:
             platform: linux
           - os: windows-latest
             platform: win
-          - os: macos-latest
-            platform: mac
 
     runs-on: ${{ matrix.os }}
 
@@ -32,8 +30,18 @@ jobs:
           node-version: 20
           cache: npm
 
+      - name: Determine update channel
+        id: channel
+        shell: bash
+        run: |
+          if [[ "${{ github.ref_name }}" == *-beta* ]]; then
+            echo "channel=beta" >> "$GITHUB_OUTPUT"
+          else
+            echo "channel=latest" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Install dependencies
-        run: npm install
+        run: npm ci
 
       - name: Download ffmpeg (Linux)
         if: matrix.platform == 'linux'
@@ -54,30 +62,13 @@ jobs:
           $ffmpegExe = Get-ChildItem -Path "$env:TEMP\ffmpeg" -Recurse -Filter "ffmpeg.exe" | Select-Object -First 1
           Copy-Item $ffmpegExe.FullName -Destination "release/app/ffmpeg/ffmpeg-win32-x64.exe"
 
-      - name: Download ffmpeg (macOS)
-        if: matrix.platform == 'mac'
-        run: |
-          mkdir -p release/app/ffmpeg
-          curl -L -o /tmp/ffmpeg.zip https://evermeet.cx/ffmpeg/getrelease/zip
-          unzip /tmp/ffmpeg.zip -d /tmp/ffmpeg-mac
-          cp /tmp/ffmpeg-mac/ffmpeg release/app/ffmpeg/ffmpeg-darwin-x64
-          chmod +x release/app/ffmpeg/ffmpeg-darwin-x64
-
-      - name: Build slpz (macOS)
-        if: matrix.platform == 'mac'
-        run: |
-          mkdir -p release/app/slpz
-          cargo install slpz --root /tmp/slpz-build
-          cp /tmp/slpz-build/bin/slpz release/app/slpz/slpz-darwin-x64
-          chmod +x release/app/slpz/slpz-darwin-x64
-
       - name: Build
         run: npm run build
 
       - name: Package
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npx electron-builder --publish never --${{ matrix.platform }}
+        run: npx electron-builder --publish never --${{ matrix.platform }} -c.publish.channel=${{ steps.channel.outputs.channel }}
 
       - name: Generate checksums (Linux)
         if: matrix.platform == 'linux'
@@ -96,12 +87,6 @@ jobs:
             "$hash  $($_.Name)" | Out-File -Append SHA256SUMS-win.txt -Encoding ascii
           }
 
-      - name: Generate checksums (macOS)
-        if: matrix.platform == 'mac'
-        run: |
-          cd release/build
-          shasum -a 256 *.dmg > SHA256SUMS-mac.txt || true
-
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -110,7 +95,8 @@ jobs:
             release/build/*.AppImage
             release/build/*.deb
             release/build/*.exe
-            release/build/*.dmg
+            release/build/*.yml
+            release/build/*.blockmap
             release/build/SHA256SUMS-*.txt
 
   release:
@@ -123,14 +109,25 @@ jobs:
           path: artifacts
           merge-multiple: true
 
+      - name: Determine prerelease
+        id: pre
+        run: |
+          if [[ "${{ github.ref_name }}" == *-beta* ]]; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          draft: true
+          draft: false
+          prerelease: ${{ steps.pre.outputs.prerelease }}
           generate_release_notes: true
           files: |
             artifacts/**/*.AppImage
             artifacts/**/*.deb
             artifacts/**/*.exe
-            artifacts/**/*.dmg
+            artifacts/**/*.yml
+            artifacts/**/*.blockmap
             artifacts/**/SHA256SUMS-*.txt

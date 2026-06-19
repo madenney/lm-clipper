@@ -15,8 +15,12 @@ npm run start:main         # Build and run main process only
 npm run start:renderer     # Start webpack dev server for React only
 
 # Build & Package
-npm run build              # Build main + renderer for production
-./build.sh                 # Full build + package with Conveyor
+npm run build                          # Build main + renderer for production
+npx electron-builder --linux --win     # Package installers locally (no publish)
+
+# Release: push a git tag (v2.0.0-beta.N = beta channel, v2.0.0 = stable).
+# GitHub Actions builds + publishes signed-later installers with auto-update
+# manifests. See RELEASING.md.
 
 # Quality
 npm run lint               # ESLint on .js/.jsx/.ts/.tsx
