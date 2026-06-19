@@ -5,6 +5,7 @@ import { promisify } from 'util'
 import path from 'path'
 import { promises as fsPromises } from 'fs'
 import { getWorkerExecArgv } from '../../lib'
+import { track } from '../telemetry'
 import { ArchiveInterface, ConfigInterface } from '../../constants/types'
 import Archive from '../../models/Archive'
 import Filter from '../../models/Filter'
@@ -470,6 +471,10 @@ export default class ImportManager {
       terminated ? 'Import cancelled' : 'Import complete',
     )
     this.consoleManager.stopConsole()
+    if (!terminated) {
+      const added = Math.max(0, (currentArchive?.files ?? 0) - fileCountBefore)
+      track('import_completed', { added, failed })
+    }
     this.mainWindow.webContents.send('importingFileUpdate', {
       finished: true,
       cancelled: terminated,

@@ -3,6 +3,7 @@ import { ArchiveInterface, ConfigInterface } from '../../constants/types'
 import Archive from '../../models/Archive'
 import Filter from '../../models/Filter'
 import { getMetaData } from '../db'
+import { track } from '../telemetry'
 import {
   getTableCountAsync,
   deleteFilterRunAsync,
@@ -225,6 +226,12 @@ export default class FilterExecutor {
         : `${filterJSON.label} complete`,
     )
     this.consoleManager.stopConsole()
+    if (!terminated) {
+      track('filter_run', {
+        filterType: filterJSON.type,
+        durationMs: durationMs ?? 0,
+      })
+    }
 
     // Check if upstream filter is still running (before cleanup)
     let filterMessage = ''

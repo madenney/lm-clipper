@@ -7,6 +7,7 @@ import {
   BrowserWindow,
 } from 'electron'
 import { Worker } from 'worker_threads'
+import { randomUUID } from 'crypto'
 import os from 'os'
 import path from 'path'
 import fs, { promises as fsPromises } from 'fs'
@@ -38,6 +39,7 @@ import {
 import { closeDb } from './dbConnection'
 import { appendPerfEvents } from './perfLogger'
 import { logMain, logRenderer, getLogPath } from './logger'
+import { initTelemetry, track } from './telemetry'
 import { RequestEnvelope, unpackRequest, reply } from './ipcUtils'
 import ConsoleManager from './managers/ConsoleManager'
 import ImportManager from './managers/ImportManager'
@@ -197,6 +199,12 @@ export default class Controller {
         }
       }
     })
+    // Anonymous, random per-install id (not a machine fingerprint). Generated
+    // once and persisted via the saveConfig() below; also set for existing
+    // users upgrading from a build that predates telemetry.
+    if (!this.config.installId) {
+      this.config.installId = randomUUID()
+    }
     this.saveConfig()
     if (this.config.ffmpegPath) {
       setFFMPEGPathOverride(this.config.ffmpegPath)
@@ -255,6 +263,21 @@ export default class Controller {
         this.saveConfig()
       },
     })
+
+    // Anonymous usage telemetry (opt-out: Settings → Send Anonymous Usage Data).
+    initTelemetry({ getConfig: () => this.config })
+    this.reportStartupTelemetry(isFirstRun)
+  }
+
+  // Fire the install (once-ever) + app_open (once-per-day) usage events.
+  private reportStartupTelemetry(isFirstRun: boolean) {
+    if (isFirstRun) track('install')
+    const today = new Date().toISOString().slice(0, 10)
+    if (this.config.lastUsagePing !== today) {
+      this.config.lastUsagePing = today
+      this.saveConfig()
+      track('app_open')
+    }
   }
 
   private saveConfig() {

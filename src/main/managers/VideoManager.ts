@@ -1,12 +1,12 @@
 import { app, BrowserWindow, IpcMainEvent, shell } from 'electron'
 import { spawn, execFile, ChildProcess } from 'child_process'
-import https from 'https'
 import crypto from 'crypto'
 import os from 'os'
 import path from 'path'
 import fs, { promises as fsPromises } from 'fs'
 import { characters } from '../../constants/characters'
 import { stages } from '../../constants/stages'
+import { track } from '../telemetry'
 import {
   ArchiveInterface,
   ClipInterface,
@@ -381,33 +381,13 @@ export default class VideoManager {
       if (config.autoOpenOutputFolder) {
         shell.openPath(videoConfig.outputPath).catch(() => {})
       }
-      // Report anonymous usage stats
-      if (config.sendAnonymousUsage !== false) {
-        this.reportUsage(completedClipCount, completedDuration)
-      }
+      // Report anonymous usage stats (no-ops if the user opted out).
+      track('video_created', {
+        clips: completedClipCount,
+        durationSec: completedDuration ?? 0,
+      })
     }
     return reply(event, 'generateVideo', requestId)
-  }
-
-  private reportUsage(clips: number, durationSec: number | null) {
-    const body = JSON.stringify({
-      event: 'video_created',
-      data: {
-        clips,
-        durationSec: durationSec ?? 0,
-      },
-    })
-    const req = https.request('https://www.lunarmelee.com/api/app-usage', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Content-Length': Buffer.byteLength(body),
-      },
-      timeout: 10000,
-    })
-    req.on('error', () => {}) // silently ignore failures
-    req.write(body)
-    req.end()
   }
 
   stopVideo(event: IpcMainEvent, data?: RequestEnvelope<null>) {

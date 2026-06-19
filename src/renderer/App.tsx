@@ -12,6 +12,7 @@ import { ArchiveContext, ConfigContext } from './context/AppContext'
 import Main from './components/Main'
 import LoadingScreen from './components/LoadingScreen'
 import UpdateBanner from './components/UpdateBanner'
+import ConsentNotice from './components/ConsentNotice'
 import SetupWizard from './components/SetupWizard'
 import { WelcomeModal } from './components/GettingStarted'
 import SlpzWizard from './components/SlpzWizard'
@@ -450,6 +451,16 @@ export default function App() {
         <UpdateBanner
           status={updateStatus}
           onDismiss={() => setUpdateStatus(null)}
+        />
+      )}
+      {config && !config.consentNoticeSeen && (
+        <ConsentNotice
+          onDismiss={() => {
+            setConfig((prev) =>
+              prev ? { ...prev, consentNoticeSeen: true } : prev,
+            )
+            ipcBridge.updateConfig({ key: 'consentNoticeSeen', value: true })
+          }}
         />
       )}
       {slpzDefaultOutputDir !== null && (

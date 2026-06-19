@@ -310,6 +310,10 @@ export interface ConfigInterface {
   convertToMp4: boolean
   autoOpenOutputFolder: boolean
   sendAnonymousUsage: boolean
+  // Anonymous-telemetry bookkeeping (internal — not user-facing settings).
+  installId?: string // random UUID, generated once on first run
+  lastUsagePing?: string // YYYY-MM-DD of the last app_open ping (daily dedupe)
+  consentNoticeSeen?: boolean // first-run usage-stats disclosure dismissed
   outputFilenamePattern: string
   defaultProjectDirectory: string
   ffmpegPath: string
