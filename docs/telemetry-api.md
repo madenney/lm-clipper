@@ -19,7 +19,27 @@ move on), and must treat all input as untrusted.
   (`installId`) the app generates once and stores in its local config.
 - **Opt-out.** Users can disable all telemetry via _Settings → Send Anonymous
   Usage Data_. When off, the client sends nothing. Default is **on**, with a
-  one-time first-run disclosure banner.
+  one-time first-run disclosure banner that links to the privacy policy.
+
+> ⚠️ **SERVER MUST NOT STORE THE CLIENT IP.** This is the one requirement that
+> keeps the whole pipeline "anonymous." Every POST carries the client's IP, and
+> an IP **is** personal data under GDPR. The server must drop the IP (or reduce
+> it to a coarse country at ingest and discard the original) and never persist
+> it alongside `installId`/events. If you store IPs next to events, this stops
+> being anonymous telemetry and becomes PII processing with all the consent
+> obligations that implies. The client's anonymity guarantees are void without
+> this.
+
+**Consent model (why there's no opt-in gate):** anonymous, opt-out product
+analytics with (1) a disclosure, (2) a working opt-out, and (3) no server-side
+PII (the IP rule above) is the standard, generally-sufficient posture — the same
+model VS Code and most desktop apps use. It runs under GDPR "legitimate
+interest," which requires transparency + opt-out, **not** explicit opt-in. So
+the app does **not** block on a consent prompt; it discloses + lets users opt
+out. **Action item for the website:** publish a privacy policy at
+`https://www.lunarmelee.com/privacy` (the consent banner links to it) describing
+what's collected (the events below), that it's anonymous, that the IP is
+discarded, and how to opt out.
 
 ## Endpoint
 

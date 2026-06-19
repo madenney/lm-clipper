@@ -29,6 +29,13 @@ const btnStyle: CSSProperties = {
   flexShrink: 0,
 }
 
+const linkStyle: CSSProperties = {
+  color: '#9cc7ff',
+  textDecoration: 'underline',
+  cursor: 'pointer',
+  flexShrink: 0,
+}
+
 // One-time first-run disclosure that the app sends anonymous usage stats.
 // Dismissal is persisted via the `consentNoticeSeen` config flag.
 export default function ConsentNotice({ onDismiss }: Props) {
@@ -38,6 +45,16 @@ export default function ConsentNotice({ onDismiss }: Props) {
         Lunar Clipper sends anonymous usage stats to help improve it — no
         personal data is collected. You can turn this off any time in Settings.
       </span>
+      <a
+        href="https://www.lunarmelee.com/privacy"
+        style={linkStyle}
+        onClick={(e) => {
+          e.preventDefault()
+          window.open('https://www.lunarmelee.com/privacy')
+        }}
+      >
+        Privacy policy
+      </a>
       <button type="button" style={btnStyle} onClick={onDismiss}>
         Got it
       </button>
