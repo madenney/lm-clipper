@@ -188,7 +188,16 @@ const createWindow = async () => {
       preload: app.isPackaged
         ? path.join(__dirname, 'preload.js')
         : path.join(__dirname, '../../.erb/dll/preload.js'),
-      nodeIntegrationInWorker: true,
+      // Explicit secure defaults: defense-in-depth + future-proofing against
+      // Electron default changes. The renderer never gets Node; the preload
+      // bridges a fixed IPC allowlist via contextBridge.
+      contextIsolation: true,
+      nodeIntegration: false,
+      // nodeIntegrationInWorker removed: the renderer's web workers
+      // (trayWebglWorker, densityWorker) are pure webgl/compute and import no
+      // Node modules, so granting them Node was unjustified attack surface.
+      // SMOKE-TEST after this change: confirm the tray density/webgl
+      // visualization still renders.
     },
     resizable: true,
   })
