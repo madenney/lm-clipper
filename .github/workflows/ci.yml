@@ -16,7 +16,7 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
 
       - name: Lint
         run: npm run lint
@@ -34,7 +34,7 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
 
       - name: Test
         run: npm test
@@ -52,7 +52,7 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
 
       # Ratchet gate: fails if tsc errors exceed the committed baseline
       # (.tsc-error-baseline), so no NEW type errors land while the existing
@@ -73,7 +73,13 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
 
-      - name: Audit
+      # Real gate (no `|| true`): fail on high/critical vulns in PRODUCTION
+      # deps only. Dev-tooling advisories (webpack-dev-server etc.) don't ship,
+      # so they don't block; keep them visible via the non-omit line below.
+      - name: Audit (production deps)
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Audit (all, advisory only)
         run: npm audit --audit-level=high || true
