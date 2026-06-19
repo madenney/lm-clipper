@@ -1,7 +1,7 @@
 {
   "name": "lm-clipper",
   "description": "An application for creating melee clips",
-  "version": "2.0.0-beta.2.4",
+  "version": "2.0.0-beta.2.5",
   "license": "GPL-3.0-only",
   "repository": {
     "type": "git",
@@ -182,8 +182,16 @@
     "webpack-merge": "^5.8.0"
   },
   "build": {
-    "productName": "LM Clipper",
+    "productName": "Lunar Clipper",
     "appId": "com.github.madenney.lm-clipper",
+    "fileAssociations": [
+      {
+        "ext": "lunar",
+        "name": "Lunar Clipper Project",
+        "description": "Lunar Clipper Project",
+        "role": "Editor"
+      }
+    ],
     "asar": true,
     "asarUnpack": [
       "**/*.{node,dll}",

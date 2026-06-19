@@ -108,6 +108,7 @@ export default function SettingsModal({
     '/replays/netplay/DaShizWiz/2023/Game_20230202T075353.slp',
   )
   const [resetConfirm, setResetConfirm] = useState(false)
+  const [resetAppConfirm, setResetAppConfirm] = useState(false)
   const [appVersion, setAppVersion] = useState('')
   const [logsPath, setLogsPath] = useState('')
   const [exportingLogs, setExportingLogs] = useState(false)
@@ -205,6 +206,16 @@ export default function SettingsModal({
       removeListener()
     })
     window.electron.ipcRenderer.sendMessage('resetConfig', null)
+  }
+
+  function handleResetApp() {
+    if (!resetAppConfirm) {
+      setResetAppConfirm(true)
+      return
+    }
+    setResetAppConfirm(false)
+    // Main wipes config + paths to defaults and relaunches; no reply expected.
+    window.electron.ipcRenderer.sendMessage('resetApp', null)
   }
 
   function handleAddGeckoCode() {
@@ -994,13 +1005,32 @@ export default function SettingsModal({
                 </button>
               </div>
             </div>
+            <div className="settings-item settings-item--danger">
+              <div className="settings-item-info">
+                <span className="settings-item-label">Reset App</span>
+                <span className="settings-item-desc">
+                  Clear everything — settings, paths, and recent projects — and
+                  restart fresh, as if newly installed. Your saved projects are
+                  not deleted.
+                </span>
+              </div>
+              <div className="settings-item-control">
+                <button
+                  type="button"
+                  className={`settings-action-btn settings-action-btn--danger${resetAppConfirm ? ' settings-action-btn--confirm' : ''}`}
+                  onClick={handleResetApp}
+                >
+                  {resetAppConfirm ? 'Reset & restart?' : 'Reset App'}
+                </button>
+              </div>
+            </div>
           </div>
         )
 
       case 'about':
         return (
           <div className="settings-about">
-            <div className="settings-about-title">LM Clipper</div>
+            <div className="settings-about-title">Lunar Clipper</div>
             <div className="settings-about-version">
               Version {appVersion || '...'}
             </div>
@@ -1045,6 +1075,7 @@ export default function SettingsModal({
       onClick={() => {
         onClose()
         setResetConfirm(false)
+        setResetAppConfirm(false)
       }}
     >
       <div className="settings-modal" onClick={(e) => e.stopPropagation()}>
@@ -1100,6 +1131,7 @@ export default function SettingsModal({
             onClick={() => {
               onClose()
               setResetConfirm(false)
+              setResetAppConfirm(false)
             }}
             aria-label="Close settings"
           >
@@ -1122,6 +1154,7 @@ export default function SettingsModal({
                 onClick={() => {
                   setActiveSection(s.key)
                   setResetConfirm(false)
+                  setResetAppConfirm(false)
                 }}
               >
                 {s.label}

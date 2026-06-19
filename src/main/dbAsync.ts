@@ -65,6 +65,45 @@ export function terminateDbWorker(): void {
   }
 }
 
+/**
+ * Graceful shutdown for app quit: asks the worker to cleanly close its DB
+ * connection (releasing the file handle so sidecars can be deleted), waits for
+ * the ack, then terminates. Bounded by `timeoutMs` so quit can never hang.
+ */
+export function shutdownDbWorker(timeoutMs = 1500): Promise<void> {
+  return new Promise((resolve) => {
+    const w = worker
+    if (!w) {
+      resolve()
+      return
+    }
+    let settled = false
+    const finish = () => {
+      if (settled) return
+      settled = true
+      w.off('message', onMessage)
+      worker = null
+      for (const [, p] of pending) {
+        p.reject(new Error('DbWorker shutting down'))
+      }
+      pending.clear()
+      w.terminate().catch(() => {})
+      resolve()
+    }
+    const onMessage = (msg: { type?: string }) => {
+      if (msg && msg.type === 'closed') finish()
+    }
+    w.on('message', onMessage)
+    try {
+      w.postMessage({ id: -1, __control: 'close' })
+    } catch (_) {
+      finish()
+      return
+    }
+    setTimeout(finish, timeoutMs)
+  })
+}
+
 // ── Async query functions ────────────────────────────────────────────
 
 export function getMetaDataAsync(dbPath: string): Promise<any> {

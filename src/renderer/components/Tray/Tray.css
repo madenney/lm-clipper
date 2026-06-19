@@ -185,6 +185,85 @@
   color: #555;
 }
 
+/* Import panel (empty import stage). One flat panel — no nested boxes — with a
+   clear hierarchy: headline → path → one primary action → quiet links → drag. */
+.tray-import {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 9px;
+  padding: 30px 40px;
+  border: 1px dashed #3a3a3a;
+  border-radius: 14px;
+  max-width: 440px;
+}
+
+.tray-import-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: #e6e6e6;
+  text-align: center;
+  line-height: 1.35;
+}
+
+.tray-import-path {
+  font-size: 12.5px;
+  color: #707a7e;
+  word-break: break-all;
+  max-width: 360px;
+  text-align: center;
+  margin-top: -3px;
+}
+
+.tray-import-primary {
+  margin-top: 10px;
+  background: linear-gradient(180deg, #1f6b78 0%, #15505a 100%);
+  border: 1px solid #2a8b9a;
+  border-radius: 7px;
+  color: #eafcff;
+  font-size: 15px;
+  font-weight: 600;
+  padding: 10px 30px;
+  cursor: pointer;
+  transition: filter 120ms ease;
+}
+
+.tray-import-primary:hover {
+  filter: brightness(1.12);
+}
+
+.tray-import-actions {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 4px;
+}
+
+.tray-import-link {
+  background: none;
+  border: none;
+  padding: 2px 0;
+  font-size: 13px;
+  color: #8fbcc3;
+  cursor: pointer;
+}
+
+.tray-import-link:hover {
+  color: #cfeef3;
+  text-decoration: underline;
+}
+
+.tray-import-dot {
+  color: #4a4a4a;
+}
+
+.tray-import-drag {
+  font-size: 12.5px;
+  color: #5e6468;
+  margin-top: 8px;
+  text-align: center;
+}
+
 /* Loading indicator */
 .tray-loading {
   position: absolute;

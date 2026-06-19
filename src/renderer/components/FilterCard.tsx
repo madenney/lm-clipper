@@ -1,6 +1,12 @@
-import { MouseEvent, DragEvent, KeyboardEvent } from 'react'
+import {
+  MouseEvent,
+  DragEvent,
+  KeyboardEvent,
+  useState,
+  useEffect,
+} from 'react'
 import { cloneDeep } from 'lodash'
-import { filtersConfig } from 'constants/config'
+import { filtersConfig, PRODUCER_LABEL } from 'constants/config'
 import { ShallowFilterInterface } from '../../constants/types'
 import FilterControls, { DeferredInput } from './FilterControls'
 import ipcBridge from '../ipcBridge'
@@ -10,6 +16,13 @@ type FilterCardProps = {
   filterIndex: number
   isActive: boolean
   isRunning: boolean
+  // First-run nudge: pulse this filter's Run button + show a "click Run" chip.
+  showRunHint?: boolean
+  // Persist that the user has seen/dismissed the nudge (so it never returns).
+  onDismissRunHint?: () => void
+  // Long-parser reassurance note: gated off once the user dismisses it.
+  parserNoteDisabled?: boolean
+  onDismissParserNote?: () => void
   isCollapsed: boolean
   isGameFilter: boolean
   isDragging: boolean
@@ -58,6 +71,10 @@ export default function FilterCard({
   filterIndex,
   isActive,
   isRunning,
+  showRunHint,
+  onDismissRunHint,
+  parserNoteDisabled,
+  onDismissParserNote,
   isCollapsed,
   isGameFilter,
   isDragging,
@@ -89,10 +106,59 @@ export default function FilterCard({
   onDragEnd,
   onMouseDown,
 }: FilterCardProps) {
+  // Subtle run-status tint: cyan = running, green = done (results valid &
+  // reusable), olive = partial (stopped mid-run, partial results still usable),
+  // amber = needs run (never run, or edited since its last run).
+  const statusClass = isRunning
+    ? 'filter-status-running'
+    : filter.isProcessed
+      ? 'filter-status-done'
+      : filter.resumable
+        ? 'filter-status-partial'
+        : 'filter-status-needsrun'
+
+  // First-run Run-button nudge. `dismissed` flips on click so the hint fades
+  // out immediately (not waiting for the run state to propagate). `hintRender`
+  // keeps the chip/glow mounted through the fade-out, then unmounts them.
+  const [dismissed, setDismissed] = useState(false)
+  const hintActive = !!showRunHint && !isRunning && !dismissed
+  const [hintRender, setHintRender] = useState(false)
+  useEffect(() => {
+    if (hintActive) {
+      setHintRender(true)
+      return undefined
+    }
+    if (!hintRender) return undefined
+    const t = setTimeout(() => setHintRender(false), 320)
+    return () => clearTimeout(t)
+  }, [hintActive, hintRender])
+
+  // Reassurance while an expensive parser churns through a big set — so a
+  // multi-minute first parse doesn't read as "frozen." Shown only for a parser
+  // running over a meaningful number of files (total parsed from its progress).
+  const parserTotal = isRunning
+    ? Number(/^\d+\/(\d+)$/.exec(filterMsg)?.[1] ?? 0)
+    : 0
+  const parserNoteEligible =
+    isRunning &&
+    !parserNoteDisabled &&
+    !!PRODUCER_LABEL[filter.type] &&
+    parserTotal >= 1000
+  // Don't pop the note instantly — let the count tick for a beat first, then
+  // ease it in (before frustration sets in, but not jarringly quick).
+  const [showParserNote, setShowParserNote] = useState(false)
+  useEffect(() => {
+    if (!parserNoteEligible) {
+      setShowParserNote(false)
+      return undefined
+    }
+    const t = setTimeout(() => setShowParserNote(true), 1400)
+    return () => clearTimeout(t)
+  }, [parserNoteEligible])
   return (
     <div
       data-filter-index={filterIndex}
-      className={`filter ${isActive ? 'filter-active' : ''} ${
+      className={`filter ${statusClass} ${isActive ? 'filter-active' : ''} ${
         isGameFilter ? 'filter-pinned' : ''
       } ${isCollapsed ? 'filter-collapsed' : ''} ${isDragging ? 'filter-dragging' : ''} ${
         indentLevel > 0 ? 'filter-branch' : ''
@@ -282,17 +348,45 @@ export default function FilterCard({
         {isRunning && filterMsg && /^\d+\/\d+$/.test(filterMsg) && (
           <span className="filter-progress-pill">{filterMsg}</span>
         )}
-        <button
-          type="button"
-          className={`filter-button${isRunning ? ' filter-button-stop' : ''}`}
-          onClick={(e) => {
-            e.stopPropagation()
-            if (isRunning) onStop(filter.id, filterIndex)
-            else onRun(filter)
-          }}
-        >
-          {isRunning ? 'Stop' : 'Run'}
-        </button>
+        <span className="filter-run-wrap">
+          {hintRender && (
+            <span
+              className={`filter-run-hint${hintActive ? '' : ' filter-run-hint--leaving'}`}
+            >
+              Click Run to find your combos
+              <button
+                type="button"
+                className="filter-run-hint-close"
+                aria-label="Dismiss"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setDismissed(true)
+                  onDismissRunHint?.()
+                }}
+              >
+                ×
+              </button>
+            </span>
+          )}
+          <button
+            type="button"
+            className={`filter-button${isRunning ? ' filter-button-stop' : ''}${
+              hintActive ? ' filter-button-hint' : ''
+            }${hintRender && !hintActive ? ' filter-button-hint-leaving' : ''}`}
+            onClick={(e) => {
+              e.stopPropagation()
+              if (isRunning) {
+                onStop(filter.id, filterIndex)
+              } else {
+                if (hintActive) onDismissRunHint?.()
+                setDismissed(true)
+                onRun(filter)
+              }
+            }}
+          >
+            {isRunning ? 'Stop' : 'Run'}
+          </button>
+        </span>
         <button
           type="button"
           className="filter-toggle"
@@ -317,6 +411,26 @@ export default function FilterCard({
           </button>
         )}
       </div>
+      {showParserNote && (
+        <div className="filter-parser-note">
+          <span className="filter-parser-note-main">
+            This only runs once — it reads every replay, so it can take a few
+            minutes. Hang tight; there&apos;s no faster way.
+          </span>
+          {onDismissParserNote && (
+            <button
+              type="button"
+              className="filter-parser-note-dismiss"
+              onClick={(e) => {
+                e.stopPropagation()
+                onDismissParserNote()
+              }}
+            >
+              Don&apos;t show this again
+            </button>
+          )}
+        </div>
+      )}
     </div>
   )
 }

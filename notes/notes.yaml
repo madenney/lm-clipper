@@ -2,104 +2,82 @@
 #   human: short line a person reads (required)
 #   ai:    verbose, self-contained brief for a future bot with no prior context
 #   done:  checkbox state (default false)
-# Standard: Shelf repo's docs/notes-convention.md
-
+# Standard: <shelf>/docs/notes-convention.md
+- human: In-app tutorials — Setup, How to Use, Advanced
+  done: false
+  ai: |
+    Build in-app tutorials/guided walkthroughs for new users, in three parts:
+    (1) Setup — point the app at the Slippi Playback Dolphin build + Melee ISO +
+    output folder (this is what the existing SetupWizard covers; the tutorial
+    should frame/explain it). (2) How to Use — the core loop: import .slp/.slpz
+    replays (or drag a folder onto the Start screen), build a filter chain
+    (Game Filter → Combo Parser → Combo Filter → Sort, or Edgeguards
+    Parser→Filter), then play in Dolphin / export MP4s. (3) Advanced — filter
+    branching (tree inputs), custom JavaScript filters via the code editor,
+    edgeguard metrics/scoring, overlays, performance/thread settings. Surface
+    these from the Getting Started panel and Help → Welcome (see
+    src/renderer/components/GettingStarted.tsx). Format TBD — could be a guided
+    overlay, a docs site, or short embedded videos. Not started; just captured.
+- human: Delete SQLite -wal/-shm sidecars at quit so a closed project is one file
+  done: true
+  ai: |
+    Projects are WAL-mode SQLite, so each .lunar has -wal/-shm sidecars; they
+    persisted at rest and confused the single-file-document feel. Fix: clean them
+    up at app quit, once every connection is released. Two long-lived connections
+    hold the file open (main dbConnection + the background DbWorker in dbAsync.ts),
+    so the delete must come AFTER both close — and on Windows an open handle blocks
+    unlink, so the DbWorker connection must be closed *gracefully*, not abruptly
+    terminated. Implementation: DbWorker.ts handles a {__control:'close'} message
+    (closes cachedDb, replies 'closed'); dbAsync.shutdownDbWorker() sends it,
+    awaits the ack (1.5s cap), then terminates; main.ts before-quit is now async
+    (preventDefault → shutdownCleanupAsync → app.exit(0)) with a 3s overall race so
+    quit can't hang. shutdownCleanupAsync: capture project path → controller.cleanup
+    → await shutdownDbWorker → closeDb (checkpoints WAL to 0 bytes) →
+    removeWalSidecars(path). removeWalSidecars is GUARDED: never deletes a -wal with
+    size>0 (un-checkpointed data / crash recovery), and any unlink failure is benign
+    (left as today). Signals/crashes use the old sync shutdownCleanup (best-effort).
+    Only cleans the currently-open project at quit; old leftover sidecars get
+    cleaned when those projects are next opened+quit. Verified lint/tsc(127)/jest
+    31/31 + main & DbWorker bundles rebuilt — but the actual "quit → folder shows one
+    file" behavior needs eyeballing in a running build (esp. Windows).
+- human: New-user onboarding — Start screen + Welcome / getting-started
+  done: true
+  ai: |
+    Shipped a conventional first-run experience (VS Code / JetBrains style) so
+    Slippi users new to Lunar Clipper feel oriented. Three states: (1) returning
+    users still auto-reopen their last project (unchanged); (2) no project open =>
+    enriched "Start screen" — the EmptyState in src/renderer/components/Main.tsx,
+    now two columns: left Start (New/Open) + Recent, right a "Getting started"
+    panel; (3) project open but zero replays => an Import dropzone in the Tray's
+    game-filter empty state (src/renderer/components/Tray/Tray.tsx) with an
+    [Import replays] button (ipcBridge.importSlpFiles) — live drag-drop already
+    works app-wide via Main's handleDrop. New reusable component
+    src/renderer/components/GettingStarted.tsx exports GettingStarted (the 1-2-3
+    flow + Playback/ISO setup status rows that launch the existing SetupWizard via
+    triggerSetupWizard('record') + "Browse Lunar Database" link) and WelcomeModal
+    (Help → Welcome overlay, sends/receives the 'showWelcome' channel from
+    menu.ts → App.tsx; receive channels need no preload allowlist). Config flag
+    showGettingStarted (default-on, treated true when undefined) in defaults.ts +
+    types.ts toggles the right column; styles in GettingStarted.css + Main.css
+    (.empty-state-col*) + Tray.css (.tray-dropzone*). Also bumped
+    VideoManager.detectDolphinPath to probe "Slippi Launcher Beta" and
+    %LOCALAPPDATA% in addition to the standard playback path. Deliberately NO
+    download/ISO hand-holding (users already have Slippi). Verified: lint clean,
+    tsc unchanged at 127, jest 31/31, main bundle rebuilt — but the actual
+    rendered UI/spacing still needs eyeballing in a running build.
 - human: Surface edgeguard metrics on the Tray clip cards
   done: false
-  ai: >
-    Every edgeguard clip carries a full `edgeguardMetrics` object (hits,
-    offstageFrames, recoveryFrame, minLedgeDist, blockedByHit, ledgeSteal,
-    edgeguarderOffstage, maxDepthX, minY, score) — see the EdgeguardMetrics type in
-    src/models/methods/edgeguard2.ts — but only `edgeguardScore` is used anywhere
-    (it feeds Sort). The clip cards show none of it. Task: render a compact metrics
-    line on edgeguard clip cards in the Tray (src/renderer/components/Tray/), e.g.
-    "3 hits · 142f offstage · ledge-steal · score 18", gated on the clip having
-    `edgeguardMetrics` so normal clips are unaffected. Purpose: let the user eyeball
-    what a score of 15 vs 30 actually looks like. Not started.
-
+  ai: |
+    Every edgeguard clip carries a full `edgeguardMetrics` object (hits, offstageFrames, recoveryFrame, minLedgeDist, blockedByHit, ledgeSteal, edgeguarderOffstage, maxDepthX, minY, score) — see the EdgeguardMetrics type in src/models/methods/edgeguard2.ts — but only `edgeguardScore` is used anywhere (it feeds Sort). The clip cards show none of it. Task: render a compact metrics line on edgeguard clip cards in the Tray (src/renderer/components/Tray/), e.g. "3 hits · 142f offstage · ledge-steal · score 18", gated on the clip having `edgeguardMetrics` so normal clips are unaffected. Purpose: let the user eyeball what a score of 15 vs 30 actually looks like. Not started.
 - human: Generate the 650 character-matchup edgeguard filter configs
   done: false
-  ai: >
-    Goal: a clip set of every character edgeguarding every other character. Melee
-    has 26 characters (Slippi IDs 0-25, Zelda/Sheik counted separately), so 26x25 =
-    650 ordered (edgeguarder, edgeguardee) pairs — 676 if you include mirrors.
-    Edgeguarding is directional so the pairs are ordered. Plan: one Edgeguards
-    Parser run, then 650 Edgeguards Filter configs each pinned to a
-    (comboerChar, comboeeChar) pair. Don't hand-click 650 of them — generate the
-    filter param objects programmatically. Filter type id is 'edgeguardFilter'
-    (src/models/methods/edgeguardFilter.ts); relevant params are comboerChar /
-    comboeeChar (arrays of Slippi char ids). Char ids are in
-    src/constants/recoveryData.ts and characters. Not started — was offered, user
-    hasn't decided on the generation approach yet.
-
+  ai: |
+    Goal: a clip set of every character edgeguarding every other character. Melee has 26 characters (Slippi IDs 0-25, Zelda/Sheik counted separately), so 26x25 = 650 ordered (edgeguarder, edgeguardee) pairs — 676 if you include mirrors. Edgeguarding is directional so the pairs are ordered. Plan: one Edgeguards Parser run, then 650 Edgeguards Filter configs each pinned to a (comboerChar, comboeeChar) pair. Don't hand-click 650 of them — generate the filter param objects programmatically. Filter type id is 'edgeguardFilter' (src/models/methods/edgeguardFilter.ts); relevant params are comboerChar / comboeeChar (arrays of Slippi char ids). Char ids are in src/constants/recoveryData.ts and characters. Not started — was offered, user hasn't decided on the generation approach yet.
 - human: Tune edgeguard2 detection and scoring
   done: false
-  ai: >
-    src/models/methods/edgeguard2.ts has known, deliberately-deferred soft spots:
-    (1) `isRecoveryMove` treats any actionStateId >= 341 as a recovery move, which
-    catches ALL character-specific states, not just up-B/side-B — main false-
-    positive risk; a per-character up-B/side-B whitelist would be precise but
-    high-maintenance. (2) The KO gate rejects `death.y >= rects.bz.yMax` as "off the
-    top", which wrongly rejects side-kills near the top corner — could tighten to
-    `death.y >= bz.yMax && Math.abs(death.x) < edge.xMax`. (3) Per-character
-    `recoveryRange` values in src/constants/recoveryData.ts are rough estimates
-    meant to be tuned. (4) Score weights (hits*3 + offstageFrames/30 +
-    edgeguarderOffstage 4 + ledgeSteal 2 + maxDepthX/50 + depthFactor 0-2) are
-    heuristic; effective range ~3-40, 5-15 typical, 20+ = long/deep/multi-hit.
-    All left as-is pending review against real results.
-
+  ai: |
+    src/models/methods/edgeguard2.ts has known, deliberately-deferred soft spots: (1) `isRecoveryMove` treats any actionStateId >= 341 as a recovery move, which catches ALL character-specific states, not just up-B/side-B — main false- positive risk; a per-character up-B/side-B whitelist would be precise but high-maintenance. (2) The KO gate rejects `death.y >= rects.bz.yMax` as "off the top", which wrongly rejects side-kills near the top corner — could tighten to `death.y >= bz.yMax && Math.abs(death.x) < edge.xMax`. (3) Per-character `recoveryRange` values in src/constants/recoveryData.ts are rough estimates meant to be tuned. (4) Score weights (hits*3 + offstageFrames/30 + edgeguarderOffstage 4 + ledgeSteal 2 + maxDepthX/50 + depthFactor 0-2) are heuristic; effective range ~3-40, 5-15 typical, 20+ = long/deep/multi-hit. All left as-is pending review against real results.
 - human: Apply stocks-only computeStocks() to edgeguard.ts too
   done: false
-  ai: >
-    edgeguard2.ts now computes stocks via computeStocks() (src/lib/slippiStocks.ts)
-    — runs only slippi-js StockComputer instead of the full SlippiGame.getStats()
-    (which also runs combos/conversions/actions/inputs/targets + overall). ~1/3 less
-    post-parse CPU per file, verified byte-identical stocks. The older edgeguard.ts
-    still calls `game.getStats()` then reads `stats.stocks` with the same one-line
-    pattern and would benefit identically. Minor: swap for `computeStocks(game)`.
-
-- human: Filter branching — per-filter input, tree view, on/off toggle
-  done: true
-  ai: >
-    Done (commit cb6dce6). The filter chain is now a tree: each filter has an
-    optional `inputId` (resolved via src/lib/filterGraph.ts —
-    resolveInputId/getDescendantIds/validInputsFor) so it can read from raw Files or
-    any earlier filter instead of only the one directly above it. Gated by a
-    Settings toggle "Enable Filter Branching" (config flag `branchingEnabled`,
-    default false; the user's own config was set to true). When off, saved inputIds
-    are preserved but ignored and the chain runs linearly; disabling while branches
-    exist shows a preserve-and-restore confirm (SettingsModal reads the archive via
-    ArchiveContext). UI: FilterCard has an Input dropdown and nests cards by tree
-    depth (indentLevel computed in Filters.tsx renderFilters; linear continuations
-    inherit their source's depth). Resets are descendant-aware so re-running one
-    branch never invalidates an unrelated branch.
-
-- human: Edgeguards Parser + Edgeguards Filter (metrics-based)
-  done: true
-  ai: >
-    Done (commit cb6dce6). Split the edgeguard workflow into a parser + filter pair
-    mirroring combo parser/filter. "Edgeguards Parser" = the edgeguard2 method
-    (relabeled; internal type id stays 'edgeguard2'), which tags each clip with
-    edgeguardMetrics. New "Edgeguards Filter" = the edgeguardFilter method
-    (src/models/methods/edgeguardFilter.ts) refines parser output by those metrics
-    (int ranges, tri-state dropdowns, player char/tag/CC) with NO .slp re-parse.
-    Parser->filter dependency is a generalized REQUIRED_PRODUCER map in
-    src/constants/config.ts (+ PRODUCER_LABEL) driving add-menu greying, reorder
-    canDropAt, and the delete-block (ParserWarningModal) for both combo and
-    edgeguard chains. GOTCHA: a filter method that calls its eventEmitter MUST be in
-    METHODS_WITH_EMITTER in src/models/Worker.ts (5th registration spot) or it
-    throws "eventEmitter is not a function".
-
-- human: Tiered long-run reset warnings
-  done: true
-  ai: >
-    Done (commit cb6dce6). Re-running a processed filter whose last run took more
-    than 60s / 10m / 1h pops a ConfirmResetModal (src/renderer/components/
-    FilterModals.tsx). Three independent severity tiers (config flags
-    warnOnReset60s / warnOnReset10m / warnOnReset1h). Only the LOWEST un-silenced
-    tier the run's duration qualifies for is shown, one at a time — so a first-ever
-    re-run of a 1h filter shows only the 60s warning; silence it and the next
-    qualifying run shows the 10m one, then the 1h one. Each tier's "don't warn
-    again" checkbox silences only that tier. Run duration is tracked as
-    Filter.lastRunMs (src/models/Filter.ts) and persisted via Archive. Gate logic is
-    in Filters.tsx runFilter.
+  ai: |
+    edgeguard2.ts now computes stocks via computeStocks() (src/lib/slippiStocks.ts) — runs only slippi-js StockComputer instead of the full SlippiGame.getStats() (which also runs combos/conversions/actions/inputs/targets + overall). ~1/3 less post-parse CPU per file, verified byte-identical stocks. The older edgeguard.ts still calls `game.getStats()` then reads `stats.stocks` with the same one-line pattern and would benefit identically. Minor: swap for `computeStocks(game)`.

@@ -271,6 +271,15 @@ export interface ConfigInterface {
   recentProjects: RecentProject[]
   outputPath: string
   lastArchivePath: string | null
+  // Show the "Getting started" column on the Start screen (and lets the
+  // Help → Welcome content be dismissed). Default-on (treated as true when
+  // undefined); toggled off via the Start screen's checkbox.
+  showGettingStarted?: boolean
+  // "Don't show again" for the long-parser reassurance note.
+  hideParserNote?: boolean
+  // Once true, the one-time "click Run to find your combos" first-run nudge is
+  // never shown again (flipped the first time the user runs or dismisses it).
+  hideRunHint?: boolean
   hideHud: boolean
   gameMusic: boolean
   enableChants: boolean
@@ -285,7 +294,6 @@ export interface ConfigInterface {
   noElectricSFX: boolean
   noCrowdNoise: boolean
   disableMagnifyingGlass: boolean
-  shuffle: boolean
   resolution: number
   playbackResolution: number
   bitrateKbps: number

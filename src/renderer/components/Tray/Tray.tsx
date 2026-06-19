@@ -45,6 +45,9 @@ type TrayProps = {
     lastFrame?: number
   }) => void
   onClipRecord?: (_clipId: string) => void
+  onImport?: () => void
+  onImportFolder?: (_dir: string) => void
+  onOpenFolder?: (_dir: string) => void
 }
 
 // Zoom nudge step - increases at larger sizes
@@ -71,7 +74,17 @@ export function Tray({
   addEndFrames,
   onClipPlay,
   onClipRecord,
+  onImport,
+  onImportFolder,
+  onOpenFolder,
 }: TrayProps) {
+  // If the user has a Slippi replay folder, offer to import it straight from
+  // the empty import zone. Detected once, lazily, when that zone is relevant.
+  const [slippiReplays, setSlippiReplays] = useState<{
+    dir: string
+    count: number
+  } | null>(null)
+  const slippiFetchedRef = useRef(false)
   const containerRef = useRef<HTMLDivElement>(null)
   const contentRef = useRef<HTMLDivElement>(null)
 
@@ -908,6 +921,20 @@ export function Tray({
   const countPending = !totalKnown && !isLiveUpdating
   const hasContent = displayTotal > 0 || loadedCount > 0
 
+  // Lazily detect the user's Slippi replay folder the first time the empty
+  // import zone is actually shown.
+  useEffect(() => {
+    if (
+      isGameFilter &&
+      !hasContent &&
+      !isLoading &&
+      !slippiFetchedRef.current
+    ) {
+      slippiFetchedRef.current = true
+      ipcBridge.detectSlippiReplays((res) => setSlippiReplays(res ?? null))
+    }
+  }, [isGameFilter, hasContent, isLoading])
+
   return (
     <div className="tray" ref={containerRef}>
       {/* Controls - always responsive */}
@@ -1078,12 +1105,78 @@ export function Tray({
         {/* Empty state */}
         {!hasContent && !isLoading && (
           <div className="tray-empty">
-            <div className="tray-empty-title">No clips to display</div>
-            <div className="tray-empty-subtitle">
-              {isGameFilter
-                ? 'Drop .slp files here or use File > Import to get started'
-                : 'Run this filter to see results'}
-            </div>
+            {isGameFilter ? (
+              <div className="tray-import">
+                {slippiReplays ? (
+                  <>
+                    <div className="tray-import-title">
+                      {slippiReplays.count.toLocaleString()}
+                      {slippiReplays.count >= 50000 ? '+' : ''} replays found in
+                      your Slippi folder
+                    </div>
+                    <div className="tray-import-path">{slippiReplays.dir}</div>
+                    {onImportFolder && (
+                      <button
+                        type="button"
+                        className="tray-import-primary"
+                        onClick={() => onImportFolder(slippiReplays.dir)}
+                      >
+                        Import all
+                      </button>
+                    )}
+                    <div className="tray-import-actions">
+                      {onOpenFolder && (
+                        <button
+                          type="button"
+                          className="tray-import-link"
+                          onClick={() => onOpenFolder(slippiReplays.dir)}
+                        >
+                          Open folder
+                        </button>
+                      )}
+                      {onOpenFolder && onImport && (
+                        <span className="tray-import-dot">·</span>
+                      )}
+                      {onImport && (
+                        <button
+                          type="button"
+                          className="tray-import-link"
+                          onClick={onImport}
+                        >
+                          Choose other files
+                        </button>
+                      )}
+                    </div>
+                    <div className="tray-import-drag">
+                      or drag .slp files or a folder anywhere onto the window
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="tray-import-title">No replays yet</div>
+                    <div className="tray-import-drag">
+                      Drag .slp / .slpz files or a folder onto the window
+                    </div>
+                    {onImport && (
+                      <button
+                        type="button"
+                        className="tray-import-primary"
+                        onClick={onImport}
+                      >
+                        Choose files…
+                      </button>
+                    )}
+                  </>
+                )}
+              </div>
+            ) : (
+              <>
+                <div className="tray-empty-title">No clips to display</div>
+                <div className="tray-empty-subtitle">
+                  Run this filter to see results
+                </div>
+              </>
+            )}
           </div>
         )}
 

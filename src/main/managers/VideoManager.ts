@@ -5,7 +5,6 @@ import crypto from 'crypto'
 import os from 'os'
 import path from 'path'
 import fs, { promises as fsPromises } from 'fs'
-import { shuffleArray } from '../../lib'
 import { characters } from '../../constants/characters'
 import { stages } from '../../constants/stages'
 import {
@@ -17,6 +16,11 @@ import {
 } from '../../constants/types'
 import Archive from '../../models/Archive'
 import slpToVideo, { VideoJobController, writeGeckoCodes } from '../slpToVideo'
+import {
+  detectPlaybackDolphin,
+  detectMeleeIso,
+  detectSlippiReplayDir,
+} from '../slippiDetect'
 import { updateEfbScale, createOutputDirectory, getFFMPEGPath } from '../util'
 import { getMetaData } from '../db'
 import { logMain, getLogPath } from '../logger'
@@ -107,7 +111,6 @@ export default class VideoManager {
       addStartFrames,
       addEndFrames,
       slice,
-      shuffle,
       lastClipOffset,
       dolphinCutoff,
       disableScreenShake,
@@ -173,7 +176,6 @@ export default class VideoManager {
       return reply(event, 'generateVideo', requestId)
     }
 
-    if (shuffle) finalResults = shuffleArray(finalResults)
     if (slice) finalResults = finalResults.slice(0, slice)
 
     const replays: ReplayInterface[] = []
@@ -965,48 +967,22 @@ export default class VideoManager {
 
   async detectDolphinPath(event: IpcMainEvent, data: RequestEnvelope<null>) {
     const { requestId } = unpackRequest<null>(data)
-    const candidates: string[] = []
-    const platform = os.platform()
+    return reply(event, 'detectDolphinPath', requestId, detectPlaybackDolphin())
+  }
 
-    if (platform === 'linux') {
-      candidates.push(
-        path.join(
-          app.getPath('appData'),
-          'Slippi Launcher',
-          'playback',
-          'Slippi_Playback-x86_64.AppImage',
-        ),
-      )
-    } else if (platform === 'win32') {
-      candidates.push(
-        path.join(
-          app.getPath('appData'),
-          'Slippi Launcher',
-          'playback',
-          'Slippi Dolphin.exe',
-        ),
-      )
-    } else if (platform === 'darwin') {
-      candidates.push(
-        path.join(
-          app.getPath('appData'),
-          'Slippi Launcher',
-          'playback',
-          'Slippi Dolphin.app',
-        ),
-      )
-    }
+  async detectIsoPath(event: IpcMainEvent, data: RequestEnvelope<null>) {
+    const { requestId } = unpackRequest<null>(data)
+    return reply(event, 'detectIsoPath', requestId, detectMeleeIso())
+  }
 
-    for (const candidate of candidates) {
-      try {
-        await fsPromises.access(candidate)
-        return reply(event, 'detectDolphinPath', requestId, candidate)
-      } catch {
-        // not found, try next
-      }
-    }
-
-    return reply(event, 'detectDolphinPath', requestId, null)
+  async detectSlippiReplays(event: IpcMainEvent, data: RequestEnvelope<null>) {
+    const { requestId } = unpackRequest<null>(data)
+    return reply(
+      event,
+      'detectSlippiReplays',
+      requestId,
+      detectSlippiReplayDir(),
+    )
   }
 
   async validateDolphinPath(
@@ -1082,7 +1058,7 @@ export default class VideoManager {
         return reply(event, 'validateDolphinPath', requestId, {
           valid: false,
           message:
-            'This appears to be Slippi Dolphin Online/Netplay, not the Playback build. LM Clipper requires the Playback build.',
+            'This appears to be Slippi Dolphin Online/Netplay, not the Playback build. Lunar Clipper requires the Playback build.',
         })
       }
 

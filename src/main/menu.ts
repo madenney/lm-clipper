@@ -1,10 +1,15 @@
 import {
   app,
+  dialog,
   Menu,
   shell,
   BrowserWindow,
   MenuItemConstructorOptions,
 } from 'electron'
+
+const REPO_URL = 'https://github.com/madenney/lm-clipper'
+const ISSUES_URL = 'https://github.com/madenney/lm-clipper/issues'
+const DISCORD_URL = 'https://discord.gg/ThjMCW3F4R'
 
 interface DarwinMenuItemConstructorOptions extends MenuItemConstructorOptions {
   selector?: string
@@ -68,6 +73,53 @@ export default class MenuBuilder {
         this.mainWindow.webContents.send('openRecentFromMenu', p.path)
       },
     }))
+  }
+
+  private showAbout(): void {
+    dialog.showMessageBox(this.mainWindow, {
+      type: 'info',
+      title: 'About Lunar Clipper',
+      message: 'Lunar Clipper',
+      detail: `Version ${app.getVersion()}\nGenerate Melee clips from Slippi replays.\n\n${REPO_URL}`,
+      buttons: ['OK'],
+    })
+  }
+
+  private buildHelpSubmenu(): MenuItemConstructorOptions[] {
+    return [
+      {
+        label: 'Welcome / Getting Started',
+        click: () => {
+          this.mainWindow.webContents.send('showWelcome')
+        },
+      },
+      { type: 'separator' },
+      {
+        label: 'Lunar Clipper on GitHub',
+        click: () => {
+          shell.openExternal(REPO_URL)
+        },
+      },
+      {
+        label: 'Report an Issue',
+        click: () => {
+          shell.openExternal(ISSUES_URL)
+        },
+      },
+      {
+        label: 'Community Discord',
+        click: () => {
+          shell.openExternal(DISCORD_URL)
+        },
+      },
+      { type: 'separator' },
+      {
+        label: 'About Lunar Clipper',
+        click: () => {
+          this.showAbout()
+        },
+      },
+    ]
   }
 
   buildDarwinTemplate(): MenuItemConstructorOptions[] {
@@ -224,34 +276,7 @@ export default class MenuBuilder {
     }
     const subMenuHelp: MenuItemConstructorOptions = {
       label: 'Help',
-      submenu: [
-        {
-          label: 'Learn More',
-          click() {
-            shell.openExternal('https://electronjs.org')
-          },
-        },
-        {
-          label: 'Documentation',
-          click() {
-            shell.openExternal(
-              'https://github.com/electron/electron/tree/main/docs#readme',
-            )
-          },
-        },
-        {
-          label: 'Community Discussions',
-          click() {
-            shell.openExternal('https://www.electronjs.org/community')
-          },
-        },
-        {
-          label: 'Search Issues',
-          click() {
-            shell.openExternal('https://github.com/electron/electron/issues')
-          },
-        },
-      ],
+      submenu: this.buildHelpSubmenu(),
     }
 
     const subMenuView =
@@ -378,34 +403,7 @@ export default class MenuBuilder {
       },
       {
         label: 'Help',
-        submenu: [
-          {
-            label: 'Learn More',
-            click() {
-              shell.openExternal('https://electronjs.org')
-            },
-          },
-          {
-            label: 'Documentation',
-            click() {
-              shell.openExternal(
-                'https://github.com/electron/electron/tree/main/docs#readme',
-              )
-            },
-          },
-          {
-            label: 'Community Discussions',
-            click() {
-              shell.openExternal('https://www.electronjs.org/community')
-            },
-          },
-          {
-            label: 'Search Issues',
-            click() {
-              shell.openExternal('https://github.com/electron/electron/issues')
-            },
-          },
-        ],
+        submenu: this.buildHelpSubmenu(),
       },
     ]
 

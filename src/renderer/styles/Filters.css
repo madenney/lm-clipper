@@ -91,13 +91,200 @@
 
 .filter:hover {
   border-color: #4d525b;
-  background: linear-gradient(135deg, #20242b 0%, #2a2f38 100%);
 }
 
 .filter-active,
 .filter-active:hover {
   border-color: var(--filter-accent);
   box-shadow: 0 10px 24px -16px rgba(0, 0, 0, 0.65);
+}
+
+/* Run-status tint — a very faint color hint over the base card gradient.
+   gold = needs run (never run, or edited since), green = done (results valid),
+   cyan = running, pale yellow-green = partial. High luminance + low alpha so it
+   reads as a clean hint, not a muddy stain. Active state adds a border, not a
+   background, so the two never fight. */
+.filter-status-needsrun {
+  background:
+    linear-gradient(rgba(240, 206, 130, 0.05), rgba(240, 206, 130, 0.05)),
+    linear-gradient(135deg, var(--filter-card) 0%, var(--filter-card-strong) 100%);
+}
+
+.filter-status-done {
+  background:
+    linear-gradient(rgba(118, 210, 158, 0.04), rgba(118, 210, 158, 0.04)),
+    linear-gradient(135deg, var(--filter-card) 0%, var(--filter-card-strong) 100%);
+}
+
+.filter-status-running {
+  background:
+    linear-gradient(rgba(120, 206, 226, 0.09), rgba(120, 206, 226, 0.09)),
+    linear-gradient(135deg, var(--filter-card) 0%, var(--filter-card-strong) 100%);
+}
+
+/* First-run nudge: a gentle breathing glow on the Run button + a floating chip
+   above it that points down at the button. Both vanish once anything has run. */
+.filter-run-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.filter-button-hint {
+  border-color: #6fd3e0 !important;
+  animation: filterRunPulse 1.6s ease-in-out infinite;
+}
+
+/* Fade the glow out on click instead of cutting it abruptly. */
+.filter-button-hint-leaving {
+  border-color: #3a3f47;
+  animation: filterRunPulseOut 320ms ease forwards;
+  transition: border-color 320ms ease;
+}
+
+@keyframes filterRunPulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(111, 211, 224, 0);
+  }
+  50% {
+    box-shadow: 0 0 0 4px rgba(111, 211, 224, 0.4);
+  }
+}
+
+@keyframes filterRunPulseOut {
+  from {
+    box-shadow: 0 0 0 4px rgba(111, 211, 224, 0.4);
+  }
+  to {
+    box-shadow: 0 0 0 0 rgba(111, 211, 224, 0);
+  }
+}
+
+.filter-run-hint {
+  position: absolute;
+  bottom: calc(100% + 9px);
+  left: 50%;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+  background: #1f6b78;
+  color: #eafcff;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 6px 5px 11px;
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+  z-index: 5;
+  animation: filterRunHintFloat 1.6s ease-in-out infinite;
+}
+
+.filter-run-hint-close {
+  pointer-events: auto;
+  background: none;
+  border: none;
+  color: rgba(234, 252, 255, 0.65);
+  font-size: 15px;
+  line-height: 1;
+  margin-left: 8px;
+  padding: 0 2px;
+  cursor: pointer;
+}
+
+.filter-run-hint-close:hover {
+  color: #fff;
+}
+
+.filter-run-hint::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 5px solid transparent;
+  border-top-color: #1f6b78;
+}
+
+/* Fade + drift the chip out on click. */
+.filter-run-hint--leaving {
+  opacity: 0;
+  animation: none;
+  transition:
+    opacity 300ms ease,
+    transform 300ms ease;
+  transform: translateX(-50%) translateY(-6px);
+}
+
+/* Reassurance note while an expensive parser runs over a big set. Eases open
+   slowly (after a delay handled in JS) so it lands gently, not abruptly. */
+.filter-parser-note {
+  margin: 10px 4px 2px;
+  padding: 11px 14px;
+  border: 1px solid #2a8b9a;
+  background: rgba(31, 107, 120, 0.12);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow: hidden;
+  animation: filterParserNoteIn 620ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+.filter-parser-note-main {
+  font-size: 13px;
+  color: #cfeef3;
+  line-height: 1.5;
+}
+
+.filter-parser-note-dismiss {
+  align-self: flex-start;
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 12px;
+  color: #8fbcc3;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.filter-parser-note-dismiss:hover {
+  color: #cfeef3;
+}
+
+@keyframes filterParserNoteIn {
+  from {
+    opacity: 0;
+    max-height: 0;
+    margin-top: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+  }
+  to {
+    opacity: 1;
+    max-height: 120px;
+    margin-top: 10px;
+    padding-top: 11px;
+    padding-bottom: 11px;
+  }
+}
+
+@keyframes filterRunHintFloat {
+  0%,
+  100% {
+    transform: translateX(-50%) translateY(0);
+  }
+  50% {
+    transform: translateX(-50%) translateY(-3px);
+  }
+}
+
+/* Partial results (stopped mid-run, still usable) — pale yellow-green, between
+   gold and green. */
+.filter-status-partial {
+  background:
+    linear-gradient(rgba(206, 212, 132, 0.05), rgba(206, 212, 132, 0.05)),
+    linear-gradient(135deg, var(--filter-card) 0%, var(--filter-card-strong) 100%);
 }
 
 

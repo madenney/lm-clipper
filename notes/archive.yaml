@@ -1,0 +1,18 @@
+# Shelf archive — todos filed out of notes.yaml, newest at the bottom.
+#   each entry keeps human / ai / done plus archived_at (ISO timestamp).
+# Standard: <shelf>/docs/notes-convention.md
+- human: Filter branching — per-filter input, tree view, on/off toggle
+  done: true
+  ai: |
+    Done (commit cb6dce6). The filter chain is now a tree: each filter has an optional `inputId` (resolved via src/lib/filterGraph.ts — resolveInputId/getDescendantIds/validInputsFor) so it can read from raw Files or any earlier filter instead of only the one directly above it. Gated by a Settings toggle "Enable Filter Branching" (config flag `branchingEnabled`, default false; the user's own config was set to true). When off, saved inputIds are preserved but ignored and the chain runs linearly; disabling while branches exist shows a preserve-and-restore confirm (SettingsModal reads the archive via ArchiveContext). UI: FilterCard has an Input dropdown and nests cards by tree depth (indentLevel computed in Filters.tsx renderFilters; linear continuations inherit their source's depth). Resets are descendant-aware so re-running one branch never invalidates an unrelated branch.
+  archived_at: '2026-06-14T23:27:07'
+- human: Edgeguards Parser + Edgeguards Filter (metrics-based)
+  done: true
+  ai: |
+    Done (commit cb6dce6). Split the edgeguard workflow into a parser + filter pair mirroring combo parser/filter. "Edgeguards Parser" = the edgeguard2 method (relabeled; internal type id stays 'edgeguard2'), which tags each clip with edgeguardMetrics. New "Edgeguards Filter" = the edgeguardFilter method (src/models/methods/edgeguardFilter.ts) refines parser output by those metrics (int ranges, tri-state dropdowns, player char/tag/CC) with NO .slp re-parse. Parser->filter dependency is a generalized REQUIRED_PRODUCER map in src/constants/config.ts (+ PRODUCER_LABEL) driving add-menu greying, reorder canDropAt, and the delete-block (ParserWarningModal) for both combo and edgeguard chains. GOTCHA: a filter method that calls its eventEmitter MUST be in METHODS_WITH_EMITTER in src/models/Worker.ts (5th registration spot) or it throws "eventEmitter is not a function".
+  archived_at: '2026-06-14T23:27:07'
+- human: Tiered long-run reset warnings
+  done: true
+  ai: |
+    Done (commit cb6dce6). Re-running a processed filter whose last run took more than 60s / 10m / 1h pops a ConfirmResetModal (src/renderer/components/ FilterModals.tsx). Three independent severity tiers (config flags warnOnReset60s / warnOnReset10m / warnOnReset1h). Only the LOWEST un-silenced tier the run's duration qualifies for is shown, one at a time — so a first-ever re-run of a 1h filter shows only the 60s warning; silence it and the next qualifying run shows the 10m one, then the 1h one. Each tier's "don't warn again" checkbox silences only that tier. Run duration is tracked as Filter.lastRunMs (src/models/Filter.ts) and persisted via Archive. Gate logic is in Filters.tsx runFilter.
+  archived_at: '2026-06-14T23:27:07'

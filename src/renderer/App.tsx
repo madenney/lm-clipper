@@ -13,6 +13,7 @@ import Main from './components/Main'
 import LoadingScreen from './components/LoadingScreen'
 import UpdateBanner from './components/UpdateBanner'
 import SetupWizard from './components/SetupWizard'
+import { WelcomeModal } from './components/GettingStarted'
 import SlpzWizard from './components/SlpzWizard'
 import ZipWizard from './components/ZipWizard'
 import {
@@ -227,6 +228,11 @@ export default function App() {
       },
     )
 
+    const removeShowWelcomeListener = window.electron.ipcRenderer.on(
+      'showWelcome',
+      () => setWelcomeOpen(true),
+    )
+
     return () => {
       removeCloseListener()
       removeOpenListener()
@@ -241,6 +247,7 @@ export default function App() {
       removeUpdateDownloaded()
       removeUpdateError()
       removeTemplatesUpdated()
+      removeShowWelcomeListener()
     }
   }, [])
 
@@ -288,31 +295,44 @@ export default function App() {
   const countHydrationRef = useRef<{
     path: string | null
     requested: Set<string>
-  }>({ path: null, requested: new Set() })
+    recounted: Set<string>
+  }>({ path: null, requested: new Set(), recounted: new Set() })
   useEffect(() => {
     if (!archive?.path || !Array.isArray(archive.filters)) return
     const state = countHydrationRef.current
     if (state.path !== archive.path) {
       state.path = archive.path
       state.requested = new Set()
+      state.recounted = new Set()
     }
     const archivePath = archive.path
-    const requestCount = (id: string) => {
+    // `force` lets us overwrite an existing (possibly stale) count, not just
+    // fill a null one — used for the processed-but-zero recheck below.
+    const requestCount = (id: string, force = false) => {
       if (state.requested.has(id)) return
       state.requested.add(id)
       ipcBridge.getFilterCount(id, (res) => {
         if (!res || res.filterId == null) return
+        // Treat `requested` as in-flight only: clear it once the response lands
+        // so the count can be re-fetched when the data changes later (e.g. an
+        // import adds files after an empty auto-created project was hydrated).
+        state.requested.delete(id)
         setArchive((prev) => {
           if (!prev || prev.path !== archivePath) return prev
           if (id === 'files') {
             return prev.files == null ? { ...prev, files: res.count } : prev
           }
+          const target = prev.filters.find((f) => f.id === id)
+          if (!target) return prev
+          // Only patch when it actually changes value — returning `prev`
+          // unchanged otherwise avoids a re-render → re-request loop.
+          const shouldPatch =
+            (target.results == null || force) && target.results !== res.count
+          if (!shouldPatch) return prev
           return {
             ...prev,
             filters: prev.filters.map((f) =>
-              f.id === id && f.results == null
-                ? { ...f, results: res.count }
-                : f,
+              f.id === id ? { ...f, results: res.count } : f,
             ),
           }
         })
@@ -323,7 +343,20 @@ export default function App() {
     // the (often huge) files table, and the single DB worker processes these
     // serially, so doing it last keeps the cheap counts from waiting behind it.
     for (const f of archive.filters) {
-      if (f.results == null) requestCount(f.id)
+      if (f.results == null) {
+        requestCount(f.id)
+      } else if (
+        f.isProcessed &&
+        f.results === 0 &&
+        !state.recounted.has(f.id)
+      ) {
+        // A processed filter showing 0 may be a stale cached count: a run's
+        // final COUNT occasionally lands before the worker's last commit is
+        // visible, persisting 0 over real rows. Re-verify once per open — a
+        // genuine empty result just re-counts an empty table instantly.
+        state.recounted.add(f.id)
+        requestCount(f.id, true)
+      }
     }
     if (archive.files == null) requestCount('files')
   }, [archive, setArchive])
@@ -347,6 +380,7 @@ export default function App() {
   const [pendingAction, setPendingAction] = useState<'play' | 'record' | null>(
     null,
   )
+  const [welcomeOpen, setWelcomeOpen] = useState(false)
 
   const triggerSetupWizard = (mode: 'play' | 'record') => setWizardMode(mode)
 
@@ -440,6 +474,14 @@ export default function App() {
             if (completed) setPendingAction(wizardMode)
             setWizardMode(null)
           }}
+        />
+      )}
+      {welcomeOpen && (
+        <WelcomeModal
+          config={config}
+          setConfig={setConfig}
+          triggerSetupWizard={triggerSetupWizard}
+          onClose={() => setWelcomeOpen(false)}
         />
       )}
       <ArchiveContext.Provider value={archiveCtx}>

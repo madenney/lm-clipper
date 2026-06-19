@@ -1,0 +1,247 @@
+/* Getting-started panel — used in the Start screen and the Welcome modal */
+.gs {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  text-align: left;
+  color: #cfcfcf;
+  max-width: 420px;
+}
+
+.gs-heading {
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #6fd3e0;
+}
+
+.gs-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.gs-step {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.gs-num {
+  flex: 0 0 24px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: linear-gradient(180deg, #1f6b78 0%, #15505a 100%);
+  border: 1px solid #2a8b9a;
+  color: #d8f6fb;
+  font-size: 13px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.gs-step-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #f0f0f0;
+  margin-bottom: 2px;
+}
+
+.gs-step-desc {
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: #9a9a9a;
+}
+
+.gs-step-desc code {
+  background: #1c1c1c;
+  border: 1px solid #2d2d2d;
+  border-radius: 3px;
+  padding: 0 4px;
+  font-size: 11.5px;
+  color: #c9c9c9;
+}
+
+.gs-step-desc strong {
+  color: #cfcfcf;
+}
+
+/* Setup status block */
+.gs-setup {
+  background: #161616;
+  border: 1px solid #2a2a2a;
+  border-radius: 8px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.gs-setup-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.gs-status-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.gs-status-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex: 0 0 9px;
+}
+
+.gs-status-dot--ok {
+  background: #3fae5e;
+  box-shadow: 0 0 6px rgba(63, 174, 94, 0.6);
+}
+
+.gs-status-dot--missing {
+  background: #555;
+  border: 1px solid #6a6a6a;
+}
+
+.gs-status-label {
+  flex: 1;
+  color: #cfcfcf;
+}
+
+.gs-status-ready {
+  font-size: 12px;
+  color: #3fae5e;
+  font-weight: 600;
+}
+
+.gs-status-setup {
+  background: none;
+  border: none;
+  color: #6fd3e0;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+}
+
+.gs-status-setup:hover {
+  text-decoration: underline;
+}
+
+.gs-setup-btn {
+  margin-top: 4px;
+  background: linear-gradient(180deg, #1f6b78 0%, #15505a 100%);
+  border: 1px solid #2a8b9a;
+  border-radius: 6px;
+  color: #eafcff;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 14px;
+  cursor: pointer;
+  transition: filter 120ms ease;
+}
+
+.gs-setup-btn:hover {
+  filter: brightness(1.12);
+}
+
+.gs-lunar-btn {
+  align-self: flex-start;
+  background: linear-gradient(180deg, #2a2a2a 0%, #1f1f1f 100%);
+  border: 1px solid #3a3a3a;
+  border-radius: 6px;
+  color: #d4d4d4;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 16px;
+  cursor: pointer;
+  transition: filter 120ms ease;
+}
+
+.gs-lunar-btn:hover {
+  filter: brightness(1.18);
+}
+
+.gs-lunar-arrow {
+  color: #6fd3e0;
+}
+
+/* Welcome modal (Help → Welcome) */
+.gs-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.gs-modal {
+  background: #131313;
+  border: 1px solid #2d2d2d;
+  border-radius: 12px;
+  padding: 22px 24px;
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.6);
+  max-width: 480px;
+  width: calc(100% - 80px);
+  max-height: calc(100% - 80px);
+  overflow-y: auto;
+}
+
+.gs-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.gs-modal-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: #f2f2f2;
+}
+
+.gs-modal-logo {
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
+  vertical-align: middle;
+  margin-right: 6px;
+}
+
+.gs-modal-close {
+  background: none;
+  border: none;
+  color: #888;
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+.gs-modal-close:hover {
+  color: #ddd;
+}
+
+.gs-modal-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 18px;
+  font-size: 12.5px;
+  color: #9a9a9a;
+  cursor: pointer;
+}

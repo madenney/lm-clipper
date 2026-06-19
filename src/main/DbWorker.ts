@@ -525,188 +525,211 @@ if (!parentPort) {
   throw new Error('DbWorker missing parent port')
 }
 
-parentPort.on('message', (msg: DbRequest) => {
-  const post = (response: DbResponse) => parentPort?.postMessage(response)
+parentPort.on(
+  'message',
+  (msg: DbRequest | { id: number; __control: 'close' }) => {
+    const post = (response: DbResponse | { id: number; type: 'closed' }) =>
+      parentPort?.postMessage(response)
 
-  const __t0 = Date.now()
-  try {
-    const db = getDb(msg.dbPath)
-    let data: any
-
-    switch (msg.method) {
-      case 'getTableCount':
-        data = handleGetTableCount(db, msg.tableId)
-        break
-      case 'getFilterCount':
-        data = handleGetFilterCount(db, msg.tableId)
-        break
-      case 'getTableDuration':
-        data = handleGetTableDuration(db, msg.tableId)
-        break
-      case 'getAllIds':
-        data = handleGetAllIds(db, msg.tableId)
-        break
-      case 'getProcessedSourceIds':
-        data = handleGetProcessedSourceIds(db, msg.tableId)
-        break
-      case 'deleteRowsBySourceId':
-        data = handleDeleteRowsBySourceId(db, msg.tableId, msg.sourceIds)
-        break
-      case 'deleteRowsByFilePaths':
-        data = handleDeleteRowsByFilePaths(db, msg.tableId, msg.filePaths)
-        break
-      case 'getMetadata':
-        data = handleGetMetadata(db)
-        break
-      case 'getItems':
-        data = handleGetItems(db, msg.tableId, msg.limit, msg.offset)
-        break
-      case 'getItemsLite':
-        data = handleGetItemsLite(db, msg.limit, msg.offset)
-        break
-      case 'deleteFilterRun': {
-        const beforeCount = (
-          db
-            .prepare(
-              'SELECT COUNT(*) AS cnt FROM filter_runs WHERE filter_id = ?',
-            )
-            .get(msg.filterId) as any
-        )?.cnt
-        const result = db
-          .prepare('DELETE FROM filter_runs WHERE filter_id = ?')
-          .run(msg.filterId)
-        const afterCount = (
-          db
-            .prepare(
-              'SELECT COUNT(*) AS cnt FROM filter_runs WHERE filter_id = ?',
-            )
-            .get(msg.filterId) as any
-        )?.cnt
-        console.log(
-          `[DbWorker deleteFilterRun] filterId=${msg.filterId} before=${beforeCount} deleted=${result.changes} after=${afterCount}`,
-        )
-        data = null
-        break
-      }
-      case 'updateFilterRunProgress':
-        // Add processed column if it doesn't exist (migration)
-        try {
-          db.exec(
-            'ALTER TABLE filter_runs ADD COLUMN processed INTEGER DEFAULT 0',
-          )
-        } catch (_) {
-          // column already exists
+    // Graceful shutdown: cleanly close our cached connection (checkpoints the WAL
+    // and releases the file handle) so the main process can delete the orphaned
+    // -wal/-shm sidecars at quit. Replies 'closed' so the caller can stop waiting.
+    if ('__control' in msg) {
+      try {
+        if (cachedDb) {
+          cachedDb.close()
+          cachedDb = null
+          cachedDbPath = null
         }
-        db.prepare(
-          'UPDATE filter_runs SET processed = ? WHERE filter_id = ?',
-        ).run(msg.processed, msg.filterId)
-        data = null
-        break
-      case 'deleteFiles': {
-        const placeholders = msg.fileIds.map(() => '?').join(',')
-        db.prepare(`DELETE FROM files WHERE id IN (${placeholders})`).run(
-          ...msg.fileIds,
-        )
-        data = null
-        break
+      } catch (_) {
+        // ignore
       }
-      case 'getFilePathsByIds': {
-        if (!msg.fileIds || msg.fileIds.length === 0) {
-          data = []
-        } else {
+      post({ id: msg.id, type: 'closed' })
+      return
+    }
+
+    const __t0 = Date.now()
+    try {
+      const db = getDb(msg.dbPath)
+      let data: any
+
+      switch (msg.method) {
+        case 'getTableCount':
+          data = handleGetTableCount(db, msg.tableId)
+          break
+        case 'getFilterCount':
+          data = handleGetFilterCount(db, msg.tableId)
+          break
+        case 'getTableDuration':
+          data = handleGetTableDuration(db, msg.tableId)
+          break
+        case 'getAllIds':
+          data = handleGetAllIds(db, msg.tableId)
+          break
+        case 'getProcessedSourceIds':
+          data = handleGetProcessedSourceIds(db, msg.tableId)
+          break
+        case 'deleteRowsBySourceId':
+          data = handleDeleteRowsBySourceId(db, msg.tableId, msg.sourceIds)
+          break
+        case 'deleteRowsByFilePaths':
+          data = handleDeleteRowsByFilePaths(db, msg.tableId, msg.filePaths)
+          break
+        case 'getMetadata':
+          data = handleGetMetadata(db)
+          break
+        case 'getItems':
+          data = handleGetItems(db, msg.tableId, msg.limit, msg.offset)
+          break
+        case 'getItemsLite':
+          data = handleGetItemsLite(db, msg.limit, msg.offset)
+          break
+        case 'deleteFilterRun': {
+          const beforeCount = (
+            db
+              .prepare(
+                'SELECT COUNT(*) AS cnt FROM filter_runs WHERE filter_id = ?',
+              )
+              .get(msg.filterId) as any
+          )?.cnt
+          const result = db
+            .prepare('DELETE FROM filter_runs WHERE filter_id = ?')
+            .run(msg.filterId)
+          const afterCount = (
+            db
+              .prepare(
+                'SELECT COUNT(*) AS cnt FROM filter_runs WHERE filter_id = ?',
+              )
+              .get(msg.filterId) as any
+          )?.cnt
+          console.log(
+            `[DbWorker deleteFilterRun] filterId=${msg.filterId} before=${beforeCount} deleted=${result.changes} after=${afterCount}`,
+          )
+          data = null
+          break
+        }
+        case 'updateFilterRunProgress':
+          // Add processed column if it doesn't exist (migration)
+          try {
+            db.exec(
+              'ALTER TABLE filter_runs ADD COLUMN processed INTEGER DEFAULT 0',
+            )
+          } catch (_) {
+            // column already exists
+          }
+          db.prepare(
+            'UPDATE filter_runs SET processed = ? WHERE filter_id = ?',
+          ).run(msg.processed, msg.filterId)
+          data = null
+          break
+        case 'deleteFiles': {
           const placeholders = msg.fileIds.map(() => '?').join(',')
-          const rows = db
-            .prepare(`SELECT path FROM files WHERE id IN (${placeholders})`)
-            .all(...msg.fileIds) as { path: string }[]
-          data = rows.map((r) => r.path)
+          db.prepare(`DELETE FROM files WHERE id IN (${placeholders})`).run(
+            ...msg.fileIds,
+          )
+          data = null
+          break
         }
-        break
-      }
-      case 'deleteRows': {
-        validateTableId(msg.tableId)
-        const placeholders = msg.rowIds.map(() => '?').join(',')
-        db.prepare(
-          `DELETE FROM "${msg.tableId}" WHERE id IN (${placeholders})`,
-        ).run(...msg.rowIds)
-        data = null
-        break
-      }
-      case 'updateSortOrder': {
-        validateTableId(msg.tableId)
-        // Ensure sort_order column exists
-        const cols = db
-          .pragma(`table_info("${msg.tableId}")`)
-          .map((c: any) => c.name)
-        if (!cols.includes('sort_order')) {
+        case 'getFilePathsByIds': {
+          if (!msg.fileIds || msg.fileIds.length === 0) {
+            data = []
+          } else {
+            const placeholders = msg.fileIds.map(() => '?').join(',')
+            const rows = db
+              .prepare(`SELECT path FROM files WHERE id IN (${placeholders})`)
+              .all(...msg.fileIds) as { path: string }[]
+            data = rows.map((r) => r.path)
+          }
+          break
+        }
+        case 'deleteRows': {
+          validateTableId(msg.tableId)
+          const placeholders = msg.rowIds.map(() => '?').join(',')
+          db.prepare(
+            `DELETE FROM "${msg.tableId}" WHERE id IN (${placeholders})`,
+          ).run(...msg.rowIds)
+          data = null
+          break
+        }
+        case 'updateSortOrder': {
+          validateTableId(msg.tableId)
+          // Ensure sort_order column exists
+          const cols = db
+            .pragma(`table_info("${msg.tableId}")`)
+            .map((c: any) => c.name)
+          if (!cols.includes('sort_order')) {
+            db.exec(
+              `ALTER TABLE "${msg.tableId}" ADD COLUMN sort_order INTEGER DEFAULT NULL`,
+            )
+          }
+          const stmt = db.prepare(
+            `UPDATE "${msg.tableId}" SET sort_order = ? WHERE id = ?`,
+          )
+          const txn = db.transaction(
+            (updates: { id: number; sort_order: number }[]) => {
+              for (const u of updates) {
+                stmt.run(u.sort_order, u.id)
+              }
+            },
+          )
+          txn(msg.updates)
+          // Create an expression index matching the custom-sort ORDER BY so
+          // getItems/getAllIds stay fast, and so itemsOrderBy() can detect (via
+          // this index's existence) that this table is custom-sorted. Dropped
+          // automatically if the filter table is later recreated on a re-run.
           db.exec(
-            `ALTER TABLE "${msg.tableId}" ADD COLUMN sort_order INTEGER DEFAULT NULL`,
+            `CREATE INDEX IF NOT EXISTS "idx_${msg.tableId}_sortorder" ON "${msg.tableId}"(COALESCE(sort_order, id), id)`,
           )
+          data = null
+          break
         }
-        const stmt = db.prepare(
-          `UPDATE "${msg.tableId}" SET sort_order = ? WHERE id = ?`,
-        )
-        const txn = db.transaction(
-          (updates: { id: number; sort_order: number }[]) => {
-            for (const u of updates) {
-              stmt.run(u.sort_order, u.id)
-            }
-          },
-        )
-        txn(msg.updates)
-        // Create an expression index matching the custom-sort ORDER BY so
-        // getItems/getAllIds stay fast, and so itemsOrderBy() can detect (via
-        // this index's existence) that this table is custom-sorted. Dropped
-        // automatically if the filter table is later recreated on a re-run.
-        db.exec(
-          `CREATE INDEX IF NOT EXISTS "idx_${msg.tableId}_sortorder" ON "${msg.tableId}"(COALESCE(sort_order, id), id)`,
-        )
-        data = null
-        break
-      }
-      case 'updateMetadataName': {
-        db.prepare('UPDATE metadata SET name = ?').run(msg.name)
-        data = null
-        break
-      }
-      case 'updateMetadataPathAndName': {
-        db.prepare('UPDATE metadata SET path = ?, name = ?').run(
-          msg.path,
-          msg.name,
-        )
-        data = null
-        break
-      }
-      case 'getGameFilterRowInfo': {
-        validateTableId(msg.tableId)
-        const placeholders = msg.rowIds.map(() => '?').join(',')
-        data = db
-          .prepare(
-            `SELECT CAST(JSON_EXTRACT(JSON, '$.id') AS INTEGER) AS fileId, JSON_EXTRACT(JSON, '$.path') AS filePath FROM "${msg.tableId}" WHERE id IN (${placeholders})`,
+        case 'updateMetadataName': {
+          db.prepare('UPDATE metadata SET name = ?').run(msg.name)
+          data = null
+          break
+        }
+        case 'updateMetadataPathAndName': {
+          db.prepare('UPDATE metadata SET path = ?, name = ?').run(
+            msg.path,
+            msg.name,
           )
-          .all(...msg.rowIds)
-        break
+          data = null
+          break
+        }
+        case 'getGameFilterRowInfo': {
+          validateTableId(msg.tableId)
+          const placeholders = msg.rowIds.map(() => '?').join(',')
+          data = db
+            .prepare(
+              `SELECT CAST(JSON_EXTRACT(JSON, '$.id') AS INTEGER) AS fileId, JSON_EXTRACT(JSON, '$.path') AS filePath FROM "${msg.tableId}" WHERE id IN (${placeholders})`,
+            )
+            .all(...msg.rowIds)
+          break
+        }
+        case 'updateMetadataField': {
+          db.prepare(
+            `UPDATE metadata SET ${msg.field} = ? WHERE rowid = 1`,
+          ).run(msg.value)
+          data = null
+          break
+        }
+        default:
+          throw new Error(`Unknown method: ${(msg as any).method}`)
       }
-      case 'updateMetadataField': {
-        db.prepare(`UPDATE metadata SET ${msg.field} = ? WHERE rowid = 1`).run(
-          msg.value,
-        )
-        data = null
-        break
-      }
-      default:
-        throw new Error(`Unknown method: ${(msg as any).method}`)
-    }
 
-    const __dur = Date.now() - __t0
-    if (__dur > 200) {
+      const __dur = Date.now() - __t0
+      if (__dur > 200) {
+        dbg(
+          `SLOW method=${msg.method} ${(msg as any).tableId || ''} totalMs=${__dur}`,
+        )
+      }
+      post({ id: msg.id, type: 'result', data })
+    } catch (error) {
+      const errorText = error instanceof Error ? error.message : String(error)
       dbg(
-        `SLOW method=${msg.method} ${(msg as any).tableId || ''} totalMs=${__dur}`,
+        `ERROR method=${msg.method} totalMs=${Date.now() - __t0} ${errorText}`,
       )
+      post({ id: msg.id, type: 'error', error: errorText })
     }
-    post({ id: msg.id, type: 'result', data })
-  } catch (error) {
-    const errorText = error instanceof Error ? error.message : String(error)
-    dbg(`ERROR method=${msg.method} totalMs=${Date.now() - __t0} ${errorText}`)
-    post({ id: msg.id, type: 'error', error: errorText })
-  }
-})
+  },
+)

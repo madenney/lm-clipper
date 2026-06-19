@@ -300,6 +300,17 @@ export default {
   detectDolphinPath(handler?: ResponseHandler<string | null>) {
     return request('detectDolphinPath', null, 'detectDolphinPath', handler)
   },
+  detectIsoPath(handler?: ResponseHandler<string | null>) {
+    return request('detectIsoPath', null, 'detectIsoPath', handler)
+  },
+  detectSlippiReplays(
+    handler?: ResponseHandler<{ dir: string; count: number } | null>,
+  ) {
+    return request('detectSlippiReplays', null, 'detectSlippiReplays', handler)
+  },
+  openFolder(folderPath: string) {
+    window.electron.ipcRenderer.sendMessage('openFolder', folderPath)
+  },
   validateDolphinPath(
     dolphinPath: string,
     handler?: ResponseHandler<{ valid: boolean; message: string }>,

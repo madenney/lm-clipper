@@ -12,6 +12,8 @@ import path from 'path'
 import fs, { promises as fsPromises } from 'fs'
 import { getWorkerExecArgv } from '../lib'
 import { getDescendantIds } from '../lib/filterGraph'
+import { ensureProjectExt, projectDisplayName } from './projectFile'
+import { detectPlaybackDolphin, detectMeleeIso } from './slippiDetect'
 import { config as defaultConfig } from '../constants/defaults'
 import { filtersConfig } from '../constants/config'
 import {
@@ -45,12 +47,17 @@ import ClipManager from './managers/ClipManager'
 import CodeEditorManager from './managers/CodeEditorManager'
 
 function getDefaultProjectDir(): string {
-  if (process.platform === 'linux') {
-    const xdgData =
-      process.env.XDG_DATA_HOME || path.resolve(os.homedir(), '.local', 'share')
-    return path.resolve(xdgData, 'lm-clipper')
-  }
-  return path.resolve(app.getPath('documents'), 'LM Clipper')
+  // User-created projects are documents — keep them where users actually browse
+  // (a "Lunar Clipper" folder under Documents), consistently on every platform,
+  // not buried in a hidden config/data dir.
+  return path.resolve(app.getPath('documents'), 'Lunar Clipper')
+}
+
+// Sensible default filter-thread count from the user's CPU: leave ~2 cores for
+// the UI + DB worker, capped to keep per-worker memory in check.
+function autoFilterThreads(): number {
+  const cores = os.cpus().length || 2
+  return Math.min(Math.max(cores - 2, 1), 8)
 }
 
 // Regenerate the source of src/constants/rectangles.ts from edited rectangles.
@@ -102,6 +109,13 @@ export default class Controller {
   nameCountWorker: Worker | null
   private countWorkerExecArgv?: string[]
 
+  // Fired once, the first time the renderer requests the archive (i.e. once it
+  // has mounted and registered its IPC listeners). main.ts uses this to safely
+  // flush an OS-initiated "open this .lunar file" without racing the renderer.
+  onRendererReady: (() => void) | null = null
+
+  private rendererReadyFired = false
+
   // Managers
   consoleManager: ConsoleManager
   importManager: ImportManager
@@ -115,7 +129,8 @@ export default class Controller {
     this.configDir = path.resolve(app.getPath('appData'), 'lm-clipper')
     if (!fs.existsSync(this.configDir)) fs.mkdirSync(this.configDir)
     this.configPath = path.resolve(this.configDir, 'lm-clipper.json')
-    if (!fs.existsSync(this.configPath))
+    const isFirstRun = !fs.existsSync(this.configPath)
+    if (isFirstRun)
       fs.writeFileSync(this.configPath, JSON.stringify(defaultConfig, null, 2))
 
     let loadedConfig: any
@@ -125,6 +140,16 @@ export default class Controller {
       loadedConfig = {}
     }
     this.config = { ...defaultConfig, ...loadedConfig }
+    if (isFirstRun) {
+      // First run: pick a sensible filter-thread count from the user's CPU.
+      // (Video/Dolphin parallelism stays conservative; set separately.)
+      this.config.numFilterThreads = autoFilterThreads()
+      // And auto-detect their existing Slippi setup (Playback Dolphin + the ISO
+      // path they already configured in the Slippi Launcher) so they never have
+      // to set it up — if found, the setup wizard won't even appear.
+      this.config.dolphinPath ||= detectPlaybackDolphin() || ''
+      this.config.ssbmIsoPath ||= detectMeleeIso() || ''
+    }
     // Always merge built-in templates from defaults + keep user templates
     const userTemplates = (this.config.savedCustomFilters || []).filter(
       (t: any) => !t.builtIn,
@@ -248,7 +273,7 @@ export default class Controller {
   private updateWindowTitle() {
     if (this.mainWindow?.isDestroyed?.()) return
     const name = this.archive?.name
-    this.mainWindow.setTitle(name ? `LM Clipper — ${name}` : 'LM Clipper')
+    this.mainWindow.setTitle(name ? `Lunar Clipper — ${name}` : 'Lunar Clipper')
   }
 
   cleanup() {
@@ -298,7 +323,7 @@ export default class Controller {
   private getUntitledName(dir: string): string {
     let name = 'Untitled'
     let counter = 1
-    while (fs.existsSync(path.resolve(dir, name))) {
+    while (fs.existsSync(ensureProjectExt(path.resolve(dir, name)))) {
       counter += 1
       name = `Untitled ${counter}`
     }
@@ -322,14 +347,17 @@ export default class Controller {
   }) {
     this.stopNameCountWorker()
     closeDb()
-    const newArchivePath = path.resolve(
-      payload.location || getDefaultProjectDir(),
-      `${payload.name ? payload.name : 'lm-clipper-default-db'}`,
+    const newArchivePath = ensureProjectExt(
+      path.resolve(
+        payload.location || getDefaultProjectDir(),
+        `${payload.name ? payload.name : 'lm-clipper-default-db'}`,
+      ),
     )
+    const displayName = projectDisplayName(newArchivePath)
 
     await createDB(
       newArchivePath,
-      payload.name || 'lm-clipper-default',
+      displayName,
       this.config.includeDefaultFilters !== false,
     )
     const metadata = await getMetaData(newArchivePath)
@@ -386,7 +414,7 @@ export default class Controller {
     if (!this.config.outputPath) {
       this.config.outputPath = path.join(
         app.getPath('videos') || app.getPath('home'),
-        'LM Clipper',
+        'Lunar Clipper',
       )
       this.saveConfig()
     }
@@ -433,6 +461,13 @@ export default class Controller {
     } else {
       reply(event, 'archive', requestId)
     }
+
+    // The renderer has mounted and registered its listeners by the time it
+    // first asks for the archive — safe point to flush a pending OS file open.
+    if (!this.rendererReadyFired) {
+      this.rendererReadyFired = true
+      this.onRendererReady?.()
+    }
   }
 
   async createNewArchive(
@@ -477,7 +512,10 @@ export default class Controller {
     try {
       const { canceled, filePaths } = await dialog.showOpenDialog({
         properties: ['openFile'],
-        filters: [{ name: 'SQLite3 Database', extensions: ['*'] }],
+        filters: [
+          { name: 'Lunar Clipper Project', extensions: ['lunar'] },
+          { name: 'All Files', extensions: ['*'] },
+        ],
         defaultPath: this.config.lastArchivePath
           ? path.dirname(this.config.lastArchivePath)
           : undefined,
@@ -502,7 +540,7 @@ export default class Controller {
 
       // Fix legacy projects whose name is still "Untitled"
       if (/^Untitled(\s\d+)?$/.test(this.archive.name)) {
-        const derivedName = path.basename(filePaths[0])
+        const derivedName = projectDisplayName(filePaths[0])
         await updateMetadataNameAsync(filePaths[0], derivedName)
         this.archive.name = derivedName
       }
@@ -537,26 +575,16 @@ export default class Controller {
   async newProject(event: IpcMainEvent, data?: RequestEnvelope<null>) {
     const { requestId } = unpackRequest<null>(data)
     try {
-      logMain('newProject: starting')
-      const defaultDir = this.config.lastArchivePath
+      // Auto-create an "Untitled" project immediately — no save dialog. Matches
+      // the relaxed, expected flow (and the auto-create-on-import behavior).
+      // The user renames / relocates later via Save As. New projects land next
+      // to the last one (or in the default project dir for a fresh user).
+      const location = this.config.lastArchivePath
         ? path.dirname(this.config.lastArchivePath)
         : getDefaultProjectDir()
-      logMain('newProject: defaultDir', { defaultDir })
-      if (!fs.existsSync(defaultDir))
-        fs.mkdirSync(defaultDir, { recursive: true })
-
-      const { canceled, filePath: newPath } = await dialog.showSaveDialog({
-        title: 'New Project',
-        defaultPath: path.resolve(defaultDir, 'New Project'),
-        filters: [{ name: 'LM Clipper Project', extensions: ['*'] }],
-      })
-      if (canceled || !newPath) {
-        return reply(event, 'newProject', requestId)
-      }
-
-      logMain('newProject: creating', { newPath })
-      const name = path.basename(newPath)
-      const location = path.dirname(newPath)
+      if (!fs.existsSync(location)) fs.mkdirSync(location, { recursive: true })
+      const name = this.getUntitledName(location)
+      logMain('newProject: auto-creating', { name, location })
       const metadata = await this.createNewArchiveInternal({ name, location })
       logMain('newProject: created successfully')
       return reply(event, 'newProject', requestId, metadata)
@@ -574,18 +602,19 @@ export default class Controller {
       })
     }
 
-    const { canceled, filePath: newPath } = await dialog.showSaveDialog({
+    const { canceled, filePath: rawPath } = await dialog.showSaveDialog({
       title: 'Save Project As',
       defaultPath: path.resolve(
         path.dirname(this.archive.path),
         this.archive.name,
       ),
-      filters: [{ name: 'LM Clipper Project', extensions: ['*'] }],
+      filters: [{ name: 'Lunar Clipper Project', extensions: ['lunar'] }],
     })
-    if (canceled || !newPath) {
+    if (canceled || !rawPath) {
       return reply(event, 'saveAsArchive', requestId)
     }
 
+    const newPath = ensureProjectExt(rawPath)
     try {
       const oldPath = this.archive.path
       this.stopNameCountWorker()
@@ -593,7 +622,7 @@ export default class Controller {
       await fsPromises.copyFile(oldPath, newPath)
 
       // Update the stored path and name inside the DB
-      const newName = path.basename(newPath)
+      const newName = projectDisplayName(newPath)
       await updateMetadataPathAndNameAsync(newPath, newPath, newName)
 
       const metadata = await getMetaData(newPath)
@@ -1451,6 +1480,14 @@ export default class Controller {
       this.videoManager.detectDolphinPath.bind(this.videoManager),
     )
     ipcMain.on(
+      'detectIsoPath',
+      this.videoManager.detectIsoPath.bind(this.videoManager),
+    )
+    ipcMain.on(
+      'detectSlippiReplays',
+      this.videoManager.detectSlippiReplays.bind(this.videoManager),
+    )
+    ipcMain.on(
       'validateDolphinPath',
       this.videoManager.validateDolphinPath.bind(this.videoManager),
     )
@@ -1587,6 +1624,37 @@ export default class Controller {
       this.config = { ...defaultConfig, ...preserved }
       this.saveConfig()
       event.reply('config', this.config)
+    })
+    // Full factory reset: wipe ALL settings AND paths (no preserved keys) back
+    // to first-run defaults, then relaunch so the app comes up as a brand-new
+    // user. Projects on disk are NOT deleted — only the config. A one-shot
+    // backup of the pre-reset config is left next to it as a safety net.
+    ipcMain.on('resetApp', () => {
+      try {
+        if (fs.existsSync(this.configPath)) {
+          fs.copyFileSync(this.configPath, `${this.configPath}.bak`)
+        }
+      } catch (_) {
+        // best-effort backup; never block the reset on it
+      }
+      closeDb()
+      this.config = JSON.parse(JSON.stringify(defaultConfig))
+      this.config.numFilterThreads = autoFilterThreads()
+      this.config.dolphinPath = detectPlaybackDolphin() || ''
+      this.config.ssbmIsoPath = detectMeleeIso() || ''
+      this.saveConfig()
+      this.setArchiveInternal(null)
+      if (app.isPackaged) {
+        // Production: a true process restart → comes up as a fresh install.
+        app.relaunch()
+        app.exit(0)
+      } else {
+        // Dev (electronmon): a full process relaunch doesn't reliably come back,
+        // so reload the window into the fresh first-run state instead. Same
+        // visible result — the renderer re-fetches the now-default config and a
+        // null archive, landing on the new-user Start screen.
+        this.mainWindow.webContents.reload()
+      }
     })
     ipcMain.on('openExternal', (_event: IpcMainEvent, url: string) => {
       if (

@@ -142,8 +142,8 @@ export default class CodeEditorManager {
   ) {
     const windowTitle =
       initData.mode === 'template'
-        ? `LM Clipper Code Editor - ${initData.filterName}`
-        : `LM Clipper Custom Code Editor - ${initData.filterName}`
+        ? `Lunar Clipper Code Editor - ${initData.filterName}`
+        : `Lunar Clipper Custom Code Editor - ${initData.filterName}`
 
     if (this._cleanupListeners) {
       this._cleanupListeners()

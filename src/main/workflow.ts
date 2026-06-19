@@ -6,7 +6,6 @@ import Filter from '../models/Filter'
 import { createDB, getMetaData } from './db'
 import { filtersConfig } from '../constants/config'
 import slpToVideo from './slpToVideo'
-import { shuffleArray } from '../lib'
 import { createOutputDirectory } from './util'
 import type {
   ClipInterface,
@@ -169,7 +168,6 @@ export async function runWorkflow(
     return
   }
 
-  if (config.shuffle) finalResults = shuffleArray(finalResults)
   if (config.slice) finalResults = finalResults.slice(0, config.slice)
 
   const replays: ReplayInterface[] = []

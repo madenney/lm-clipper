@@ -836,6 +836,68 @@
   letter-spacing: 0.04em;
 }
 
+/* Two-column Start screen (brand on top, Start/Recent | Getting started) */
+.empty-state-inner--wide {
+  max-width: 880px;
+}
+
+.empty-state-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.empty-state-logo {
+  width: 40px;
+  height: 40px;
+  display: block;
+  object-fit: contain;
+}
+
+.empty-state-columns {
+  display: flex;
+  gap: 0;
+  align-items: flex-start;
+  justify-content: center;
+  width: 100%;
+}
+
+.empty-state-col {
+  display: flex;
+  flex-direction: column;
+}
+
+.empty-state-col--start {
+  flex: 0 0 340px;
+  width: 340px;
+  gap: 18px;
+}
+
+.empty-state-col--gs {
+  flex: 0 1 440px;
+  padding-left: 44px;
+  border-left: 1px solid #242424;
+}
+
+.empty-state-section-title {
+  font-size: 12px;
+  font-weight: 500;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 10px;
+}
+
+.empty-state-gs-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px;
+  font-size: 12.5px;
+  color: #888;
+  cursor: pointer;
+}
+
 .empty-state-actions {
   display: flex;
   gap: 12px;

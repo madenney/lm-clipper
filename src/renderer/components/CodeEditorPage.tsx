@@ -362,7 +362,7 @@ const buildParamsSection = (customParams?: CustomParam[]): RefSection => {
   }
 }
 
-const aiPrompt = `You are writing a JavaScript code block for "LM Clipper" (https://github.com/madenney/lm-clipper), a desktop app that automates clip generation from Super Smash Bros. Melee replay files (.slp files parsed by the Slippi project).
+const aiPrompt = `You are writing a JavaScript code block for "Lunar Clipper" (https://github.com/madenney/lm-clipper), a desktop app that automates clip generation from Super Smash Bros. Melee replay files (.slp files parsed by the Slippi project).
 
 The app imports .slp replay files, lets users build a filter chain (game filter → combo parser → combo filter → custom code → sort), and generates video clips from the results using Slippi Dolphin + ffmpeg.
 

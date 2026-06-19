@@ -31,9 +31,51 @@ import {
   FilterLogsModal,
   ParserWarningModal,
   ConfirmResetModal,
+  ParserRunModal,
   ResetWarnSeverity,
 } from './FilterModals'
-import { validInputsFor, FILES_TABLE } from '../../lib/filterGraph'
+import {
+  validInputsFor,
+  FILES_TABLE,
+  resolveInputId,
+  getDescendantIds,
+} from '../../lib/filterGraph'
+
+// A parser prerequisite only warrants a confirmation when it's genuinely
+// expensive — a large first parse, or re-running a parser that previously took
+// a while. A small first run (fresh import, parser never touched) just goes;
+// there's nothing to lose and the heads-up would only be friction.
+const PARSER_CONFIRM_COUNT = 50000
+const PARSER_CONFIRM_MS = 60000
+
+// Walk up a filter's input path collecting the UNPROCESSED upstream filters
+// that must run before it can produce results. Stops at the first processed
+// (clean) upstream — its results are still valid and get reused — or at the
+// raw files table. Returns them top-to-bottom (run order).
+function getUnprocessedPrereqs(
+  filters: ShallowFilterInterface[],
+  targetIndex: number,
+  branchingOn: boolean,
+): ShallowFilterInterface[] {
+  const chain: ShallowFilterInterface[] = []
+  const seen = new Set<number>()
+  let idx = targetIndex
+  while (idx >= 0 && !seen.has(idx)) {
+    seen.add(idx)
+    const inputId = resolveInputId(filters, idx, branchingOn)
+    if (inputId === FILES_TABLE) break
+    const inputIdx = filters.findIndex((f) => f.id === inputId)
+    if (inputIdx < 0) break
+    const inputFilter = filters[inputIdx]
+    // A filter with partial results (stopped mid-run, resume banner still
+    // showing) has usable output — reuse it rather than re-running. It only
+    // counts as needing a run once those partial results are dismissed.
+    if (inputFilter.isProcessed || inputFilter.resumable) break
+    chain.unshift(inputFilter)
+    idx = inputIdx
+  }
+  return chain
+}
 
 // Re-running a processed filter discards its results. We warn first, in three
 // independent severity tiers by last-run duration. Ordered low→high: for a given
@@ -107,6 +149,7 @@ type FiltersProps = {
   activeFilterId: string
   setActiveFilterId: Dispatch<SetStateAction<string>>
   config: ConfigInterface
+  setConfig: Dispatch<SetStateAction<ConfigInterface | null>>
 }
 
 export default function Filters({
@@ -115,7 +158,16 @@ export default function Filters({
   activeFilterId,
   setActiveFilterId,
   config,
+  setConfig,
 }: FiltersProps) {
+  const dismissParserNote = () => {
+    setConfig((prev) => (prev ? { ...prev, hideParserNote: true } : prev))
+    ipcBridge.updateConfig({ key: 'hideParserNote', value: true })
+  }
+  const dismissRunHint = () => {
+    setConfig((prev) => (prev ? { ...prev, hideRunHint: true } : prev))
+    ipcBridge.updateConfig({ key: 'hideRunHint', value: true })
+  }
   const [runningFilters, setRunningFilters] = useState<Set<number>>(new Set())
   const [filterMsgs, setFilterMsgs] = useState<Record<string, string>>({})
   const [liveResults, setLiveResults] = useState<Record<string, number>>({})
@@ -139,6 +191,29 @@ export default function Filters({
   const [resetConfirm, setResetConfirm] = useState<{
     filter: ShallowFilterInterface
     tier: (typeof RESET_WARN_TIERS)[number]
+    prereqs: ShallowFilterInterface[]
+  } | null>(null)
+  // Editing a filter discards its (and downstream) results — same protection as
+  // a re-run. `editConfirmedRef` remembers which filters the user already OK'd
+  // this session; `pendingEditRef` holds the deferred save until they confirm.
+  const [editConfirm, setEditConfirm] = useState<{
+    filter: ShallowFilterInterface
+    tier: (typeof RESET_WARN_TIERS)[number]
+  } | null>(null)
+  const editConfirmedRef = useRef<Set<string>>(new Set())
+  // Once the user OKs running a given parser, don't re-prompt for it this
+  // session (covers brief archive sync hiccups and just-ran-it annoyance).
+  const parserConfirmedRef = useRef<Set<string>>(new Set())
+  const pendingEditRef = useRef<{
+    save: () => void
+    previousFilter: ShallowFilterInterface
+  } | null>(null)
+  // Set when running a filter needs an expensive upstream parser run first.
+  const [parserConfirm, setParserConfirm] = useState<{
+    target: ShallowFilterInterface
+    prereqs: ShallowFilterInterface[]
+    parserLabel: string
+    count: number | null
   } | null>(null)
   // Session-local mirror of each tier's "don't warn me again" choice so it takes
   // effect immediately (the config prop only refreshes on reload).
@@ -268,7 +343,10 @@ export default function Filters({
       setConnectCodesList(codes || [])
       setCodesLoading(false)
     })
-  }, [archive?.path])
+    // Re-fetch when the file count changes too (not just on project switch) so
+    // names/codes populate after an import into a freshly-created project —
+    // otherwise they'd stay stuck at the empty-project result.
+  }, [archive?.path, archive?.files])
 
   function stopFilter(filterId: string, filterIndex: number) {
     setRunningFilters((prev) => {
@@ -279,10 +357,48 @@ export default function Filters({
     ipcBridge.stopFilter(filterId)
   }
 
+  // Running a filter means "produce its results": run any UNPROCESSED upstream
+  // filters first (cheap ones silently; an expensive parser asks first), then
+  // run the filter itself. Clean (already-run) upstream is reused untouched.
   function runFilter(filter: ShallowFilterInterface) {
     if (!archive) return
-    // Guard expensive re-runs: surface the lowest-severity tier this run's
-    // duration qualifies for that the user hasn't silenced (config or session).
+    const branchingOn = config.branchingEnabled === true
+    const targetIndex = archive.filters.findIndex((f) => f.id === filter.id)
+    const prereqs =
+      targetIndex >= 0
+        ? getUnprocessedPrereqs(archive.filters, targetIndex, branchingOn)
+        : []
+    // Confirm before auto-running an EXPENSIVE parser prerequisite only: a big
+    // parse, or re-running a parser that previously took a while. A small first
+    // run just goes (nothing to lose).
+    const bigInput =
+      typeof archive.files === 'number' && archive.files >= PARSER_CONFIRM_COUNT
+    const parserPrereq = prereqs.find(
+      (f) =>
+        PRODUCER_LABEL[f.type] &&
+        !parserConfirmedRef.current.has(f.id) &&
+        (bigInput ||
+          (typeof f.lastRunMs === 'number' &&
+            f.lastRunMs >= PARSER_CONFIRM_MS)),
+    )
+    if (parserPrereq) {
+      setParserConfirm({
+        target: filter,
+        prereqs,
+        parserLabel: PRODUCER_LABEL[parserPrereq.type],
+        count: archive.files ?? null,
+      })
+      return
+    }
+    continueRun(filter, prereqs)
+  }
+
+  // Guard an expensive RE-RUN of the target itself (the long-run tiers), then
+  // run the cheap prerequisites and the target, in order.
+  function continueRun(
+    filter: ShallowFilterInterface,
+    prereqs: ShallowFilterInterface[],
+  ) {
     if (filter.isProcessed && typeof filter.lastRunMs === 'number') {
       const ms = filter.lastRunMs
       const tier = RESET_WARN_TIERS.find(
@@ -292,61 +408,77 @@ export default function Filters({
           !suppressedTiers.has(t.key),
       )
       if (tier) {
-        setResetConfirm({ filter, tier })
+        setResetConfirm({ filter, tier, prereqs })
         return
       }
     }
-    doRunFilter(filter)
+    runSequence([...prereqs, filter])
   }
 
-  function doRunFilter(filter: ShallowFilterInterface) {
-    if (!archive) return
-    setActiveFilterId(filter.id)
-    setFilterMsgs((prev) => {
-      const updated = { ...prev }
-      delete updated[filter.id]
-      return updated
-    })
+  async function runSequence(filters: ShallowFilterInterface[]) {
+    for (const f of filters) {
+      // Sequential by design: each filter feeds the next.
+      // eslint-disable-next-line no-await-in-loop
+      const res = await doRunFilter(f)
+      if (!res || res.error) break
+    }
+  }
 
-    ipcBridge.runFilter(filter.id, (response) => {
-      if (!response || response?.error) {
-        console.error('Error: ', response.error)
-        setFilterMsgs((prev) => ({
-          ...prev,
-          [filter.id]: response?.error || 'Error running filter',
-        }))
+  function doRunFilter(filter: ShallowFilterInterface): Promise<any> {
+    return new Promise((resolve) => {
+      if (!archive) {
+        resolve(null)
         return
       }
-
-      setArchive(response)
-      // Clear running state immediately so results display switches to final count
-      // Use response.filters (fresh) instead of archive.filters (stale closure)
-      const fIdx = response?.filters?.findIndex(
-        (f: ShallowFilterInterface) => f.id === filter.id,
-      )
-      if (fIdx != null && fIdx >= 0) {
-        setRunningFilters((prev) => {
-          const next = new Set(prev)
-          next.delete(fIdx)
-          return next
-        })
-      }
-      // Clear live results for this filter
-      setLiveResults((prev) => {
+      setActiveFilterId(filter.id)
+      setFilterMsgs((prev) => {
         const updated = { ...prev }
         delete updated[filter.id]
         return updated
       })
-      // Show message from response, or clear
-      setFilterMsgs((prev) => {
-        const updated = { ...prev }
-        const msg = response.filterMessage?.[filter.id]
-        if (msg) {
-          updated[filter.id] = msg
-        } else {
-          delete updated[filter.id]
+
+      ipcBridge.runFilter(filter.id, (response) => {
+        if (!response || response?.error) {
+          console.error('Error: ', response.error)
+          setFilterMsgs((prev) => ({
+            ...prev,
+            [filter.id]: response?.error || 'Error running filter',
+          }))
+          resolve(response)
+          return
         }
-        return updated
+
+        setArchive(response)
+        // Clear running state immediately so results display switches to final count
+        // Use response.filters (fresh) instead of archive.filters (stale closure)
+        const fIdx = response?.filters?.findIndex(
+          (f: ShallowFilterInterface) => f.id === filter.id,
+        )
+        if (fIdx != null && fIdx >= 0) {
+          setRunningFilters((prev) => {
+            const next = new Set(prev)
+            next.delete(fIdx)
+            return next
+          })
+        }
+        // Clear live results for this filter
+        setLiveResults((prev) => {
+          const updated = { ...prev }
+          delete updated[filter.id]
+          return updated
+        })
+        // Show message from response, or clear
+        setFilterMsgs((prev) => {
+          const updated = { ...prev }
+          const msg = response.filterMessage?.[filter.id]
+          if (msg) {
+            updated[filter.id] = msg
+          } else {
+            delete updated[filter.id]
+          }
+          return updated
+        })
+        resolve(response)
       })
     })
   }
@@ -450,6 +582,38 @@ export default function Filters({
 
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  // Would editing this filter discard expensive results? Editing resets the
+  // filter AND its descendants, so check the longest last-run among them and
+  // return the lowest un-silenced warning tier it qualifies for (or null).
+  function editResetTier(filter: ShallowFilterInterface) {
+    if (!archive) return null
+    const branchingOn = config.branchingEnabled === true
+    const descendants = getDescendantIds(
+      archive.filters,
+      filter.id,
+      branchingOn,
+    )
+    const affected = archive.filters.filter(
+      (f) => f.id === filter.id || descendants.has(f.id),
+    )
+    const maxMs = affected.reduce(
+      (m, f) =>
+        f.isProcessed && typeof f.lastRunMs === 'number' && f.lastRunMs > m
+          ? f.lastRunMs
+          : m,
+      0,
+    )
+    if (maxMs <= 0) return null
+    return (
+      RESET_WARN_TIERS.find(
+        (t) =>
+          maxMs >= t.thresholdMs &&
+          config[t.key] !== false &&
+          !suppressedTiers.has(t.key),
+      ) ?? null
+    )
+  }
+
   function updateFilter(
     newFilter: ShallowFilterInterface,
     previousFilter: ShallowFilterInterface,
@@ -462,17 +626,30 @@ export default function Filters({
     nextFilters[filterIndex] = newFilter
     setArchive({ ...archive, filters: nextFilters })
 
-    // Debounce the IPC save
-    if (saveTimer.current) clearTimeout(saveTimer.current)
-    saveTimer.current = setTimeout(() => {
-      ipcBridge.updateFilter({ filterIndex, newFilter }, (response) => {
-        if (!response || response?.error) {
-          console.error('updateFilter response error:', response?.error)
-          return
-        }
-        setArchive(response)
-      })
-    }, 300)
+    // The destructive part is the save (it resets results). Debounce it...
+    const save = () => {
+      if (saveTimer.current) clearTimeout(saveTimer.current)
+      saveTimer.current = setTimeout(() => {
+        ipcBridge.updateFilter({ filterIndex, newFilter }, (response) => {
+          if (!response || response?.error) {
+            console.error('updateFilter response error:', response?.error)
+            return
+          }
+          setArchive(response)
+        })
+      }, 300)
+    }
+
+    // ...but hold it behind a confirm if it would throw away expensive results.
+    const tier = editConfirmedRef.current.has(previousFilter.id)
+      ? null
+      : editResetTier(previousFilter)
+    if (tier) {
+      pendingEditRef.current = { save, previousFilter }
+      setEditConfirm({ filter: previousFilter, tier })
+      return
+    }
+    save()
   }
 
   function deleteFilter(filter: FilterInterface) {
@@ -658,6 +835,23 @@ export default function Filters({
       }
     })
 
+    // One-time first-run nudge: the very first time a user has imported files
+    // but never run anything, point at the Combo Filter's Run button. Gated on
+    // a persistent flag so it only ever appears once, then never again.
+    const hasFiles = typeof archive.files === 'number' && archive.files > 0
+    const nothingRun = archive.filters
+      .filter((f) => f.type !== 'files')
+      .every((f) => !f.isProcessed && !f.resumable)
+    const comboFilter = archive.filters.find((f) => f.type === 'comboFilter')
+    const runHintFilterId =
+      config.hideRunHint !== true &&
+      hasFiles &&
+      nothingRun &&
+      comboFilter &&
+      !comboFilter.isProcessed
+        ? comboFilter.id
+        : null
+
     const entries = archive.filters.map((filter, index) => ({
       filter,
       index,
@@ -762,6 +956,10 @@ export default function Filters({
                   }))
                 }
               }}
+              showRunHint={filter.id === runHintFilterId}
+              onDismissRunHint={dismissRunHint}
+              parserNoteDisabled={config.hideParserNote === true}
+              onDismissParserNote={dismissParserNote}
               onRun={runFilter}
               onStop={stopFilter}
               onResume={resumeFilterRun}
@@ -854,56 +1052,69 @@ export default function Filters({
                 const hiddenFilters = new Set([
                   'zeroToDeaths',
                   'edgeguard',
-                  'edgeguard2',
                   'stageCenter',
                 ])
-                return filtersConfig
-                  .filter((p) => p.id !== 'files' && !hiddenFilters.has(p.id))
-                  .flatMap((p) => {
-                    // Grey out a filter that needs an upstream producer until one
-                    // exists (combo filter → combo parser, edgeguard filter →
-                    // Edgeguards Parser).
-                    const parent = REQUIRED_PRODUCER[p.id]
-                    const needsParser =
-                      !!parent &&
-                      !archive?.filters.some((f) => f.type === parent)
-                    const items = [
-                      <div
-                        key={p.id}
-                        className={`add-filter-item${needsParser ? ' add-filter-item-disabled' : ''}`}
-                        title={(p as any).tooltip || ''}
-                        role="menuitem"
-                        tabIndex={0}
-                        onClick={() => {
+                const visible = filtersConfig.filter(
+                  (p) => p.id !== 'files' && !hiddenFilters.has(p.id),
+                )
+                // Lift the Edgeguards Parser + Filter so they sit directly
+                // beneath the Combo Parser + Combo Filter on the list.
+                const edgeIds = ['edgeguard2', 'edgeguardFilter']
+                const edge = visible.filter((p) => edgeIds.includes(p.id))
+                const rest = visible.filter((p) => !edgeIds.includes(p.id))
+                const comboIdx = rest.findIndex((p) => p.id === 'comboFilter')
+                const ordered =
+                  comboIdx >= 0
+                    ? [
+                        ...rest.slice(0, comboIdx + 1),
+                        ...edge,
+                        ...rest.slice(comboIdx + 1),
+                      ]
+                    : [...rest, ...edge]
+                return ordered.flatMap((p) => {
+                  // Grey out a filter that needs an upstream producer until one
+                  // exists (combo filter → combo parser, edgeguard filter →
+                  // Edgeguards Parser).
+                  const parent = REQUIRED_PRODUCER[p.id]
+                  const needsParser =
+                    !!parent && !archive?.filters.some((f) => f.type === parent)
+                  const items = [
+                    <div
+                      key={p.id}
+                      className={`add-filter-item${needsParser ? ' add-filter-item-disabled' : ''}`}
+                      title={(p as any).tooltip || ''}
+                      role="menuitem"
+                      tabIndex={0}
+                      onClick={() => {
+                        if (needsParser) return
+                        addFilter({ target: { value: p.id } })
+                        setDropdownOpen(false)
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault()
                           if (needsParser) return
                           addFilter({ target: { value: p.id } })
                           setDropdownOpen(false)
-                        }}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter' || e.key === ' ') {
-                            e.preventDefault()
-                            if (needsParser) return
-                            addFilter({ target: { value: p.id } })
-                            setDropdownOpen(false)
-                          }
-                        }}
-                      >
-                        {p.label}
-                        {needsParser && (
-                          <span className="add-filter-hint">
-                            {' '}
-                            - requires {PRODUCER_LABEL[parent] || parent} first
-                          </span>
-                        )}
-                      </div>,
-                    ]
-                    if (p.id === 'sort') {
-                      items.push(
-                        <div key="divider" className="add-filter-divider" />,
-                      )
-                    }
-                    return items
-                  })
+                        }
+                      }}
+                    >
+                      {p.label}
+                      {needsParser && (
+                        <span className="add-filter-hint">
+                          {' '}
+                          - requires {PRODUCER_LABEL[parent] || parent} first
+                        </span>
+                      )}
+                    </div>,
+                  ]
+                  if (p.id === 'sort') {
+                    items.push(
+                      <div key="divider" className="add-filter-divider" />,
+                    )
+                  }
+                  return items
+                })
               })()}
               <div
                 className="add-filter-item add-filter-item-browse"
@@ -936,13 +1147,69 @@ export default function Filters({
           thresholdLabel={resetConfirm.tier.label}
           onCancel={() => setResetConfirm(null)}
           onConfirm={(dontAskAgain) => {
-            const { filter, tier } = resetConfirm
+            const { filter, tier, prereqs } = resetConfirm
             if (dontAskAgain) {
               setSuppressedTiers((prev) => new Set(prev).add(tier.key))
               ipcBridge.updateConfig({ key: tier.key, value: false })
             }
             setResetConfirm(null)
-            doRunFilter(filter)
+            runSequence([...prereqs, filter])
+          }}
+        />
+      )}
+      {editConfirm && (
+        <ConfirmResetModal
+          mode="edit"
+          filterLabel={editConfirm.filter.label}
+          durationMs={editConfirm.filter.lastRunMs ?? 0}
+          severity={editConfirm.tier.severity}
+          thresholdLabel={editConfirm.tier.label}
+          onCancel={() => {
+            // Revert the optimistic param change — the edit was declined.
+            const pending = pendingEditRef.current
+            pendingEditRef.current = null
+            setEditConfirm(null)
+            if (pending) {
+              setArchive((prev) => {
+                if (!prev) return prev
+                const idx = prev.filters.findIndex(
+                  (f) => f.id === pending.previousFilter.id,
+                )
+                if (idx < 0) return prev
+                const filters = [...prev.filters]
+                filters[idx] = pending.previousFilter
+                return { ...prev, filters }
+              })
+            }
+          }}
+          onConfirm={(dontAskAgain) => {
+            const { filter, tier } = editConfirm
+            if (dontAskAgain) {
+              setSuppressedTiers((prev) => new Set(prev).add(tier.key))
+              ipcBridge.updateConfig({ key: tier.key, value: false })
+            }
+            editConfirmedRef.current.add(filter.id)
+            const pending = pendingEditRef.current
+            pendingEditRef.current = null
+            setEditConfirm(null)
+            pending?.save()
+          }}
+        />
+      )}
+      {parserConfirm && (
+        <ParserRunModal
+          targetLabel={parserConfirm.target.label}
+          parserLabel={parserConfirm.parserLabel}
+          count={parserConfirm.count}
+          onCancel={() => setParserConfirm(null)}
+          onConfirm={() => {
+            const { target, prereqs } = parserConfirm
+            // Remember the OK'd parsers so we don't re-prompt for them.
+            prereqs.forEach((p) => {
+              if (PRODUCER_LABEL[p.type]) parserConfirmedRef.current.add(p.id)
+            })
+            setParserConfirm(null)
+            continueRun(target, prereqs)
           }}
         />
       )}

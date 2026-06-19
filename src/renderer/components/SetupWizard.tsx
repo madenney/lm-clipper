@@ -15,7 +15,7 @@ const allSteps: Step[] = [
     key: 'dolphinPath',
     title: 'Playback Dolphin Path',
     description:
-      'LM Clipper requires the Playback build of Slippi Dolphin — this is NOT the same as the regular Slippi Dolphin you use for online play.',
+      'Lunar Clipper requires the Playback build of Slippi Dolphin — this is NOT the same as the regular Slippi Dolphin you use for online play.',
     dialogType: 'openFile',
   },
   {
@@ -128,8 +128,9 @@ export default function SetupWizard({
     })
   }
 
-  // Auto-detect or auto-validate on mount — runs once intentionally
-  // (auto-detect should only fire on initial render, not on every re-render)
+  // On entering a step: auto-detect its path from the user's existing Slippi
+  // setup if it's empty (Dolphin and ISO both come from Slippi), else validate
+  // whatever's already there. Re-runs per step so the ISO step auto-fills too.
   useEffect(() => {
     if (isDolphinStep && !config.dolphinPath) {
       ipcBridge.detectDolphinPath((detected) => {
@@ -140,11 +141,20 @@ export default function SetupWizard({
           runValidation('dolphinPath', detected)
         }
       })
+    } else if (step.key === 'ssbmIsoPath' && !config.ssbmIsoPath) {
+      ipcBridge.detectIsoPath((detected) => {
+        if (detected) {
+          setConfig({ ...config, ssbmIsoPath: detected })
+          ipcBridge.updateConfig({ key: 'ssbmIsoPath', value: detected })
+          setAutoDetected(true)
+          runValidation('ssbmIsoPath', detected)
+        }
+      })
     } else if (needsValidation && currentValue && validationStatus === 'idle') {
       runValidation(step.key, currentValue)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [stepIndex])
 
   // Re-validate when config changes externally (e.g. drag-and-drop)
   useEffect(() => {
@@ -254,7 +264,7 @@ export default function SetupWizard({
           <p className="setup-description">{step.description}</p>
         )}
 
-        {isDolphinStep && (
+        {isDolphinStep && validationStatus !== 'valid' && (
           <div className="setup-dolphin-help">
             <button
               type="button"
@@ -345,7 +355,7 @@ export default function SetupWizard({
             value={currentValue}
             placeholder={
               isOutputStep
-                ? '~/Videos/LM Clipper (default)'
+                ? '~/Videos/Lunar Clipper (default)'
                 : 'No path selected'
             }
             onChange={(e) => {

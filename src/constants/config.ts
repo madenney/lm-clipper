@@ -188,7 +188,7 @@ export const filtersConfig = [
         name: 'Min Hits',
         id: 'minHits',
         type: 'int',
-        default: '3',
+        default: '4',
         tooltip: 'Minimum number of hits in a combo.',
       },
       {
@@ -996,7 +996,7 @@ export const videoConfig = [
     type: 'openDirectory',
     category: 'paths',
     tooltip:
-      'Default location for new projects. Leave empty to use ~/Documents/LM Clipper.',
+      'Default location for new projects. Leave empty to use ~/Documents/Lunar Clipper.',
   },
   {
     label: 'FFmpeg Path Override',
@@ -1288,14 +1288,6 @@ export const videoConfig = [
   },
   // General
   {
-    label: 'Shuffle',
-    default: false,
-    id: 'shuffle',
-    type: 'checkbox',
-    category: 'general',
-    tooltip: 'Randomize the order of clips before playback or recording.',
-  },
-  {
     label: 'Detect Duplicates on Import',
     default: false,
     id: 'detectDuplicatesOnImport',
@@ -1366,9 +1358,9 @@ export const videoConfig = [
     type: 'checkbox',
     category: 'general',
     description:
-      'Sends anonymous stats to help improve LM Clipper. No personal data is collected.',
+      'Sends anonymous stats to help improve Lunar Clipper. No personal data is collected.',
     tooltip:
-      'Send anonymous usage statistics to help improve LM Clipper. No personal data is collected.',
+      'Send anonymous usage statistics to help improve Lunar Clipper. No personal data is collected.',
   },
   {
     label: 'Test Mode',

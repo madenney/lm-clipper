@@ -19,9 +19,46 @@ function resetCopy(
   severity: ResetWarnSeverity,
   filterLabel: string,
   time: string,
+  mode: 'rerun' | 'edit' = 'rerun',
 ) {
   const name = <strong>{filterLabel}</strong>
   const dur = <strong>{time}</strong>
+  if (mode === 'edit') {
+    switch (severity) {
+      case 'high':
+        return {
+          title: 'Edit and discard a long computation?',
+          body: (
+            <>
+              ⚠️ {name} last took {dur} to run. Editing it permanently throws
+              away that computation (and anything downstream) — you won&apos;t
+              get those {time} back, and you&apos;ll have to run it again. Are
+              you sure?
+            </>
+          ),
+        }
+      case 'medium':
+        return {
+          title: 'Edit — this one took a while',
+          body: (
+            <>
+              Heads up: {name} last took {dur} to run. Editing it deletes all of
+              those results (and anything downstream). Make sure you want to.
+            </>
+          ),
+        }
+      default:
+        return {
+          title: 'Edit this filter?',
+          body: (
+            <>
+              {name} last took {dur} to run. Editing it clears those results
+              (and anything downstream) — you&apos;ll need to run it again.
+            </>
+          ),
+        }
+    }
+  }
   switch (severity) {
     case 'high':
       return {
@@ -67,6 +104,7 @@ export function ConfirmResetModal({
   durationMs,
   severity,
   thresholdLabel,
+  mode = 'rerun',
   onConfirm,
   onCancel,
 }: {
@@ -74,6 +112,7 @@ export function ConfirmResetModal({
   durationMs: number
   severity: ResetWarnSeverity
   thresholdLabel: string
+  mode?: 'rerun' | 'edit'
   onConfirm: (_dontAskAgain: boolean) => void
   onCancel: () => void
 }) {
@@ -82,6 +121,7 @@ export function ConfirmResetModal({
     severity,
     filterLabel,
     formatDuration(durationMs),
+    mode,
   )
   return (
     <div className="filter-warn-overlay" role="presentation" onClick={onCancel}>
@@ -98,7 +138,8 @@ export function ConfirmResetModal({
             checked={dontAskAgain}
             onChange={(e) => setDontAskAgain(e.target.checked)}
           />
-          Don&apos;t warn me again for re-runs over {thresholdLabel}
+          Don&apos;t warn me again for {mode === 'edit' ? 'edits' : 're-runs'}{' '}
+          over {thresholdLabel}
         </label>
         <div className="filter-warn-actions">
           <button
@@ -113,7 +154,65 @@ export function ConfirmResetModal({
             className="filter-warn-btn filter-warn-btn-danger"
             onClick={() => onConfirm(dontAskAgain)}
           >
-            Reset &amp; re-run
+            {mode === 'edit' ? 'Edit anyway' : 'Reset & re-run'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// Shown when running a filter requires running an expensive upstream parser
+// first (one that re-parses every replay). Cheap prerequisites run silently;
+// only parsers get this heads-up so a long job is never started by surprise.
+export function ParserRunModal({
+  targetLabel,
+  parserLabel,
+  count,
+  onConfirm,
+  onCancel,
+}: {
+  targetLabel: string
+  parserLabel: string
+  count: number | null
+  onConfirm: () => void
+  onCancel: () => void
+}) {
+  return (
+    <div className="filter-warn-overlay" role="presentation" onClick={onCancel}>
+      <div
+        className="filter-warn-modal filter-warn-medium"
+        role="presentation"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="filter-warn-title">Run the {parserLabel} first?</div>
+        <div className="filter-warn-body">
+          Running <strong>{targetLabel}</strong> needs the{' '}
+          <strong>{parserLabel}</strong> to run first
+          {typeof count === 'number' && count > 0 ? (
+            <>
+              {' '}
+              — that parses {count.toLocaleString()} replays and can take a
+              while.
+            </>
+          ) : (
+            <> — it parses every replay and can take a while.</>
+          )}
+        </div>
+        <div className="filter-warn-actions">
+          <button
+            type="button"
+            className="filter-warn-btn filter-warn-btn-secondary"
+            onClick={onCancel}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="filter-warn-btn filter-warn-btn-danger"
+            onClick={onConfirm}
+          >
+            Run it
           </button>
         </div>
       </div>

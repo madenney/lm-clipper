@@ -16,9 +16,11 @@ import {
 import Filters from './Filters'
 import Top from './Top'
 import GeckoModal from './GeckoModal'
+import { GettingStarted } from './GettingStarted'
 import { Tray } from './Tray/Tray'
 import useSelection from '../hooks/useSelection'
 import useIpcListener from '../hooks/useIpcListener'
+import logo from '../../images/logo.png'
 import '../styles/Main.css'
 
 // Format duration in frames to Xd Xh Xm Xs format
@@ -57,10 +59,22 @@ const formatVideoDuration = (seconds: number): string => {
 
 function EmptyState({
   setArchive,
+  config,
+  setConfig,
+  triggerSetupWizard,
 }: {
   setArchive: Dispatch<SetStateAction<ShallowArchiveInterface | null>>
+  config: ConfigInterface
+  setConfig: Dispatch<SetStateAction<ConfigInterface | null>>
+  triggerSetupWizard: (_mode: 'play' | 'record') => void
 }) {
   const [recentProjects, setRecentProjects] = useState<RecentProject[]>([])
+  const showGettingStarted = config.showGettingStarted !== false
+
+  const setShowGettingStarted = (value: boolean) => {
+    setConfig((prev) => (prev ? { ...prev, showGettingStarted: value } : prev))
+    ipcBridge.updateConfig({ key: 'showGettingStarted', value })
+  }
 
   useEffect(() => {
     ipcBridge.getRecentProjects((projects) => {
@@ -100,46 +114,72 @@ function EmptyState({
 
   return (
     <div className="empty-state">
-      <div className="empty-state-inner">
-        <div className="empty-state-title">LM Clipper</div>
-        <div className="empty-state-actions">
-          <button
-            type="button"
-            className="empty-state-btn"
-            onClick={handleNewProject}
-          >
-            New Project
-          </button>
-          <button
-            type="button"
-            className="empty-state-btn empty-state-btn--secondary"
-            onClick={handleOpenProject}
-          >
-            Open Project
-          </button>
+      <div
+        className={`empty-state-inner${showGettingStarted ? ' empty-state-inner--wide' : ''}`}
+      >
+        <div className="empty-state-brand">
+          <img className="empty-state-logo" src={logo} alt="Lunar Clipper" />
+          <span className="empty-state-title">Lunar Clipper</span>
         </div>
-        {recentProjects.length > 0 && (
-          <div className="empty-state-recent">
-            <div className="empty-state-recent-title">Recent Projects</div>
-            <div className="empty-state-recent-list">
-              {recentProjects.map((project) => (
-                <button
-                  key={project.path}
-                  type="button"
-                  className="empty-state-recent-item"
-                  onClick={() => handleOpenRecent(project.path)}
-                >
-                  <span className="empty-state-recent-name">
-                    {project.name}
-                  </span>
-                  <span className="empty-state-recent-path">
-                    {truncatePath(project.path)}
-                  </span>
-                </button>
-              ))}
+        <div className="empty-state-columns">
+          <div className="empty-state-col empty-state-col--start">
+            <div className="empty-state-section-title">Start</div>
+            <div className="empty-state-actions">
+              <button
+                type="button"
+                className="empty-state-btn"
+                onClick={handleNewProject}
+              >
+                New Project
+              </button>
+              <button
+                type="button"
+                className="empty-state-btn empty-state-btn--secondary"
+                onClick={handleOpenProject}
+              >
+                Open Project
+              </button>
             </div>
+            {recentProjects.length > 0 && (
+              <div className="empty-state-recent">
+                <div className="empty-state-recent-title">Recent Projects</div>
+                <div className="empty-state-recent-list">
+                  {recentProjects.map((project) => (
+                    <button
+                      key={project.path}
+                      type="button"
+                      className="empty-state-recent-item"
+                      onClick={() => handleOpenRecent(project.path)}
+                    >
+                      <span className="empty-state-recent-name">
+                        {project.name}
+                      </span>
+                      <span className="empty-state-recent-path">
+                        {truncatePath(project.path)}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
-        )}
+          {showGettingStarted && (
+            <div className="empty-state-col empty-state-col--gs">
+              <GettingStarted
+                config={config}
+                triggerSetupWizard={triggerSetupWizard}
+              />
+              <label className="empty-state-gs-toggle">
+                <input
+                  type="checkbox"
+                  checked={showGettingStarted}
+                  onChange={(e) => setShowGettingStarted(e.target.checked)}
+                />
+                Show getting started
+              </label>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )
@@ -473,8 +513,14 @@ export default function Main({
     const lastFilter = archive.filters[archive.filters.length - 1]
     const fallbackId = lastFilter?.id ?? 'files'
     if (activeFilterId === 'files') {
-      if (fallbackId !== 'files') {
-        setActiveFilterId(fallbackId)
+      // On first load, focus the Game Filter (import stage) for an empty
+      // project so new users start by importing. Only jump to the end of the
+      // chain (to show results) once the project actually has imported files.
+      const hasFiles = typeof archive.files === 'number' && archive.files > 0
+      const gameFilter = archive.filters.find((f) => f.type === 'files')
+      const targetId = hasFiles ? fallbackId : (gameFilter?.id ?? 'files')
+      if (targetId !== 'files') {
+        setActiveFilterId(targetId)
       }
       return
     }
@@ -619,6 +665,24 @@ export default function Main({
     })
   }
 
+  function handleImportClick() {
+    ipcBridge.importSlpFiles((newArchive) => {
+      if (!newArchive || newArchive.error) return
+      setArchive(newArchive)
+    })
+  }
+
+  function handleImportFolder(dir: string) {
+    ipcBridge.importDroppedSlpFiles([dir], (newArchive) => {
+      if (!newArchive || newArchive.error) return
+      setArchive(newArchive)
+    })
+  }
+
+  function handleOpenFolder(dir: string) {
+    ipcBridge.openFolder(dir)
+  }
+
   function stopVideo() {
     ipcBridge.stopVideo()
   }
@@ -644,7 +708,12 @@ export default function Main({
             </div>
           </div>
         ) : null}
-        <EmptyState setArchive={setArchive} />
+        <EmptyState
+          setArchive={setArchive}
+          config={config}
+          setConfig={setConfig}
+          triggerSetupWizard={triggerSetupWizard}
+        />
       </div>
     )
   }
@@ -685,6 +754,7 @@ export default function Main({
             activeFilterId={activeFilterId}
             setActiveFilterId={setActiveFilterId}
             config={config}
+            setConfig={setConfig}
           />
         </div>
         <div className="divider" onMouseDown={startResizing} />
@@ -700,6 +770,9 @@ export default function Main({
           addEndFrames={config.addEndFrames || 0}
           onClipPlay={handleClipPlay} // eslint-disable-line react/jsx-no-bind
           onClipRecord={handleClipRecord} // eslint-disable-line react/jsx-no-bind
+          onImport={handleImportClick} // eslint-disable-line react/jsx-no-bind
+          onImportFolder={handleImportFolder} // eslint-disable-line react/jsx-no-bind
+          onOpenFolder={handleOpenFolder} // eslint-disable-line react/jsx-no-bind
         />
       </div>
       <div className="footer">

@@ -132,6 +132,17 @@ export default function Top({ config, setConfig, onRunSetupWizard }: TopProps) {
             Reset SLPZ
           </button>
         )}
+        {/* TEMP dev helper — instant app reset (no confirm). Remove before GA. */}
+        <button
+          type="button"
+          className="top-lunar-btn"
+          onClick={() =>
+            window.electron.ipcRenderer.sendMessage('resetApp', null)
+          }
+          title="Reset app to first-run and restart (dev helper)"
+        >
+          <span>Reset App</span>
+        </button>
         <button
           type="button"
           className="top-lunar-btn"
