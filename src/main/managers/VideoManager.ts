@@ -55,6 +55,10 @@ export default class VideoManager {
   private consoleManager: ConsoleManager
 
   activeVideoJob: VideoJobController | null
+  // True when the current video job's promise rejection was caused by the user
+  // pressing Stop/Cancel (vs a real ffmpeg/Dolphin failure) — lets us surface
+  // genuine errors instead of silently swallowing them as "stopped".
+  private videoStopRequested = false
   activePlaybackProcess: ChildProcess | null
   playbackAborted: boolean
   activeTmpDirs: Set<string>
@@ -258,6 +262,7 @@ export default class VideoManager {
       videoConfig.outputPath.replace(/\/+$/, ''),
     )
     this.consoleManager.startConsole('recording', 'Recording')
+    this.videoStopRequested = false
     this.activeVideoJob = slpToVideo(replays, videoConfig, (msg: string) => {
       this.mainWindow.webContents.send('videoMsg', msg)
       if (msg) this.consoleManager.pushConsoleLog(msg.startsWith('Error') ? 'error' : 'info', msg) // prettier-ignore
@@ -268,6 +273,17 @@ export default class VideoManager {
     } catch (err) {
       stopped = true
       logMain('generateVideo: error', err)
+      if (!this.videoStopRequested) {
+        // A real ffmpeg/Dolphin failure, not a user Stop/Cancel — surface it
+        // instead of letting the job silently vanish with no completion modal.
+        const m =
+          (err as { message?: string })?.message || 'Video generation failed'
+        this.mainWindow.webContents.send('videoMsg', `Error: ${m}`)
+        this.consoleManager.pushConsoleLog(
+          'error',
+          `Video generation failed: ${m}`,
+        )
+      }
     } finally {
       this.consoleManager.stopConsole()
       this.activeVideoJob = null
@@ -393,6 +409,7 @@ export default class VideoManager {
   stopVideo(event: IpcMainEvent, data?: RequestEnvelope<null>) {
     const { requestId } = unpackRequest<null>(data)
     if (this.activeVideoJob) {
+      this.videoStopRequested = true
       this.activeVideoJob.stop()
     }
     return reply(event, 'stopVideo', requestId)
@@ -401,6 +418,7 @@ export default class VideoManager {
   cancelVideo(event: IpcMainEvent, data?: RequestEnvelope<null>) {
     const { requestId } = unpackRequest<null>(data)
     if (this.activeVideoJob) {
+      this.videoStopRequested = true
       this.activeVideoJob.cancel()
     }
     return reply(event, 'cancelVideo', requestId)
@@ -689,6 +707,22 @@ export default class VideoManager {
         let staleTimer: ReturnType<typeof setTimeout> | null = null
         const stdoutLines: string[] = []
         let killedReason = ''
+        // Single settle path: a spawn 'error' can fire WITHOUT a later 'exit',
+        // which would otherwise leave this promise (and the whole playback
+        // queue) hung forever. Both 'exit' and 'error' funnel through finish().
+        let settled = false
+        const finish = () => {
+          if (settled) return
+          settled = true
+          if (staleTimer) clearTimeout(staleTimer)
+          if (this.activePlaybackProcess === dolphinProcess) {
+            this.activePlaybackProcess = null
+          }
+          fsPromises.unlink(filePath).catch(() => {})
+          fsPromises.rmdir(tmpDir).catch(() => {})
+          this.activeTmpDirs.delete(tmpDir)
+          resolve()
+        }
         const resetStaleTimer = () => {
           if (staleTimer) clearTimeout(staleTimer)
           staleTimer = setTimeout(() => {
@@ -730,6 +764,9 @@ export default class VideoManager {
           })
         })
 
+        // Resolve on spawn error too, so a Dolphin that errors without exiting
+        // can't wedge the playback queue.
+        dolphinProcess.on('error', () => finish())
         dolphinProcess.on('exit', (code, signal) => {
           logMain('playClipAsync: Dolphin exited', {
             code,
@@ -743,14 +780,7 @@ export default class VideoManager {
               `Dolphin exited with code ${code}. Check ${getLogPath()}/main.log`,
             )
           }
-          if (this.activePlaybackProcess === dolphinProcess) {
-            this.activePlaybackProcess = null
-          }
-          if (staleTimer) clearTimeout(staleTimer)
-          fsPromises.unlink(filePath).catch(() => {})
-          fsPromises.rmdir(tmpDir).catch(() => {})
-          this.activeTmpDirs.delete(tmpDir)
-          resolve()
+          finish()
         })
       })
     } catch (err) {
@@ -1120,6 +1150,7 @@ export default class VideoManager {
   cleanup() {
     // Kill active video job
     if (this.activeVideoJob) {
+      this.videoStopRequested = true
       this.activeVideoJob.cancel()
       this.activeVideoJob = null
     }

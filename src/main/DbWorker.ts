@@ -616,13 +616,16 @@ parentPort.on(
           break
         }
         case 'updateFilterRunProgress':
-          // Add processed column if it doesn't exist (migration)
+          // Add processed column if it doesn't exist (migration). Only the
+          // "duplicate column" case is expected/benign — any other error
+          // (missing table, locked db, disk full) must surface, not be hidden.
           try {
             db.exec(
               'ALTER TABLE filter_runs ADD COLUMN processed INTEGER DEFAULT 0',
             )
-          } catch (_) {
-            // column already exists
+          } catch (e) {
+            const m = (e as { message?: string })?.message || ''
+            if (!/duplicate column name/i.test(m)) throw e
           }
           db.prepare(
             'UPDATE filter_runs SET processed = ? WHERE filter_id = ?',
