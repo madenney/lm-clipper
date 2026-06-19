@@ -540,7 +540,7 @@ export interface ArchiveInterface {
         slpzOutputDir: string
       }
     },
-  ): Promise<boolean>
+  ): Promise<{ terminated: boolean; failed: number }>
   getItems?(params: {
     filterId: string
     numPerPage?: number
@@ -548,10 +548,16 @@ export interface ArchiveInterface {
     offset?: number
     limit?: number
     lite?: boolean
-  }): Promise<ClipInterface[] | FileInterface[] | LiteItem[]>
-  getAllItems?(filterId: string): Promise<ClipInterface[] | FileInterface[]>
-  addFilter?(newFilterJSON: FilterInterface): Promise<ArchiveInterface>
-  deleteFilter?(filterId: string): Promise<ArchiveInterface>
+  }): Promise<(ClipInterface | FileInterface | LiteItem)[]>
+  getAllItems?(
+    filterId: string,
+  ): Promise<(ClipInterface | FileInterface | LiteItem)[]>
+  getItemsByIds?(
+    filterId: string,
+    ids: number[],
+  ): Promise<(ClipInterface | FileInterface | LiteItem)[]>
+  addFilter?(newFilterJSON: FilterInterface): Promise<void>
+  deleteFilter?(filterId: string): Promise<void>
   saveMetaData?(): Promise<void>
   resetFiltersFrom?(
     startIndex: number,

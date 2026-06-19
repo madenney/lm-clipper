@@ -39,6 +39,27 @@ jobs:
       - name: Test
         run: npm test
 
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm install
+
+      # Ratchet gate: fails if tsc errors exceed the committed baseline
+      # (.tsc-error-baseline), so no NEW type errors land while the existing
+      # backlog is burned down. See .erb/scripts/tsc-ratchet.js.
+      - name: Typecheck (ratchet)
+        run: npm run typecheck:ratchet
+
   audit:
     runs-on: ubuntu-latest
     steps:

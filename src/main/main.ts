@@ -272,10 +272,10 @@ const createWindow = async () => {
         error: (...args: unknown[]) => logMain('updater-error', ...args),
         debug: (..._args: unknown[]) => {},
       }
-      autoUpdater.on('update-available', (info) => {
+      autoUpdater.on('update-available', (info: { version: string }) => {
         mainWindow?.webContents.send('update-available', info.version)
       })
-      autoUpdater.on('download-progress', (progress) => {
+      autoUpdater.on('download-progress', (progress: { percent: number }) => {
         mainWindow?.webContents.send(
           'update-progress',
           Math.round(progress.percent),
@@ -284,7 +284,7 @@ const createWindow = async () => {
       autoUpdater.on('update-downloaded', () => {
         mainWindow?.webContents.send('update-downloaded')
       })
-      autoUpdater.on('error', (err) => {
+      autoUpdater.on('error', (err: { message?: string }) => {
         logMain('updater-error', err?.message ?? err)
         mainWindow?.webContents.send(
           'update-error',
@@ -292,7 +292,7 @@ const createWindow = async () => {
         )
       })
       ipcMain.on('download-update', () => {
-        autoUpdater.downloadUpdate().catch((err) => {
+        autoUpdater.downloadUpdate().catch((err: { message?: string }) => {
           logMain('updater-download-failed', err?.message ?? err)
           mainWindow?.webContents.send(
             'update-error',
@@ -307,7 +307,7 @@ const createWindow = async () => {
         mainWindow?.webContents.send('update-checking')
         autoUpdater
           .checkForUpdates()
-          .then((result) => {
+          .then((result: { updateInfo?: { version?: string } } | null) => {
             if (
               !result ||
               !result.updateInfo ||
@@ -316,7 +316,7 @@ const createWindow = async () => {
               mainWindow?.webContents.send('update-not-available')
             }
           })
-          .catch((err) => {
+          .catch((err: { message?: string }) => {
             logMain('updater-check-failed', err?.message ?? err)
             mainWindow?.webContents.send(
               'update-error',
@@ -324,7 +324,7 @@ const createWindow = async () => {
             )
           })
       })
-      autoUpdater.checkForUpdates().catch((err) => {
+      autoUpdater.checkForUpdates().catch((err: { message?: string }) => {
         logMain('updater-check-failed', err?.message ?? err)
       })
     }
