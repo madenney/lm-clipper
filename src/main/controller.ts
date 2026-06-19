@@ -105,6 +105,9 @@ export default class Controller {
   mainWindow: BrowserWindow
   configDir: string
   configPath: string
+  // Serializes config writes so the ~20 fire-and-forget saveConfig() callers
+  // can't interleave and corrupt the JSON file.
+  private configWriteChain: Promise<void> = Promise.resolve()
   archive: ArchiveInterface | null
   private archiveVersion = 0
   config: ConfigInterface
@@ -138,7 +141,15 @@ export default class Controller {
     let loadedConfig: any
     try {
       loadedConfig = JSON.parse(fs.readFileSync(this.configPath).toString())
-    } catch {
+    } catch (err) {
+      // Corrupt config: back it up instead of silently reverting to defaults,
+      // so the user's recentProjects/paths aren't lost and can be recovered.
+      logMain('config-corrupt', (err as { message?: string })?.message ?? err)
+      try {
+        fs.renameSync(this.configPath, `${this.configPath}.corrupt`)
+      } catch (_) {
+        // best-effort backup
+      }
       loadedConfig = {}
     }
     this.config = { ...defaultConfig, ...loadedConfig }
@@ -280,11 +291,22 @@ export default class Controller {
     }
   }
 
-  private saveConfig() {
-    return fsPromises.writeFile(
-      this.configPath,
-      JSON.stringify(this.config, null, 2),
-    )
+  private saveConfig(): Promise<void> {
+    // Queue behind any in-flight write (serialize), and write atomically via a
+    // temp file + rename so a crash mid-write can never leave a truncated/
+    // corrupt config. Each queued write serializes the then-current config.
+    this.configWriteChain = this.configWriteChain
+      .catch(() => {}) // a prior failure must not break the chain
+      .then(async () => {
+        const data = JSON.stringify(this.config, null, 2)
+        const tmp = `${this.configPath}.tmp`
+        await fsPromises.writeFile(tmp, data)
+        await fsPromises.rename(tmp, this.configPath)
+      })
+      .catch((err: { message?: string }) => {
+        logMain('config-save-failed', err?.message ?? err)
+      })
+    return this.configWriteChain
   }
 
   private setArchiveInternal(a: ArchiveInterface | null) {
