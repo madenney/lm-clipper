@@ -397,30 +397,40 @@ const shutdownCleanup = () => {
 }
 
 // Graceful teardown for normal quit: close every DB connection (including the
-// background DbWorker's, awaited) BEFORE deleting sidecars, so the delete
-// succeeds even on Windows where an open handle blocks unlink.
+// background DbWorker's, awaited). Does NOT touch sidecars — the caller deletes
+// them only after confirming this resolved cleanly (see before-quit).
 const shutdownCleanupAsync = async () => {
-  const projectPath = currentProjectPath()
   if (controller) {
     controller.cleanup()
     controller = null
   }
   await shutdownDbWorker()
   closeDb()
-  removeWalSidecars(projectPath)
 }
 
 let quitCleanupStarted = false
 app.on('before-quit', (event) => {
   if (quitCleanupStarted) return
   quitCleanupStarted = true
-  // Defer the actual quit until cleanup finishes, but cap it so quit can never
-  // hang on a stuck worker.
   event.preventDefault()
+  // Capture the project path up front — shutdownCleanupAsync nulls the controller.
+  const projectPath = currentProjectPath()
+  let cleanlyClosed = false
+  const cleanup = shutdownCleanupAsync().then(() => {
+    cleanlyClosed = true
+  })
+  // Watchdog: never let quit hang on a stuck worker.
   const timeout = new Promise((resolve) => {
     setTimeout(resolve, 3000)
   })
-  Promise.race([shutdownCleanupAsync(), timeout]).finally(() => app.exit(0))
+  Promise.race([cleanup, timeout]).finally(() => {
+    // Only remove the WAL sidecars on a confirmed-clean shutdown. If the
+    // watchdog won (a worker stuck mid-write, or closeDb still draining), leave
+    // -wal/-shm intact so SQLite replays committed data on next open rather
+    // than risking deletion of a sidecar a worker still holds.
+    if (cleanlyClosed) removeWalSidecars(projectPath)
+    app.exit(0)
+  })
 })
 
 // Ctrl+C from terminal or kill signal

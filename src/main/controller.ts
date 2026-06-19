@@ -447,7 +447,7 @@ export default class Controller {
     event: IpcMainEvent,
     data: RequestEnvelope<{
       key: string
-      value: string | number | boolean | null
+      value: string | number | boolean | null | string[]
     }>,
   ) {
     const { requestId, payload } = unpackRequest<{
@@ -582,6 +582,13 @@ export default class Controller {
   async closeArchive(event: IpcMainEvent, data?: RequestEnvelope<null>) {
     const { requestId } = unpackRequest<null>(data)
     this.stopNameCountWorker()
+    // Abort any in-flight work bound to this project BEFORE closing its DB.
+    // Otherwise a running import/filter worker keeps writing to a DB we're
+    // closing (and the main getDb() would silently reopen the old path on its
+    // next call), landing rows in a project the user already closed.
+    this.videoManager.cleanup()
+    this.filterExecutor.cleanup()
+    this.importManager.cleanup()
     closeDb()
     this.setArchiveInternal(null)
     this.config.lastArchivePath = null

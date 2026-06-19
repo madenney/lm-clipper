@@ -126,23 +126,30 @@ function cacheFilterCount(
   tableId: string,
   count: number,
 ) {
-  const row = db.prepare('SELECT extra FROM metadata LIMIT 1').get() as
-    | { extra: string }
-    | undefined
-  if (!row) return
-  let extra: any = {}
-  try {
-    extra = JSON.parse(row.extra || '{}')
-  } catch (_) {
-    extra = {}
-  }
-  if (tableId === 'files') {
-    extra.cachedFileCount = count
-  } else {
-    extra.cachedCounts = extra.cachedCounts || {}
-    extra.cachedCounts[tableId] = count
-  }
-  db.prepare('UPDATE metadata SET extra = ?').run(JSON.stringify(extra))
+  // BEGIN IMMEDIATE so this read-modify-write of the shared `extra` JSON blob is
+  // atomic against the main-thread connection's updateMetaData (which writes the
+  // same column). Without it the two connections race and silently clobber each
+  // other's keys (cachedCounts / filters / isProcessed). See updateMetaData.
+  const write = db.transaction(() => {
+    const row = db.prepare('SELECT extra FROM metadata LIMIT 1').get() as
+      | { extra: string }
+      | undefined
+    if (!row) return
+    let extra: any = {}
+    try {
+      extra = JSON.parse(row.extra || '{}')
+    } catch (_) {
+      extra = {}
+    }
+    if (tableId === 'files') {
+      extra.cachedFileCount = count
+    } else {
+      extra.cachedCounts = extra.cachedCounts || {}
+      extra.cachedCounts[tableId] = count
+    }
+    db.prepare('UPDATE metadata SET extra = ?').run(JSON.stringify(extra))
+  })
+  write.immediate()
 }
 
 // Lazy per-table count used to hydrate the UI after open. Computes COUNT(*)

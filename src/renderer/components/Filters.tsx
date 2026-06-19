@@ -32,6 +32,7 @@ import {
   ParserWarningModal,
   ConfirmResetModal,
   ParserRunModal,
+  CustomCodeConsentModal,
   ResetWarnSeverity,
 } from './FilterModals'
 import {
@@ -152,6 +153,17 @@ type FiltersProps = {
   setConfig: Dispatch<SetStateAction<ConfigInterface | null>>
 }
 
+// SHA-256 of custom-filter code, used as the trust key for the consent gate.
+// SHA-256 (not a cheap string hash) so an attacker can't craft malicious code
+// that collides with a hash the user already approved.
+async function sha256Hex(text: string): Promise<string> {
+  const data = new TextEncoder().encode(text)
+  const digest = await crypto.subtle.digest('SHA-256', data)
+  return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('')
+}
+
 export default function Filters({
   archive,
   setArchive,
@@ -214,6 +226,14 @@ export default function Filters({
     prereqs: ShallowFilterInterface[]
     parserLabel: string
     count: number | null
+  } | null>(null)
+  // Set when a run includes custom-code filters the user hasn't approved. Holds
+  // the labels (for display), their code hashes (to persist on "always trust"),
+  // and the action to take once consent is given.
+  const [customConsent, setCustomConsent] = useState<{
+    labels: string[]
+    hashes: string[]
+    onApprove: () => void
   } | null>(null)
   // Session-local mirror of each tier's "don't warn me again" choice so it takes
   // effect immediately (the config prop only refreshes on reload).
@@ -415,7 +435,48 @@ export default function Filters({
     runSequence([...prereqs, filter])
   }
 
-  async function runSequence(filters: ShallowFilterInterface[]) {
+  // Custom filters whose code the user hasn't already approved to run. Custom
+  // code executes with full machine access, so running it is gated behind an
+  // explicit confirm (see CustomCodeConsentModal).
+  async function unapprovedCustomFilters(filters: ShallowFilterInterface[]) {
+    const approved = new Set(config.approvedCustomCodeHashes || [])
+    const out: { filter: ShallowFilterInterface; hash: string }[] = []
+    for (const f of filters) {
+      const code = f.type === 'custom' ? f.params?.code : undefined
+      if (typeof code === 'string' && code.trim()) {
+        // eslint-disable-next-line no-await-in-loop
+        const hash = await sha256Hex(code)
+        if (!approved.has(hash)) out.push({ filter: f, hash })
+      }
+    }
+    return out
+  }
+
+  function approveCustomHashes(hashes: string[]) {
+    const merged = Array.from(
+      new Set([...(config.approvedCustomCodeHashes || []), ...hashes]),
+    )
+    setConfig((prev) =>
+      prev ? { ...prev, approvedCustomCodeHashes: merged } : prev,
+    )
+    ipcBridge.updateConfig({ key: 'approvedCustomCodeHashes', value: merged })
+  }
+
+  async function runSequence(
+    filters: ShallowFilterInterface[],
+    customApproved = false,
+  ) {
+    if (!customApproved) {
+      const unapproved = await unapprovedCustomFilters(filters)
+      if (unapproved.length > 0) {
+        setCustomConsent({
+          labels: unapproved.map((u) => u.filter.label),
+          hashes: unapproved.map((u) => u.hash),
+          onApprove: () => runSequence(filters, true),
+        })
+        return
+      }
+    }
     for (const f of filters) {
       // Sequential by design: each filter feeds the next.
       // eslint-disable-next-line no-await-in-loop
@@ -483,7 +544,23 @@ export default function Filters({
     })
   }
 
-  function resumeFilterRun(filter: ShallowFilterInterface) {
+  // Gate a resume the same way as a run: resuming a custom filter still
+  // executes its code, so unapproved custom code must clear the consent prompt.
+  async function resumeFilterRun(filter: ShallowFilterInterface) {
+    if (!archive) return
+    const unapproved = await unapprovedCustomFilters([filter])
+    if (unapproved.length > 0) {
+      setCustomConsent({
+        labels: unapproved.map((u) => u.filter.label),
+        hashes: unapproved.map((u) => u.hash),
+        onApprove: () => doResume(filter),
+      })
+      return
+    }
+    doResume(filter)
+  }
+
+  function doResume(filter: ShallowFilterInterface) {
     if (!archive) return
     setFilterMsgs((prev) => {
       const updated = { ...prev }
@@ -1210,6 +1287,23 @@ export default function Filters({
             })
             setParserConfirm(null)
             continueRun(target, prereqs)
+          }}
+        />
+      )}
+      {customConsent && (
+        <CustomCodeConsentModal
+          filterLabels={customConsent.labels}
+          onCancel={() => setCustomConsent(null)}
+          onRunOnce={() => {
+            const { onApprove } = customConsent
+            setCustomConsent(null)
+            onApprove()
+          }}
+          onAlwaysTrust={() => {
+            const { onApprove, hashes } = customConsent
+            approveCustomHashes(hashes)
+            setCustomConsent(null)
+            onApprove()
           }}
         />
       )}

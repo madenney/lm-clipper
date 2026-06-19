@@ -497,11 +497,20 @@ export default class FilterExecutor {
         })
       }
 
+      // A populated `errors` means a worker crashed / exited non-zero (see
+      // Filter.run3) — the filter's output table is only partially written.
+      // Treat it like a cancel: halt the batch and DON'T mark this (or anything
+      // downstream) processed, so the chain never reports success on truncated
+      // data.
+      const failed = filterErrors.length > 0
       this.consoleManager.pushConsoleLog(
-        terminated ? 'warn' : 'info',
+        terminated || failed ? 'warn' : 'info',
+        // eslint-disable-next-line no-nested-ternary
         terminated
           ? `${filterJSON.label} cancelled`
-          : `${filterJSON.label} complete`,
+          : failed
+            ? `${filterJSON.label} failed — stopping Run All`
+            : `${filterJSON.label} complete`,
       )
       this.consoleManager.stopConsole()
 
@@ -509,7 +518,7 @@ export default class FilterExecutor {
       this.runningFilterIndices.delete(i)
       this.broadcastRunningFilters()
 
-      if (terminated || batchAbort.signal.aborted) {
+      if (terminated || batchAbort.signal.aborted || failed) {
         if (archive.resetFiltersFrom) {
           await archive.resetFiltersFrom(i, branchingOn)
         }

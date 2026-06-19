@@ -220,6 +220,69 @@ export function ParserRunModal({
   )
 }
 
+// Shown before running a custom-code filter whose code the user hasn't approved
+// this install. Custom filters execute arbitrary JS with full machine access,
+// so running one from an opened project / imported template is a deliberate,
+// informed choice — never silent. "Always trust" remembers the code by hash.
+export function CustomCodeConsentModal({
+  filterLabels,
+  onCancel,
+  onRunOnce,
+  onAlwaysTrust,
+}: {
+  filterLabels: string[]
+  onCancel: () => void
+  onRunOnce: () => void
+  onAlwaysTrust: () => void
+}) {
+  const many = filterLabels.length > 1
+  return (
+    <div className="filter-warn-overlay" role="presentation" onClick={onCancel}>
+      <div
+        className="filter-warn-modal"
+        role="presentation"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="filter-warn-title">Run custom code?</div>
+        <div className="filter-warn-body">
+          {many ? (
+            <>
+              <strong>{filterLabels.length} custom filters</strong> in this run
+              ({filterLabels.join(', ')}) contain code that runs
+            </>
+          ) : (
+            <>
+              <strong>{filterLabels[0]}</strong> contains custom code that runs
+            </>
+          )}{' '}
+          with <strong>full access to your computer</strong> — your files,
+          network, everything. Only run code you wrote yourself or got from
+          someone you trust.
+        </div>
+        <div className="filter-warn-actions">
+          <button
+            type="button"
+            className="filter-warn-btn filter-warn-btn-secondary"
+            onClick={onCancel}
+          >
+            Cancel
+          </button>
+          <button type="button" className="filter-warn-btn" onClick={onRunOnce}>
+            Run once
+          </button>
+          <button
+            type="button"
+            className="filter-warn-btn filter-warn-btn-danger"
+            onClick={onAlwaysTrust}
+          >
+            Always trust
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function FilterErrorModal({
   filterError,
   onDismiss,

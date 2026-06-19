@@ -314,6 +314,9 @@ export interface ConfigInterface {
   installId?: string // random UUID, generated once on first run
   lastUsagePing?: string // YYYY-MM-DD of the last app_open ping (daily dedupe)
   consentNoticeSeen?: boolean // first-run usage-stats disclosure dismissed
+  // SHA-256 hashes of custom-filter code the user has approved to run (the
+  // custom-code consent gate). Running unapproved custom code prompts first.
+  approvedCustomCodeHashes?: string[]
   outputFilenamePattern: string
   defaultProjectDirectory: string
   ffmpegPath: string

@@ -66,6 +66,7 @@ export const config = {
   installId: '',
   lastUsagePing: '',
   consentNoticeSeen: false,
+  approvedCustomCodeHashes: [] as string[],
   outputFilenamePattern: '{index}',
   defaultProjectDirectory: '',
   ffmpegPath: '',

@@ -88,7 +88,6 @@
   transition: transform 150ms ease;
 }
 
-
 .filter:hover {
   border-color: #4d525b;
 }
@@ -107,19 +106,31 @@
 .filter-status-needsrun {
   background:
     linear-gradient(rgba(240, 206, 130, 0.05), rgba(240, 206, 130, 0.05)),
-    linear-gradient(135deg, var(--filter-card) 0%, var(--filter-card-strong) 100%);
+    linear-gradient(
+      135deg,
+      var(--filter-card) 0%,
+      var(--filter-card-strong) 100%
+    );
 }
 
 .filter-status-done {
   background:
     linear-gradient(rgba(118, 210, 158, 0.04), rgba(118, 210, 158, 0.04)),
-    linear-gradient(135deg, var(--filter-card) 0%, var(--filter-card-strong) 100%);
+    linear-gradient(
+      135deg,
+      var(--filter-card) 0%,
+      var(--filter-card-strong) 100%
+    );
 }
 
 .filter-status-running {
   background:
     linear-gradient(rgba(120, 206, 226, 0.09), rgba(120, 206, 226, 0.09)),
-    linear-gradient(135deg, var(--filter-card) 0%, var(--filter-card-strong) 100%);
+    linear-gradient(
+      135deg,
+      var(--filter-card) 0%,
+      var(--filter-card-strong) 100%
+    );
 }
 
 /* First-run nudge: a gentle breathing glow on the Run button + a floating chip
@@ -284,9 +295,12 @@
 .filter-status-partial {
   background:
     linear-gradient(rgba(206, 212, 132, 0.05), rgba(206, 212, 132, 0.05)),
-    linear-gradient(135deg, var(--filter-card) 0%, var(--filter-card-strong) 100%);
+    linear-gradient(
+      135deg,
+      var(--filter-card) 0%,
+      var(--filter-card-strong) 100%
+    );
 }
-
 
 .filter-main {
   display: flex;
@@ -932,7 +946,6 @@
   padding-top: 10px;
 }
 
-
 /* Multi-select dropdown */
 
 .filter-multi-wrap {
@@ -1161,7 +1174,11 @@
 .filter-warn-modal {
   width: 360px;
   max-width: calc(100vw - 40px);
-  background: linear-gradient(135deg, var(--filter-card) 0%, var(--filter-card-strong) 100%);
+  background: linear-gradient(
+    135deg,
+    var(--filter-card) 0%,
+    var(--filter-card-strong) 100%
+  );
   border: 1px solid var(--filter-border);
   border-radius: 14px;
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.7);
@@ -1199,6 +1216,9 @@
 }
 
 .filter-warn-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   align-self: flex-end;
   height: 32px;
   padding: 0 18px;
@@ -1210,8 +1230,17 @@
   font-family: inherit;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+  white-space: nowrap;
   cursor: pointer;
   margin-top: 4px;
+}
+
+/* In the actions row, keep every button the same height and baseline so a
+   2- or 3-button row lines up cleanly (the base rule's flex-end/margin-top is
+   for single right-aligned buttons elsewhere). */
+.filter-warn-actions .filter-warn-btn {
+  align-self: center;
+  margin-top: 0;
 }
 
 .filter-warn-btn:hover {
@@ -1430,6 +1459,7 @@
 .filter-warn-actions {
   display: flex;
   justify-content: flex-end;
+  align-items: center;
   gap: 10px;
 }
 
@@ -1457,10 +1487,14 @@
 
 .filter-warn-medium {
   border-top: 3px solid #e0a23c;
-  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(224, 162, 60, 0.25);
+  box-shadow:
+    0 24px 80px rgba(0, 0, 0, 0.7),
+    0 0 0 1px rgba(224, 162, 60, 0.25);
 }
 
 .filter-warn-high {
   border-top: 3px solid #d65454;
-  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(214, 84, 84, 0.35);
+  box-shadow:
+    0 24px 80px rgba(0, 0, 0, 0.7),
+    0 0 0 1px rgba(214, 84, 84, 0.35);
 }

@@ -209,6 +209,22 @@ export default class ImportManager {
       })
   }
 
+  // Always emit a terminal import status so the renderer's progress modal
+  // closes. Used by every early-exit path in runImport (not just the happy
+  // path) — a missing finished:true leaves the import spinner stuck forever.
+  private emitImportFinished(cancelled: boolean) {
+    this.setImportStatus({
+      isImporting: false,
+      current: 0,
+      total: null,
+      queueLength: this.importQueue.length,
+    })
+    this.mainWindow.webContents.send('importingFileUpdate', {
+      finished: true,
+      cancelled,
+    })
+  }
+
   private async runImport(filePaths: string[]) {
     const archive = this.getArchive()
     if (!archive || !archive.addFiles) {
@@ -238,23 +254,17 @@ export default class ImportManager {
     if (zipFiles.length > 0) {
       const zipChoice = await this.promptZipWizard(zipFiles)
       if (!zipChoice) {
-        this.setImportStatus({
-          isImporting: false,
-          current: 0,
-          total: null,
-          queueLength: this.importQueue.length,
-        })
-        this.mainWindow.webContents.send('importingFileUpdate', {
-          finished: true,
-          cancelled: true,
-        })
+        this.emitImportFinished(true)
         return
       }
 
       if ((zipChoice as any).skip) {
         // Skip zip files — continue import with only non-zip files
         filePaths = nonZipFiles
-        if (filePaths.length === 0) return
+        if (filePaths.length === 0) {
+          this.emitImportFinished(false)
+          return
+        }
       } else {
         const extractedDirs: string[] = []
         for (const zipFile of zipFiles) {
@@ -278,7 +288,10 @@ export default class ImportManager {
 
         // Replace zip paths with extracted directories
         filePaths = [...nonZipFiles, ...extractedDirs]
-        if (filePaths.length === 0) return
+        if (filePaths.length === 0) {
+          this.emitImportFinished(false)
+          return
+        }
       } // end else (not skip)
     }
 

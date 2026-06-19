@@ -273,7 +273,7 @@ export default {
   },
   updateConfig(config: {
     key: string
-    value: string | number | boolean | null
+    value: string | number | boolean | null | string[]
   }) {
     return send('updateConfig', config)
   },

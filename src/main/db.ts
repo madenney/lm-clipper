@@ -181,25 +181,46 @@ export function updateMetaData(
   },
 ) {
   const db = getDb(path)
-  const extraObj: any = { filters: metadata.filters || [] }
-  if (metadata.savedCustomFilters && metadata.savedCustomFilters.length > 0) {
-    extraObj.savedCustomFilters = metadata.savedCustomFilters
-  }
-  if (metadata.cachedCounts) {
-    extraObj.cachedCounts = metadata.cachedCounts
-  }
-  if (metadata.files !== undefined) {
-    extraObj.cachedFileCount = metadata.files
-  }
-  const extra = JSON.stringify(extraObj)
-  db.prepare(
-    'UPDATE metadata SET name = ?, path = ?, createdAt = ?, extra = ?',
-  ).run(
-    metadata.name || '',
-    metadata.path || '',
-    metadata.createdAt || 0,
-    extra,
-  )
+  // Read-merge-write under BEGIN IMMEDIATE. The DbWorker connection writes the
+  // same `extra` JSON blob (cachedCounts / cachedFileCount) concurrently, so we
+  // must NOT rebuild extra from scratch — that blind-overwrote whichever keys
+  // this caller didn't carry. Merge onto the persisted blob and keep the
+  // read+write atomic against the other connection. See DbWorker.cacheFilterCount.
+  const write = db.transaction(() => {
+    let extraObj: any = {}
+    try {
+      const row = db.prepare('SELECT extra FROM metadata LIMIT 1').get() as
+        | { extra?: string }
+        | undefined
+      extraObj = row?.extra ? JSON.parse(row.extra) : {}
+    } catch (_) {
+      extraObj = {}
+    }
+    extraObj.filters = metadata.filters || []
+    if (metadata.savedCustomFilters && metadata.savedCustomFilters.length > 0) {
+      extraObj.savedCustomFilters = metadata.savedCustomFilters
+    }
+    if (metadata.cachedCounts) {
+      // Merge, don't replace — preserve counts the worker cached for filters
+      // not present in this caller's map.
+      extraObj.cachedCounts = {
+        ...(extraObj.cachedCounts || {}),
+        ...metadata.cachedCounts,
+      }
+    }
+    if (metadata.files !== undefined) {
+      extraObj.cachedFileCount = metadata.files
+    }
+    db.prepare(
+      'UPDATE metadata SET name = ?, path = ?, createdAt = ?, extra = ?',
+    ).run(
+      metadata.name || '',
+      metadata.path || '',
+      metadata.createdAt || 0,
+      JSON.stringify(extraObj),
+    )
+  })
+  write.immediate()
 }
 
 export function getFileByPath(path: string, filePath: string) {
