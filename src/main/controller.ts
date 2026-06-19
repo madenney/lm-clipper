@@ -315,6 +315,14 @@ export default class Controller {
     this.updateWindowTitle()
   }
 
+  // Reload the archive model from a project's DB and make it current. Returns
+  // the metadata for callers that need it (e.g. to reply or read the name).
+  private async reloadArchiveFrom(archivePath: string) {
+    const metadata = await getMetaData(archivePath)
+    this.setArchiveInternal(new Archive(metadata))
+    return metadata
+  }
+
   private updateWindowTitle() {
     if (this.mainWindow?.isDestroyed?.()) return
     const name = this.archive?.name
@@ -405,8 +413,7 @@ export default class Controller {
       displayName,
       this.config.includeDefaultFilters !== false,
     )
-    const metadata = await getMetaData(newArchivePath)
-    this.setArchiveInternal(new Archive(metadata))
+    const metadata = await this.reloadArchiveFrom(newArchivePath)
 
     this.config.lastArchivePath = newArchivePath
     this.config.projectName = metadata.name
@@ -425,8 +432,7 @@ export default class Controller {
     if (fs.existsSync(this.config.lastArchivePath)) {
       console.log('Loading from existing DB')
       try {
-        const metadata = await getMetaData(this.config.lastArchivePath)
-        this.setArchiveInternal(new Archive(metadata))
+        await this.reloadArchiveFrom(this.config.lastArchivePath)
         this.updateWindowTitle()
         return
       } catch (e) {
@@ -492,8 +498,7 @@ export default class Controller {
     if (this.archive) {
       try {
         this.stopNameCountWorker()
-        const metadata = await getMetaData(this.archive.path)
-        this.setArchiveInternal(new Archive(metadata))
+        const metadata = await this.reloadArchiveFrom(this.archive.path)
         this.updateWindowTitle()
         reply(event, 'archive', requestId, metadata)
       } catch (error) {
@@ -570,8 +575,7 @@ export default class Controller {
       this.stopNameCountWorker()
       closeDb()
       try {
-        const metadata = await getMetaData(filePaths[0])
-        this.setArchiveInternal(new Archive(metadata))
+        await this.reloadArchiveFrom(filePaths[0])
         this.updateWindowTitle()
       } catch (e) {
         console.error('Error opening archive', e)
@@ -677,8 +681,7 @@ export default class Controller {
       const newName = projectDisplayName(newPath)
       await updateMetadataPathAndNameAsync(newPath, newPath, newName)
 
-      const metadata = await getMetaData(newPath)
-      this.setArchiveInternal(new Archive(metadata))
+      await this.reloadArchiveFrom(newPath)
       this.updateWindowTitle()
 
       this.config.lastArchivePath = newPath
@@ -722,8 +725,7 @@ export default class Controller {
     try {
       this.stopNameCountWorker()
       closeDb()
-      const metadata = await getMetaData(projectPath)
-      this.setArchiveInternal(new Archive(metadata))
+      await this.reloadArchiveFrom(projectPath)
       this.updateWindowTitle()
       if (!this.archive || !this.archive.shallowCopy) {
         throw new Error('Failed to load project')
