@@ -7,20 +7,8 @@
  * requests sequentially on its own thread.
  */
 import { parentPort } from 'worker_threads'
-import { appendFileSync } from 'fs'
 import Database from 'better-sqlite3'
 import { archive as defaultArchive } from '../constants/defaults'
-
-// TEMP DIAGNOSTIC — remove once tray-load slowness is confirmed fixed.
-const DBG = '/tmp/dbworker-perf.log'
-const dbg = (line: string) => {
-  try {
-    appendFileSync(DBG, `${new Date().toISOString()} ${line}\n`)
-  } catch (_) {
-    // ignore
-  }
-}
-dbg('=== DbWorker started (build with itemsOrderBy fix) ===')
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -318,16 +306,10 @@ function handleGetItems(
   offset: number,
 ): any[] {
   validateTableId(tableId)
-  const __t = Date.now()
   const orderBy = itemsOrderBy(db, tableId)
-  const __tOrder = Date.now()
   const rows = db
     .prepare(`SELECT * FROM "${tableId}" ORDER BY ${orderBy} LIMIT ? OFFSET ?`)
     .all(limit, offset)
-  dbg(
-    `getItems table=${tableId} orderBy="${orderBy}" limit=${limit} offset=${offset} ` +
-      `chooseOrderMs=${__tOrder - __t} queryMs=${Date.now() - __tOrder} rows=${(rows as any[]).length}`,
-  )
   return rows
 }
 
@@ -555,7 +537,6 @@ parentPort.on(
       return
     }
 
-    const __t0 = Date.now()
     try {
       const db = getDb(msg.dbPath)
       let data: any
@@ -727,18 +708,9 @@ parentPort.on(
           throw new Error(`Unknown method: ${(msg as any).method}`)
       }
 
-      const __dur = Date.now() - __t0
-      if (__dur > 200) {
-        dbg(
-          `SLOW method=${msg.method} ${(msg as any).tableId || ''} totalMs=${__dur}`,
-        )
-      }
       post({ id: msg.id, type: 'result', data })
     } catch (error) {
       const errorText = error instanceof Error ? error.message : String(error)
-      dbg(
-        `ERROR method=${msg.method} totalMs=${Date.now() - __t0} ${errorText}`,
-      )
       post({ id: msg.id, type: 'error', error: errorText })
     }
   },
