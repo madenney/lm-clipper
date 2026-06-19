@@ -66,6 +66,10 @@ jobs:
         run: npm run build
 
       - name: Package
+        # Force bash on all platforms: PowerShell mis-tokenizes the dotted
+        # `-c.publish.channel=...` arg into `-c` + a bogus file path, which
+        # breaks the Windows build. bash parses it correctly (as Linux proves).
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npx electron-builder --publish never --${{ matrix.platform }} -c.publish.channel=${{ steps.channel.outputs.channel }}
