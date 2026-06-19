@@ -83,7 +83,9 @@ describe('default config — sane default values', () => {
     expect(Array.isArray(config.savedCustomFilters)).toBe(true)
     expect(config.savedCustomFilters.length).toBeGreaterThan(0)
     // Every shipped filter is flagged builtIn.
-    expect(config.savedCustomFilters.every((f) => f.builtIn === true)).toBe(true)
+    expect(config.savedCustomFilters.every((f) => f.builtIn === true)).toBe(
+      true,
+    )
   })
 })
 
