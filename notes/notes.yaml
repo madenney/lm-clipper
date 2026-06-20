@@ -81,3 +81,35 @@
   done: false
   ai: |
     edgeguard2.ts now computes stocks via computeStocks() (src/lib/slippiStocks.ts) — runs only slippi-js StockComputer instead of the full SlippiGame.getStats() (which also runs combos/conversions/actions/inputs/targets + overall). ~1/3 less post-parse CPU per file, verified byte-identical stocks. The older edgeguard.ts still calls `game.getStats()` then reads `stats.stocks` with the same one-line pattern and would benefit identically. Minor: swap for `computeStocks(game)`.
+- human: Cut v2.0.0-beta.4 and smoke-test the pre-release fixes on Windows
+  done: false
+  ai: |
+    ~28 commits of pre-release review fixes sit on local master, UNPUSHED. Push master + tag v2.0.0-beta.4 to trigger .github/workflows/release.yml (builds win+linux, publishes a prerelease with auto-update manifests). This also re-tests the auto-updater: an installed beta.3 should self-update to beta.4 (the first hop that works — beta.2.5 predates the prerelease-aware updater). Then smoke-test what tsc + jest can't verify: (1) custom-code consent gate — running a custom filter pops "Run custom code?"; "Always trust" stops re-prompting; (2) the nodeIntegrationInWorker removal in main.ts — confirm the Tray density/webgl visualization STILL renders (the most likely regression); (3) tightened CSP (index.ejs/codeEditor.ejs) — app loads, no blank screen; (4) data-integrity fixes — import a zero-.slp zip (modal closes, no hang), quit mid-filter-run, Run-All. See RELEASING.md.
+- human: Remove or testMode-gate the dev "Reset App" button before GA
+  done: false
+  ai: |
+    src/renderer/components/Top.tsx has a TEMP "Reset App" button (sendMessage 'resetApp') that wipes config to defaults + relaunches with NO confirmation — a data-loss footgun for end users. Intentionally shipped in the beta for Windows testing. Before stable GA, gate it behind {config.testMode && (...)} like the neighboring "Reset SLPZ" button, or delete it. Its own comment says "Remove before GA". Review task #25.
+- human: Free Windows code signing via SignPath Foundation before GA
+  done: false
+  ai: |
+    Windows builds ship UNSIGNED (SmartScreen "unknown publisher" nag; auto-update still works unsigned). User won't pay for a cert. SignPath Foundation grants free code-signing certs to qualifying open-source projects (lm-clipper is public). Apply, then add one signing step in release.yml between Package and the checksum step + win.publisherName in package.json; electron-updater's verifyUpdateCodeSignature then passes with no client change. Do before stable GA. See RELEASING.md "Code signing".
+- human: Finish breaking up god-objects — big React components + ConfigManager
+  done: false
+  ai: |
+    Review task #35 did the SAFE slice only (extracted config-type migration to src/main/configStore.ts + tests). Deferred because high-churn with UI regression risk tsc/jest can't catch: (1) split the 2331-line CodeEditorPage.tsx and 1761-line FilterControls.tsx into per-panel components; (2) move config STATE ownership out of controller.ts (1700 lines, 68 IPC handlers) into a dedicated ConfigManager (load/merge/save/recent-projects/updateConfig). Do in a dedicated session WITH the app running so each extraction is smoke-tested. NOT pre-beta work.
+- human: Single-source the IPC channel allowlist + push Sort into SQL
+  done: false
+  ai: |
+    Review task #38, deferred. (a) The preload SEND_CHANNELS Set (src/main/preload.ts) is hand-maintained and drifts from controller.ts's ipcMain.on registrations — a forgotten channel fails silently ~30s. A new test (src/__tests__/ipcAllowlist.test.ts) now CATCHES drift in CI, so urgency is gone; the clean fix is to derive SEND_CHANNELS from one source of truth shared with the registration loop. (b) The Sort filter (src/models/Worker.ts) loads ALL rows on one thread to sort in JS — won't scale to the ~6M-combo DB; push into SQL ORDER BY with an index. The SQL-sort is a risky rewrite — post-beta.
+- human: Pre-release review — data-integrity + custom-code consent gate (MUST fixes)
+  done: true
+  ai: |
+    From a hostile pre-release review, fixed the release-blocking correctness + security issues (committed to local master, beta-4-bound): (1) custom filters run user JS via Node vm (NOT a sandbox; trivially escapable -> RCE on opening+running a shared project) -> consent gate in Filters.tsx + FilterModals.CustomCodeConsentModal + config.approvedCustomCodeHashes; running unapproved custom code prompts Cancel/Run-once/Always-trust keyed by code SHA-256; never auto-runs. (2) quit-time WAL sidecar deletion could lose committed data -> only delete on confirmed-clean shutdown (main.ts). (3) metadata `extra` JSON blob lost-update across two SQLite connections -> read-merge-write under BEGIN IMMEDIATE (db.ts + DbWorker.ts). (4) import hang on zero-slp/skip-zip exits -> always emit finished (ImportManager). (5) Run-All marked crashed-worker partial results as processed -> halt on worker crash (FilterExecutor). (6) closeArchive didn't stop in-flight import/filter/video. See memory custom-code-consent-gate.md. Reset App button gating is a separate open note.
+- human: tsc 127 -> 0 errors + CI ratchet typecheck gate
+  done: true
+  ai: |
+    Drove the whole TypeScript backlog to zero (was 127) and gated it. Real fixes, no any/@ts-ignore (only boundary casts at IPC/DB edges). Found real latent bugs: slippi frame.players is an OBJECT keyed by index, not an array (several filters used .filter/.find on it) -> Object.values(...); multiple null derefs. Added @types/better-sqlite3 + a tsconfig path for electron-updater so the DB/updater layers are actually type-checked. Last 7 errors were import.meta: added tsconfig.typecheck.json (extends base, module:esnext) used ONLY by tsc --noEmit, leaving jest/ts-node/webpack on the base commonjs config. Gate: .erb/scripts/tsc-ratchet.js fails if errors exceed .tsc-error-baseline (now 0 = hard gate); CI typecheck job runs it. See memory typecheck-setup.md.
+- human: Auto-update pipeline + anonymous usage telemetry + CI hardening
+  done: true
+  ai: |
+    Release-push work alongside the review: (1) rebuilt the release pipeline so published builds actually auto-update — upload latest/beta .yml manifests + blockmaps, publish (not draft), beta/stable channels from the tag, allowPrerelease from version; dropped macOS, retired Conveyor; runbook in RELEASING.md. (2) anonymous usage telemetry: src/main/telemetry.ts (install/app_open/video_created/import_completed/filter_run) -> lunarmelee.com/api/app-usage with a random installId; opt-out + first-run notice; NO consent gate (GDPR legitimate interest). Wire contract + dashboard spec for the website is docs/telemetry-api.md (SERVER MUST DISCARD THE CLIENT IP). (3) CI hardening: npm ci + real prod-dep audit gate (fixed lodash/react-router), release-binary verify step, explicit webPreferences + tighter CSP, serialized/atomic config writes, tests 31 -> 178. See memory release-pipeline.md, usage-telemetry.md.
