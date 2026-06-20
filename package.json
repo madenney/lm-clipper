@@ -121,6 +121,7 @@
     "@teamsupercell/typings-for-css-modules-loader": "^2.5.2",
     "@testing-library/jest-dom": "^5.16.5",
     "@testing-library/react": "^13.4.0",
+    "@types/better-sqlite3": "^7.6.13",
     "@types/jest": "^29.4.0",
     "@types/lodash": "^4.14.195",
     "@types/node": "18.13.0",

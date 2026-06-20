@@ -645,9 +645,9 @@ parentPort.on(
         case 'updateSortOrder': {
           validateTableId(msg.tableId)
           // Ensure sort_order column exists
-          const cols = db
-            .pragma(`table_info("${msg.tableId}")`)
-            .map((c: any) => c.name)
+          const cols = (
+            db.pragma(`table_info("${msg.tableId}")`) as { name: string }[]
+          ).map((c) => c.name)
           if (!cols.includes('sort_order')) {
             db.exec(
               `ALTER TABLE "${msg.tableId}" ADD COLUMN sort_order INTEGER DEFAULT NULL`,
