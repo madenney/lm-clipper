@@ -366,7 +366,7 @@ const aiPrompt = `You are writing a JavaScript code block for "Lunar Clipper" (h
 
 The app imports .slp replay files, lets users build a filter chain (game filter → combo parser → combo filter → custom code → sort), and generates video clips from the results using Slippi Dolphin + ffmpeg.
 
-I'm writing a "Custom Code" filter. This filter receives the output of previous filters and must return a filtered/transformed array of clips. The code I write is executed as the body of a function with these three parameters:
+I'm writing a "Custom Code" filter. This filter receives the output of previous filters and must return a filtered/transformed array of clips. The code I write is executed as the body of a function with these parameters. **Only \`clips\`, \`params\`, \`SlippiGame\`, and \`console\` are available** — there is no \`require\`/\`import\`, no \`fetch\` or network access, no filesystem, no Node APIs, and no DOM:
 
 ## 1. \`clips\` — Array of clip objects from the previous filter
 
@@ -429,6 +429,7 @@ game.getFrames()      // → { [frameNumber]: { players: { [idx]: { pre, post } 
                       //   post: actionStateId, position, percent, shieldSize, stocksRemaining, isAirborne, etc.
 game.getLatestFrame() // → last frame (same shape as single frame from getFrames)
 \`\`\`
+Parsing a replay with \`new SlippiGame(...)\` is expensive — it reads the whole file — so only open files you actually need, and prefer the data already on each \`clip\`.
 
 ## 3. \`params\` — This filter's params object
 \`\`\`
@@ -436,6 +437,12 @@ game.getLatestFrame() // → last frame (same shape as single frame from getFram
 \`\`\`
 Users can define custom parameters (int, string, array) on the filter card. These are flattened onto params as top-level keys. Int params are parsed to numbers, string params are strings, array params are comma-separated strings split into string arrays.
 CUSTOM_PARAMS_PLACEHOLDER
+\`maxFiles\` caps how many input clips this filter processes (empty = all of them).
+
+## 4. \`console\` — For debugging
+
+\`console.log()\`, \`console.warn()\`, and \`console.error()\` are available; their output appears in the editor's test results. Use them to inspect data while iterating.
+
 ## What I need to return
 
 The code must return an array of clip objects (same shape as the input). Typically you filter the \`clips\` array, but you can also modify clip properties (e.g. adjust startFrame/endFrame) or create new clips. You can also add custom properties to clips (e.g. \`clip.myScore = 42\`) and they will carry through to subsequent filters in the chain.
