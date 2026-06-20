@@ -20,7 +20,8 @@ export default (
     const { maxFiles } = params
     eventEmitter({
       current: index,
-      total: maxFiles === '' ? prevResults.length : parseInt(maxFiles, 10),
+      total:
+        maxFiles === '' ? prevResults.length : parseInt(maxFiles ?? '', 10),
     })
 
     if (!comboee) return clip
@@ -34,8 +35,11 @@ export default (
       return clip
     }
 
-    const _endFrame = parseInt(endFrame, 10)
-    const _startFrame = parseInt(startFrame, 10)
+    // startFrame/endFrame are numbers (or null) on ClipInterface. The old
+    // parseInt(number) was a no-op; ?? NaN keeps the original behaviour that a
+    // null frame falls into the isNaN guard below and skips the clip.
+    const _endFrame = endFrame ?? NaN
+    const _startFrame = startFrame ?? NaN
     if (Number.isNaN(_endFrame) || Number.isNaN(_startFrame)) return clip
 
     // Lets just assume star KO frames happen at the end of the clip
@@ -44,11 +48,11 @@ export default (
     for (let i = _endFrame; i > _startFrame; i--) {
       const currentFrame = frames[i]
       if (!currentFrame?.players) break
-      const _comboee = currentFrame.players.find(
+      const _comboee = Object.values(currentFrame.players).find(
         (p) => p?.post?.playerIndex == comboee.playerIndex,
       )
       if (!_comboee?.post) break
-      if (starKOIDs.indexOf(_comboee.post.actionStateId) > -1) {
+      if (starKOIDs.indexOf(_comboee.post.actionStateId ?? -1) > -1) {
         newEndFrame = i - 1
       } else {
         break

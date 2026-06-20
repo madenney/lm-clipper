@@ -69,8 +69,8 @@ export default (
   const filteredCombos: ClipInterface[] = []
   combos.forEach((combo) => {
     if (!combo.moves || combo.moves.length === 0) return false
-    if (minHits && combo.moves.length < minHits) return false
-    if (maxHits && combo.moves.length > maxHits) return false
+    if (minHits && combo.moves.length < Number(minHits)) return false
+    if (maxHits && combo.moves.length > Number(maxHits)) return false
     const comboer = players.find(
       (p) => p && p.playerIndex === combo.moves[0].playerIndex,
     )

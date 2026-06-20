@@ -38,15 +38,18 @@ export default (
       const numHits = countPummels
         ? moves.length
         : moves.filter((move) => move.moveId != 52).length
-      if (numHits < minHits) return false
+      if (numHits < Number(minHits)) return false
     }
     if (maxHits) {
       const numHits = countPummels
         ? moves.length
         : moves.filter((move) => move.moveId != 52).length
-      if (numHits > maxHits) return false
+      if (numHits > Number(maxHits)) return false
     }
-    if (minDamage && !(moves.reduce((n, m) => n + m.damage, 0) >= minDamage))
+    if (
+      minDamage &&
+      !(moves.reduce((n, m) => n + m.damage, 0) >= Number(minDamage))
+    )
       return false
     if (!matchesPlayer(comboer, comboerChar, comboerTag, comboerCC))
       return false

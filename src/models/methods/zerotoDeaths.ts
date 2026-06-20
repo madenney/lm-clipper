@@ -9,7 +9,7 @@ export default (
   params: ZeroToDeathsParams,
   eventEmitter: EventEmitterInterface,
 ) => {
-  const threshold = parseInt(params.startThreshold, 10) || 0
+  const threshold = parseInt(params.startThreshold ?? '', 10) || 0
   return prevResults.filter((clip, index) => {
     eventEmitter({ current: index, total: prevResults.length })
     if (!clip.combo) return false

@@ -26,7 +26,9 @@ export default (prevResults: ClipInterface[], params: KoDirectionParams) => {
     if (!comboee || !clip.combo?.didKill) return false
 
     const game = new SlippiGame(path)
-    let stocks: ReturnType<SlippiGame['getStats']>['stocks'] | undefined
+    let stocks:
+      | NonNullable<ReturnType<SlippiGame['getStats']>>['stocks']
+      | undefined
     try {
       stocks = game.getStats()?.stocks
     } catch (e) {

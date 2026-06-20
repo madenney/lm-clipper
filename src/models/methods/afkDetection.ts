@@ -13,7 +13,7 @@ export default (
   params: AfkDetectionParams,
   eventEmitter: EventEmitterInterface,
 ) => {
-  const maxInputsPerSec = parseFloat(params.maxInputsPerSec) || 2
+  const maxInputsPerSec = parseFloat(params.maxInputsPerSec ?? '') || 2
   const exclude = params.exclude !== false
 
   return prevResults.filter((clip, index) => {
@@ -43,9 +43,11 @@ export default (
       let totalFrames = 0
 
       for (let f = start; f <= end; f++) {
-        const frame = frames[f.toString()]
+        const frame = frames[f]
         if (!frame) continue
-        const player = frame.players?.find((p) => p?.pre?.playerIndex === pi)
+        const player = Object.values(frame.players ?? {}).find(
+          (p) => p?.pre?.playerIndex === pi,
+        )
         if (!player?.pre) continue
 
         totalFrames++

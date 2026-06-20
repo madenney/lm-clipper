@@ -1,8 +1,8 @@
 import { ClipInterface, TrimParams } from '../../constants/types'
 
 export default (prevResults: ClipInterface[], params: TrimParams) => {
-  const addStart = parseInt(params.addStartFrames, 10) || 0
-  const addEnd = parseInt(params.addEndFrames, 10) || 0
+  const addStart = parseInt(params.addStartFrames ?? '', 10) || 0
+  const addEnd = parseInt(params.addEndFrames ?? '', 10) || 0
 
   if (addStart === 0 && addEnd === 0) return prevResults
 
