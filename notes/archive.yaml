@@ -16,3 +16,67 @@
   ai: |
     Done (commit cb6dce6). Re-running a processed filter whose last run took more than 60s / 10m / 1h pops a ConfirmResetModal (src/renderer/components/ FilterModals.tsx). Three independent severity tiers (config flags warnOnReset60s / warnOnReset10m / warnOnReset1h). Only the LOWEST un-silenced tier the run's duration qualifies for is shown, one at a time — so a first-ever re-run of a 1h filter shows only the 60s warning; silence it and the next qualifying run shows the 10m one, then the 1h one. Each tier's "don't warn again" checkbox silences only that tier. Run duration is tracked as Filter.lastRunMs (src/models/Filter.ts) and persisted via Archive. Gate logic is in Filters.tsx runFilter.
   archived_at: '2026-06-14T23:27:07'
+- human: Delete SQLite -wal/-shm sidecars at quit so a closed project is one file
+  done: true
+  ai: |
+    Projects are WAL-mode SQLite, so each .lunar has -wal/-shm sidecars; they
+    persisted at rest and confused the single-file-document feel. Fix: clean them
+    up at app quit, once every connection is released. Two long-lived connections
+    hold the file open (main dbConnection + the background DbWorker in dbAsync.ts),
+    so the delete must come AFTER both close — and on Windows an open handle blocks
+    unlink, so the DbWorker connection must be closed *gracefully*, not abruptly
+    terminated. Implementation: DbWorker.ts handles a {__control:'close'} message
+    (closes cachedDb, replies 'closed'); dbAsync.shutdownDbWorker() sends it,
+    awaits the ack (1.5s cap), then terminates; main.ts before-quit is now async
+    (preventDefault → shutdownCleanupAsync → app.exit(0)) with a 3s overall race so
+    quit can't hang. shutdownCleanupAsync: capture project path → controller.cleanup
+    → await shutdownDbWorker → closeDb (checkpoints WAL to 0 bytes) →
+    removeWalSidecars(path). removeWalSidecars is GUARDED: never deletes a -wal with
+    size>0 (un-checkpointed data / crash recovery), and any unlink failure is benign
+    (left as today). Signals/crashes use the old sync shutdownCleanup (best-effort).
+    Only cleans the currently-open project at quit; old leftover sidecars get
+    cleaned when those projects are next opened+quit. Verified lint/tsc(127)/jest
+    31/31 + main & DbWorker bundles rebuilt — but the actual "quit → folder shows one
+    file" behavior needs eyeballing in a running build (esp. Windows).
+  archived_at: '2026-06-20T10:00:39'
+- human: New-user onboarding — Start screen + Welcome / getting-started
+  done: true
+  ai: |
+    Shipped a conventional first-run experience (VS Code / JetBrains style) so
+    Slippi users new to Lunar Clipper feel oriented. Three states: (1) returning
+    users still auto-reopen their last project (unchanged); (2) no project open =>
+    enriched "Start screen" — the EmptyState in src/renderer/components/Main.tsx,
+    now two columns: left Start (New/Open) + Recent, right a "Getting started"
+    panel; (3) project open but zero replays => an Import dropzone in the Tray's
+    game-filter empty state (src/renderer/components/Tray/Tray.tsx) with an
+    [Import replays] button (ipcBridge.importSlpFiles) — live drag-drop already
+    works app-wide via Main's handleDrop. New reusable component
+    src/renderer/components/GettingStarted.tsx exports GettingStarted (the 1-2-3
+    flow + Playback/ISO setup status rows that launch the existing SetupWizard via
+    triggerSetupWizard('record') + "Browse Lunar Database" link) and WelcomeModal
+    (Help → Welcome overlay, sends/receives the 'showWelcome' channel from
+    menu.ts → App.tsx; receive channels need no preload allowlist). Config flag
+    showGettingStarted (default-on, treated true when undefined) in defaults.ts +
+    types.ts toggles the right column; styles in GettingStarted.css + Main.css
+    (.empty-state-col*) + Tray.css (.tray-dropzone*). Also bumped
+    VideoManager.detectDolphinPath to probe "Slippi Launcher Beta" and
+    %LOCALAPPDATA% in addition to the standard playback path. Deliberately NO
+    download/ISO hand-holding (users already have Slippi). Verified: lint clean,
+    tsc unchanged at 127, jest 31/31, main bundle rebuilt — but the actual
+    rendered UI/spacing still needs eyeballing in a running build.
+  archived_at: '2026-06-20T10:00:39'
+- human: Pre-release review — data-integrity + custom-code consent gate (MUST fixes)
+  done: true
+  ai: |
+    From a hostile pre-release review, fixed the release-blocking correctness + security issues (committed to local master, beta-4-bound): (1) custom filters run user JS via Node vm (NOT a sandbox; trivially escapable -> RCE on opening+running a shared project) -> consent gate in Filters.tsx + FilterModals.CustomCodeConsentModal + config.approvedCustomCodeHashes; running unapproved custom code prompts Cancel/Run-once/Always-trust keyed by code SHA-256; never auto-runs. (2) quit-time WAL sidecar deletion could lose committed data -> only delete on confirmed-clean shutdown (main.ts). (3) metadata `extra` JSON blob lost-update across two SQLite connections -> read-merge-write under BEGIN IMMEDIATE (db.ts + DbWorker.ts). (4) import hang on zero-slp/skip-zip exits -> always emit finished (ImportManager). (5) Run-All marked crashed-worker partial results as processed -> halt on worker crash (FilterExecutor). (6) closeArchive didn't stop in-flight import/filter/video. See memory custom-code-consent-gate.md. Reset App button gating is a separate open note.
+  archived_at: '2026-06-20T10:00:39'
+- human: tsc 127 -> 0 errors + CI ratchet typecheck gate
+  done: true
+  ai: |
+    Drove the whole TypeScript backlog to zero (was 127) and gated it. Real fixes, no any/@ts-ignore (only boundary casts at IPC/DB edges). Found real latent bugs: slippi frame.players is an OBJECT keyed by index, not an array (several filters used .filter/.find on it) -> Object.values(...); multiple null derefs. Added @types/better-sqlite3 + a tsconfig path for electron-updater so the DB/updater layers are actually type-checked. Last 7 errors were import.meta: added tsconfig.typecheck.json (extends base, module:esnext) used ONLY by tsc --noEmit, leaving jest/ts-node/webpack on the base commonjs config. Gate: .erb/scripts/tsc-ratchet.js fails if errors exceed .tsc-error-baseline (now 0 = hard gate); CI typecheck job runs it. See memory typecheck-setup.md.
+  archived_at: '2026-06-20T10:00:39'
+- human: Auto-update pipeline + anonymous usage telemetry + CI hardening
+  done: true
+  ai: |
+    Release-push work alongside the review: (1) rebuilt the release pipeline so published builds actually auto-update — upload latest/beta .yml manifests + blockmaps, publish (not draft), beta/stable channels from the tag, allowPrerelease from version; dropped macOS, retired Conveyor; runbook in RELEASING.md. (2) anonymous usage telemetry: src/main/telemetry.ts (install/app_open/video_created/import_completed/filter_run) -> lunarmelee.com/api/app-usage with a random installId; opt-out + first-run notice; NO consent gate (GDPR legitimate interest). Wire contract + dashboard spec for the website is docs/telemetry-api.md (SERVER MUST DISCARD THE CLIENT IP). (3) CI hardening: npm ci + real prod-dep audit gate (fixed lodash/react-router), release-binary verify step, explicit webPreferences + tighter CSP, serialized/atomic config writes, tests 31 -> 178. See memory release-pipeline.md, usage-telemetry.md.
+  archived_at: '2026-06-20T10:00:39'
