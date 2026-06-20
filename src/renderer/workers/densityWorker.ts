@@ -176,7 +176,7 @@ self.onmessage = (event: MessageEvent<WorkerMessage>) => {
   const payload = event.data
   if (payload.type === 'init') {
     canvas = payload.canvas
-    ctx = canvas.getContext('2d')
+    ctx = canvas.getContext('2d') as OffscreenCanvasRenderingContext2D | null
     return
   }
   if (payload.type === 'data') {

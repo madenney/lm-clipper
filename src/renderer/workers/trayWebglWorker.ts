@@ -218,7 +218,7 @@ const initGl = () => {
     antialias: false,
     depth: false,
     premultipliedAlpha: true,
-  })
+  }) as WebGL2RenderingContext | null
   if (!gl) {
     self.postMessage({ type: 'error', message: 'WebGL2 unavailable' })
     return false
@@ -344,9 +344,12 @@ const uploadTextureArray = (payload: TexturePayload) => {
     )
   }
 
+  // Capture the non-null narrowing from the `if (!gl) return` guard above so it
+  // holds inside this callback (gl is a mutable module-level binding).
+  const glc = gl
   bitmaps.forEach((bitmap, layer) => {
-    gl.texSubImage3D(
-      gl.TEXTURE_2D_ARRAY,
+    glc.texSubImage3D(
+      glc.TEXTURE_2D_ARRAY,
       0,
       0,
       0,
@@ -354,8 +357,8 @@ const uploadTextureArray = (payload: TexturePayload) => {
       size,
       size,
       1,
-      gl.RGBA,
-      gl.UNSIGNED_BYTE,
+      glc.RGBA,
+      glc.UNSIGNED_BYTE,
       bitmap,
     )
     bitmap.close()
