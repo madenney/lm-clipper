@@ -1071,7 +1071,7 @@ export default function CodeEditorPage() {
   }, [dirty])
 
   const handleClose = () => {
-    window.electron.ipcRenderer.sendMessage('code-editor-close')
+    window.electron.ipcRenderer.sendMessage('code-editor-close', null)
   }
 
   const loadTemplate = useCallback(
