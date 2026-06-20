@@ -41,30 +41,30 @@ export default (
     const hasParsedData = !!(comboer && comboee && combo)
     const moves = combo?.moves
     const {
-      startFrom,
-      searchRange,
+      startFrom = '',
+      searchRange = '',
       comboerActionState,
       comboeeActionState,
       startFromNthMove,
-      offset,
+      offset = '',
       comboerCustomIds,
       comboeeCustomIds,
       exclude,
-      comboerMinX,
-      comboerMaxX,
-      comboerMinY,
-      comboerMaxY,
-      comboeeMinX,
-      comboeeMaxX,
-      comboeeMinY,
-      comboeeMaxY,
+      comboerMinX = '',
+      comboerMaxX = '',
+      comboerMinY = '',
+      comboerMaxY = '',
+      comboeeMinX = '',
+      comboeeMaxX = '',
+      comboeeMinY = '',
+      comboeeMaxY = '',
     } = params
     const game = new SlippiGame(path)
     let frames
     let lastFrame
     try {
       frames = game.getFrames()
-      lastFrame = game.getMetadata().lastFrame
+      lastFrame = game.getMetadata()?.lastFrame ?? 0
     } catch (e) {
       return false
     }
@@ -202,17 +202,19 @@ export default (
           : i > _startFrame + _searchRange;
       searchAll ? i++ : _searchRange > 0 ? i++ : i--
     ) {
-      const currentFrame = frames[i.toString()]
+      const currentFrame = frames[i]
       if (!currentFrame) continue
-      const players = currentFrame.players?.filter((p) => p?.post) || []
+      const players = Object.values(currentFrame.players ?? {}).filter(
+        (p): p is NonNullable<typeof p> => Boolean(p?.post),
+      )
 
       if (hasParsedData) {
         // Parsed mode: match by comboer/comboee player index
         const comboerPlayer = players.find(
-          (p) => p.post.playerIndex == comboer.playerIndex,
+          (p) => p.post.playerIndex == comboer?.playerIndex,
         )
         const comboeePlayer = players.find(
-          (p) => p.post.playerIndex == comboee.playerIndex,
+          (p) => p.post.playerIndex == comboee?.playerIndex,
         )
         const p1Ok = !needP1 || (comboerPlayer && matchP1(comboerPlayer.post))
         const p2Ok = !needP2 || (comboeePlayer && matchP2(comboeePlayer.post))
