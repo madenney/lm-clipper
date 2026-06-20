@@ -104,7 +104,7 @@ type DetectOpts = {
 }
 
 function detectEdgeguard(
-  stock: { endFrame: number | null },
+  stock: { endFrame?: number | null },
   victimIdx: number,
   victimCharId: number,
   edgeguarderIdx: number,
@@ -304,16 +304,14 @@ export default (
     }
     if (!stocks.length) continue
 
-    const isClipMode = !!item.combo
-
-    if (isClipMode) {
+    if ('combo' in item && item.combo) {
       const { comboer, comboee } = item
       if (!comboer || !comboee) continue
       if (!matchesPlayer(comboer, comboerChar, comboerTag, comboerCC)) continue
       if (!matchesPlayer(comboee, comboeeChar, comboeeTag, comboeeCC)) continue
 
       // The combo's victim must die at/after the clip end.
-      const clipEnd = parseInt(item.endFrame, 10)
+      const clipEnd = item.endFrame
       const matchingStock = stocks
         .filter(
           (s) =>
@@ -344,6 +342,7 @@ export default (
       }
     } else {
       // Files mode: scan every stock; the victim is whoever lost the stock.
+      if (!players) continue
       for (const stock of stocks) {
         if (stock.endFrame == null) continue
         const comboer = players.find(

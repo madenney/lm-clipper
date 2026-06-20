@@ -32,7 +32,7 @@ function areCoordsInMirroredRectangle(
 }
 
 function detectEdgeguard(
-  stock: { endFrame: number | null; playerIndex: number },
+  stock: { endFrame?: number | null; playerIndex: number },
   playerIndex: number,
   frames: Record<string, any>,
   stageRects: { bz: Rect; edge: Rect },
@@ -171,9 +171,7 @@ export default (
     }
 
     // Clips mode: input has combo data from parser
-    const isClipMode = !!item.combo
-
-    if (isClipMode) {
+    if ('combo' in item && item.combo) {
       const { comboer, comboee } = item
       if (!comboer || !comboee) continue
 
@@ -182,7 +180,7 @@ export default (
       if (!matchesPlayer(comboee, comboeeChar, comboeeTag, comboeeCC)) continue
 
       // Find the matching stock for this combo's kill
-      const clipEnd = parseInt(item.endFrame, 10)
+      const clipEnd = item.endFrame
       const matchingStock = stats!.stocks
         .filter(
           (s) =>
@@ -210,6 +208,7 @@ export default (
     } else {
       // Files mode: scan all stocks
       if (!stats?.stocks?.length) continue
+      if (!players) continue
 
       for (const stock of stats!.stocks) {
         if (stock.endFrame == null) continue
