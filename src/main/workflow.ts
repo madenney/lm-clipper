@@ -131,7 +131,7 @@ export async function runWorkflow(
 
   const updatedMeta = await getMetaData(dbPath)
   const updatedFilter = updatedMeta.filters.find(
-    (filter) => filter.id === filterId,
+    (filter: FilterInterface) => filter.id === filterId,
   )
   log(`Workflow: filter results ${updatedFilter?.results || 0}`)
 
@@ -158,11 +158,18 @@ export async function runWorkflow(
   const lastProcessedFilter = updatedMeta.filters
     .slice()
     .reverse()
-    .find((filter) => filter.isProcessed && filter.results > 0)
+    .find(
+      (filter: FilterInterface) =>
+        filter.isProcessed && (filter.results ?? 0) > 0,
+    )
   const resultsTableId = lastProcessedFilter ? lastProcessedFilter.id : 'files'
 
-  let finalResults: (ClipInterface | FileInterface)[] =
-    await archive.getAllItems(resultsTableId)
+  // getAllItems (non-lite) returns full Clip/File items; the interface's union
+  // includes LiteItem for the lite path, which doesn't apply here.
+  let finalResults = (await archive.getAllItems(resultsTableId)) as (
+    | ClipInterface
+    | FileInterface
+  )[]
   if (!finalResults || finalResults.length === 0) {
     log('Workflow: no clips to generate')
     return

@@ -38,9 +38,11 @@ const resolveClipFrames = (payload: ClipPayload) => {
   const hasStart =
     typeof payload.startFrame === 'number' && payload.startFrame !== 0
   const hasEnd = typeof payload.endFrame === 'number' && payload.endFrame !== 0
-  const startFrame = hasStart ? payload.startFrame : -123
+  // hasStart/hasEnd already proved these are numbers; assert past the
+  // separate-boolean narrowing limitation so the result is {number, number}.
+  const startFrame = hasStart ? payload.startFrame! : -123
   const endFrame = hasEnd
-    ? payload.endFrame
+    ? payload.endFrame!
     : typeof payload.lastFrame === 'number' && payload.lastFrame > 0
       ? payload.lastFrame
       : 99999
@@ -546,7 +548,7 @@ export default class VideoManager {
       .filter((n) => !Number.isNaN(n))
     if (numericIds.length === 0) return
 
-    const items = await archive.getItemsByIds(payload.filterId, numericIds)
+    const items = await archive.getItemsByIds?.(payload.filterId, numericIds)
     if (!items || items.length === 0) return
 
     const playable = items.filter(
@@ -607,6 +609,11 @@ export default class VideoManager {
     } catch {
       reportError?.(`Error: Could not access ISO from path ${ssbmIsoPath}. `)
       logMain('playClipAsync: ISO not found', { ssbmIsoPath })
+      return
+    }
+
+    if (!payload.path) {
+      reportError?.('Error: No replay path provided.')
       return
     }
 

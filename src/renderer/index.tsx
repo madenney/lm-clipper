@@ -1,7 +1,7 @@
 import { createRoot } from 'react-dom/client'
 import App from './App'
 
-const preventDragDefault = (event: DragEvent) => {
+const preventDragDefault = (event: Event) => {
   event.preventDefault()
 }
 

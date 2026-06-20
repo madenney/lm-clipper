@@ -372,7 +372,8 @@ export default class ImportManager {
             slpzOutputDir: userChoice.outputDir || '',
           }
         }
-        if (userChoice.remember) {
+        if (userChoice.remember && userChoice.mode !== 'skip') {
+          // 'skip' isn't a persistable slpzMode (only ask/extract/replace).
           const currentConfig = this.getConfig()
           currentConfig.slpzMode = userChoice.mode
           if (userChoice.outputDir) {

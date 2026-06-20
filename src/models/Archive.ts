@@ -270,7 +270,7 @@ export default class Archive {
     const filtersToReset = this.filters.filter(
       (f, i) => i === startIndex || descendants.has(f.id),
     )
-    await asyncForEach(filtersToReset, async (filterJSON) => {
+    await asyncForEach(filtersToReset, async (filterJSON: FilterInterface) => {
       await deleteFilter(this.path, filterJSON.id)
       await createFilter(this.path, filterJSON.id)
       filterJSON.isProcessed = false
@@ -381,12 +381,12 @@ export default class Archive {
 
   async getAllItems(filterId: string) {
     const response = await getAllFromTable(this.path, filterId)
-    return this.parseRows(filterId, response)
+    return this.parseRows(filterId, response as Record<string, any>[])
   }
 
   async getItemsByIds(filterId: string, ids: number[]) {
     const response = await getItemsByIds(this.path, filterId, ids)
-    return this.parseRows(filterId, response)
+    return this.parseRows(filterId, response as Record<string, any>[])
   }
 
   getAllIds(filterId: string): Promise<string[]> {

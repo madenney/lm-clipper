@@ -5,6 +5,7 @@ import {
   shell,
   IpcMainEvent,
   BrowserWindow,
+  OpenDialogOptions,
 } from 'electron'
 import { Worker } from 'worker_threads'
 import { randomUUID } from 'crypto'
@@ -1399,7 +1400,7 @@ export default class Controller {
       typeof payload === 'string' ? payload : payload?.type || 'openFile'
     const defaultPath =
       typeof payload === 'object' ? payload?.defaultPath : undefined
-    const opts: dialog.OpenDialogOptions = { properties: [type] }
+    const opts: OpenDialogOptions = { properties: [type] }
     if (defaultPath) {
       let resolved = defaultPath
       if (resolved.startsWith('~')) {

@@ -41,7 +41,9 @@ export default class MenuBuilder {
         ? this.buildDarwinTemplate()
         : this.buildDefaultTemplate()
 
-    const menu = Menu.buildFromTemplate(template)
+    const menu = Menu.buildFromTemplate(
+      template as MenuItemConstructorOptions[],
+    )
     Menu.setApplicationMenu(menu)
 
     return menu
