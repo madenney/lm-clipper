@@ -42,6 +42,7 @@ import { closeDb } from './dbConnection'
 import { appendPerfEvents } from './perfLogger'
 import { logMain, logRenderer, getLogPath } from './logger'
 import { initTelemetry, track } from './telemetry'
+import { migrateConfigTypes } from './configStore'
 import { RequestEnvelope, unpackRequest, reply } from './ipcUtils'
 import ConsoleManager from './managers/ConsoleManager'
 import ImportManager from './managers/ImportManager'
@@ -177,41 +178,7 @@ export default class Controller {
     if (this.config.lastArchivePath === '') {
       this.config.lastArchivePath = null
     }
-    if (typeof this.config.resolution === 'string') {
-      const resolutionMap: { [key: string]: number } = {
-        '1x': 2,
-        '1.5x': 3,
-        '2x': 4,
-        '2.5x': 5,
-        '3x': 6,
-        '4x': 7,
-        '5x': 8,
-        '6x': 9,
-        '7x': 10,
-        '8x': 11,
-      }
-      if (resolutionMap[this.config.resolution]) {
-        this.config.resolution = resolutionMap[this.config.resolution]
-      }
-    }
-    const intKeys = [
-      'numCPUs',
-      'slice',
-      'bitrateKbps',
-      'addStartFrames',
-      'addEndFrames',
-      'lastClipOffset',
-      'numFilterThreads',
-      'dolphinCutoff',
-    ]
-    intKeys.forEach((key) => {
-      if (typeof this.config[key] === 'string') {
-        const parsed = parseInt(this.config[key], 10)
-        if (!Number.isNaN(parsed)) {
-          this.config[key] = parsed
-        }
-      }
-    })
+    migrateConfigTypes(this.config)
     // Anonymous, random per-install id (not a machine fingerprint). Generated
     // once and persisted via the saveConfig() below; also set for existing
     // users upgrading from a build that predates telemetry.
