@@ -4,6 +4,7 @@ import {
   ArchiveInterface,
   ConfigInterface,
   ShallowFilterInterface,
+  SavedCustomFilter,
 } from '../../constants/types'
 import {
   RequestEnvelope,
@@ -273,12 +274,14 @@ export default class CodeEditorManager {
       const existing = config.savedCustomFilters.findIndex(
         (t) => t.name === tmplData.name,
       )
+      // IPC-payload boundary: the renderer sends param `type` as a plain
+      // string; assert it back to the SavedCustomFilter union here.
       const entry = {
         name: tmplData.name,
         code: tmplData.code,
         customParams: tmplData.customParams,
         outputFields: tmplData.outputFields,
-      }
+      } as SavedCustomFilter
       if (existing >= 0) {
         config.savedCustomFilters[existing] = entry
       } else {

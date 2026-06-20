@@ -22,6 +22,7 @@ import {
   ConfigInterface,
   FilterInterface,
   ShallowFilterInterface,
+  SavedCustomFilter,
 } from '../constants/types'
 import Archive from '../models/Archive'
 import Filter from '../models/Filter'
@@ -907,12 +908,14 @@ export default class Controller {
     const existing = this.config.savedCustomFilters.findIndex(
       (t) => t.name === payload.name,
     )
+    // IPC-payload boundary: assert the renderer-sent param `type` strings back
+    // to the SavedCustomFilter union.
     const entry = {
       name: payload.name,
       code: payload.code,
       customParams: payload.customParams,
       outputFields: payload.outputFields,
-    }
+    } as SavedCustomFilter
     if (existing >= 0) {
       this.config.savedCustomFilters[existing] = entry
     } else {

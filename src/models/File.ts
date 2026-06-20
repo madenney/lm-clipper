@@ -91,8 +91,8 @@ export function fileProcessor(path: string) {
     {
       playerIndex: p1.playerIndex,
       port: p1.port,
-      characterId: p1.characterId,
-      characterColor: p1.characterColor,
+      characterId: p1.characterId!,
+      characterColor: p1.characterColor!,
       nametag: p1.nametag ? p1.nametag : '',
       displayName: p1.displayName,
       connectCode: p1.connectCode || '',
@@ -100,8 +100,8 @@ export function fileProcessor(path: string) {
     {
       playerIndex: p2.playerIndex,
       port: p2.port,
-      characterId: p2.characterId,
-      characterColor: p2.characterColor,
+      characterId: p2.characterId!,
+      characterColor: p2.characterColor!,
       nametag: p2.nametag ? p2.nametag : '',
       displayName: p2.displayName,
       connectCode: p2.connectCode || '',
