@@ -7,6 +7,7 @@ import { createDB, getMetaData } from './db'
 import { filtersConfig } from '../constants/config'
 import slpToVideo from './slpToVideo'
 import { createOutputDirectory } from './util'
+import { GAME_START_FRAME, FRAME_MAX } from '../constants/frames'
 import type {
   ClipInterface,
   ConfigInterface,
@@ -182,10 +183,10 @@ export async function runWorkflow(
     const hasStart =
       typeof result.startFrame === 'number' && result.startFrame !== 0
     const hasEnd = typeof result.endFrame === 'number' && result.endFrame !== 0
-    const startFrame = hasStart ? result.startFrame : -123
+    const startFrame = hasStart ? result.startFrame : GAME_START_FRAME
     const endFrame = hasEnd
       ? result.endFrame
-      : (result as FileInterface).lastFrame || 99999
+      : (result as FileInterface).lastFrame || FRAME_MAX
 
     const adjustedStart = startFrame - config.addStartFrames
     const adjustedEnd = endFrame + config.addEndFrames
@@ -193,7 +194,8 @@ export async function runWorkflow(
     replays.push({
       index,
       path: result.path,
-      startFrame: adjustedStart < -123 ? -123 : adjustedStart,
+      startFrame:
+        adjustedStart < GAME_START_FRAME ? GAME_START_FRAME : adjustedStart,
       endFrame: adjustedEnd,
     })
   })

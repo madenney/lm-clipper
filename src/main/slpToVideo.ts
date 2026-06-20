@@ -20,6 +20,7 @@ import path from 'path'
 import readline from 'readline'
 import { SlippiGame } from '@slippi/slippi-js'
 import os from 'os'
+import { GAME_START_FRAME } from '../constants/frames'
 
 import { buildReplayVars, applyPattern } from '../lib/overlayTokens'
 import { getFFMPEGPath } from './util'
@@ -193,7 +194,10 @@ const processOneReplay = async (
   const dolphinConfig = {
     mode: 'normal',
     replay: replay.path,
-    startFrame: replay.startFrame - 60 < -123 ? -123 : replay.startFrame - 60,
+    startFrame:
+      replay.startFrame - 60 < GAME_START_FRAME
+        ? GAME_START_FRAME
+        : replay.startFrame - 60,
     endFrame,
     isRealTimeMode: false,
     commandId: `${crypto.randomBytes(12).toString('hex')}`,

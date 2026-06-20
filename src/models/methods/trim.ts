@@ -1,4 +1,5 @@
 import { ClipInterface, TrimParams } from '../../constants/types'
+import { GAME_START_FRAME } from '../../constants/frames'
 
 export default (prevResults: ClipInterface[], params: TrimParams) => {
   const addStart = parseInt(params.addStartFrames ?? '', 10) || 0
@@ -24,7 +25,7 @@ export default (prevResults: ClipInterface[], params: TrimParams) => {
     let newEnd = endFrame + addEnd
 
     // Clamp: start can't go below Melee's universal start frame
-    if (newStart < -123) newStart = -123
+    if (newStart < GAME_START_FRAME) newStart = GAME_START_FRAME
 
     // Clamp: end must be at least 1 frame after start
     if (newEnd <= newStart) newEnd = newStart + 1

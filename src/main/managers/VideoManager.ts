@@ -6,6 +6,7 @@ import path from 'path'
 import fs, { promises as fsPromises } from 'fs'
 import { characters } from '../../constants/characters'
 import { stages } from '../../constants/stages'
+import { GAME_START_FRAME, FRAME_MAX } from '../../constants/frames'
 import { track } from '../telemetry'
 import {
   ArchiveInterface,
@@ -40,12 +41,12 @@ const resolveClipFrames = (payload: ClipPayload) => {
   const hasEnd = typeof payload.endFrame === 'number' && payload.endFrame !== 0
   // hasStart/hasEnd already proved these are numbers; assert past the
   // separate-boolean narrowing limitation so the result is {number, number}.
-  const startFrame = hasStart ? payload.startFrame! : -123
+  const startFrame = hasStart ? payload.startFrame! : GAME_START_FRAME
   const endFrame = hasEnd
     ? payload.endFrame!
     : typeof payload.lastFrame === 'number' && payload.lastFrame > 0
       ? payload.lastFrame
-      : 99999
+      : FRAME_MAX
   return { startFrame, endFrame }
 }
 
@@ -191,10 +192,10 @@ export default class VideoManager {
           typeof result.startFrame === 'number' && result.startFrame !== 0
         const hasEnd =
           typeof result.endFrame === 'number' && result.endFrame !== 0
-        const startFrame = hasStart ? result.startFrame : -123
+        const startFrame = hasStart ? result.startFrame : GAME_START_FRAME
         const endFrame = hasEnd
           ? result.endFrame
-          : (result as FileInterface).lastFrame || 99999
+          : (result as FileInterface).lastFrame || FRAME_MAX
 
         const adjustedStart = startFrame - addStartFrames
         const adjustedEnd = endFrame + addEndFrames
@@ -219,7 +220,8 @@ export default class VideoManager {
         replays.push({
           index,
           path: result.path,
-          startFrame: adjustedStart < -123 ? -123 : adjustedStart,
+          startFrame:
+            adjustedStart < GAME_START_FRAME ? GAME_START_FRAME : adjustedStart,
           endFrame: adjustedEnd,
           meta: {
             character1: p1
@@ -508,7 +510,8 @@ export default class VideoManager {
     const replay: ReplayInterface = {
       index: 0,
       path: payload.path,
-      startFrame: adjustedStart < -123 ? -123 : adjustedStart,
+      startFrame:
+        adjustedStart < GAME_START_FRAME ? GAME_START_FRAME : adjustedStart,
       endFrame: adjustedEnd,
     }
 
@@ -868,7 +871,7 @@ export default class VideoManager {
     const dolphinDolphinConfig = {
       mode: 'normal',
       replay: testSlp,
-      startFrame: -123,
+      startFrame: GAME_START_FRAME,
       endFrame: 3600,
       isRealTimeMode: true,
       commandId: crypto.randomBytes(12).toString('hex'),

@@ -4,6 +4,7 @@ import Database from 'better-sqlite3'
 
 import methods from './methods'
 import { getSortOrderExpr } from './methods/sort'
+import { GAME_START_FRAME } from '../constants/frames'
 
 // --- Worker configuration constants ---
 // Max errors to report back to main thread per worker (avoids flooding IPC)
@@ -444,7 +445,7 @@ function parseRows(
         isValid: true,
         isProcessed: row.isProcessed === 1,
         info: row.info || '',
-        startFrame: -123,
+        startFrame: GAME_START_FRAME,
         endFrame: row.lastFrame,
       })
     })

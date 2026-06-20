@@ -4,6 +4,7 @@ import {
   EventEmitterInterface,
   AfkDetectionParams,
 } from '../../constants/types'
+import { GAME_START_FRAME } from '../../constants/frames'
 
 const JOYSTICK_DEADZONE = 0.3
 const FPS = 60
@@ -35,7 +36,7 @@ export default (
       ? [comboee.playerIndex]
       : (clip.players || []).map((p) => p.playerIndex)
 
-    const start = Math.max(startFrame, -123)
+    const start = Math.max(startFrame, GAME_START_FRAME)
     const end = endFrame
 
     for (const pi of playerIndices) {

@@ -1,5 +1,6 @@
 import { SlippiGame } from '@slippi/slippi-js'
 import { FileInterface } from '../constants/types'
+import { GAME_START_FRAME } from '../constants/frames'
 
 export function fileProcessor(path: string) {
   const game = new SlippiGame(path)
@@ -10,11 +11,11 @@ export function fileProcessor(path: string) {
     winner: 0,
     stage: 0,
     startedAt: 0,
-    lastFrame: -123,
+    lastFrame: GAME_START_FRAME,
     isValid: false,
     isProcessed: true,
     info: '',
-    startFrame: -123,
+    startFrame: GAME_START_FRAME,
     endFrame: 0,
   }
 

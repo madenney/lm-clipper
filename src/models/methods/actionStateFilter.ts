@@ -3,6 +3,7 @@
 /* eslint-disable no-underscore-dangle */
 import { SlippiGame } from '@slippi/slippi-js'
 import { actionStates } from '../../constants/actionStates'
+import { GAME_START_FRAME } from '../../constants/frames'
 import {
   ClipInterface,
   EventEmitterInterface,
@@ -97,13 +98,13 @@ export default (
     } else if (moves && moves.length > 0) {
       _startFrame = moves[0].frame
     } else {
-      _startFrame = startFrame || -123
+      _startFrame = startFrame || GAME_START_FRAME
     }
 
     const _offset = parseInt(offset, 10)
     if (_offset) _startFrame += _offset
 
-    if (_startFrame < -123) _startFrame = -123
+    if (_startFrame < GAME_START_FRAME) _startFrame = GAME_START_FRAME
     if (lastFrame && _startFrame > lastFrame) _startFrame = lastFrame - 1
 
     const p1CustomIds = comboerCustomIds
