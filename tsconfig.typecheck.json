@@ -1,0 +1,7 @@
+{
+  "// purpose": "Type-check-only config. Same as tsconfig.json but module=esnext so import.meta (used in webpack's new URL(..., import.meta.url) worker pattern) type-checks. tsc --noEmit uses this; ts-jest and ts-node keep the base commonjs tsconfig.json, so the test/dev toolchains are unaffected.",
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "esnext"
+  }
+}

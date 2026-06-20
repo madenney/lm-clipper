@@ -14,7 +14,7 @@ const baseline = parseInt(fs.readFileSync(baselineFile, 'utf8').trim(), 10)
 
 let output = ''
 try {
-  output = execSync('npx tsc --noEmit', {
+  output = execSync('npx tsc --noEmit -p tsconfig.typecheck.json', {
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
   })
