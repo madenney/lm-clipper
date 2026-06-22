@@ -288,6 +288,11 @@ export default class Controller {
   // the metadata for callers that need it (e.g. to reply or read the name).
   private async reloadArchiveFrom(archivePath: string) {
     const metadata = await getMetaData(archivePath)
+    // The path persisted inside a project's metadata goes stale the moment the
+    // file is moved or renamed. Always trust the path we actually opened from,
+    // otherwise Archive.path points at the old location and result-fetch workers
+    // (getItems et al.) open — and silently recreate — an empty DB there.
+    if (metadata) metadata.path = archivePath
     this.setArchiveInternal(new Archive(metadata))
     return metadata
   }
