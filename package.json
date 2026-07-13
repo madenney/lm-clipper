@@ -1,7 +1,7 @@
 {
   "name": "lm-clipper",
   "description": "An application for creating melee clips",
-  "version": "2.0.0-beta.4",
+  "version": "2.0.0-beta.5",
   "license": "GPL-3.0-only",
   "repository": {
     "type": "git",
@@ -249,7 +249,8 @@
           "from": "release/app/slpz/slpz-win32-x64.exe",
           "to": "slpz/slpz-win32-x64.exe"
         }
-      ]
+      ],
+      "artifactName": "Lunar-Clipper-Setup-${version}.${ext}"
     },
     "linux": {
       "target": [
@@ -265,7 +266,8 @@
           "from": "release/app/slpz/slpz-linux-x64",
           "to": "slpz/slpz-linux-x64"
         }
-      ]
+      ],
+      "artifactName": "Lunar-Clipper-${version}.${ext}"
     },
     "directories": {
       "app": "release/app",
