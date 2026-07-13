@@ -166,14 +166,6 @@ export default {
   addFilter(type: string, handler?: ResponseHandler<any>) {
     return request('addFilter', type, 'addFilter', handler)
   },
-  saveEdgeRectangles(rectangles: any, handler?: ResponseHandler<any>) {
-    return request(
-      'saveEdgeRectangles',
-      rectangles,
-      'saveEdgeRectangles',
-      handler,
-    )
-  },
   removeFilter(id: string, handler?: ResponseHandler<any>) {
     return request('removeFilter', id, 'removeFilter', handler)
   },

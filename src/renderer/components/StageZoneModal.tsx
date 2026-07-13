@@ -7,11 +7,11 @@ import '../styles/StageZoneModal.css'
 
 type Target = string
 
-// Generic per-stage map of named boxes. In 'zones' mode the keys are
-// comboer/comboee; in 'edgeRects' mode they are edge/bz.
+// Generic per-stage map of named boxes; in 'zones' mode the keys are
+// comboer/comboee.
 type ZoneMap = Record<number, Record<string, StageZoneBox>>
 
-type ModeKey = 'zones' | 'edgeRects'
+type ModeKey = 'zones'
 
 interface StageZoneModalProps {
   initialZones: ZoneMap
@@ -28,9 +28,6 @@ type ModeConfig = {
   targets: [Target, Target]
   colors: Record<Target, { stroke: string; fill: string }>
   title: string
-  // Draw the X-mirrored (left-side) copy of each box read-only. Edgeguard
-  // rectangles are stored right-side only and mirrored at runtime.
-  mirror: boolean
   label: (_t: Target, _hasParser: boolean) => string
 }
 
@@ -42,21 +39,10 @@ const MODE_CONFIG: Record<ModeKey, ModeConfig> = {
       comboee: { stroke: '#ff9d3d', fill: 'rgba(255,157,61,0.22)' },
     },
     title: 'Draw Position Zone',
-    mirror: false,
     label: (t, hasParser) => {
       if (t === 'comboer') return hasParser ? 'Attacker' : 'Player 1'
       return hasParser ? 'Victim' : 'Player 2'
     },
-  },
-  edgeRects: {
-    targets: ['edge', 'bz'],
-    colors: {
-      edge: { stroke: '#3cf', fill: 'rgba(60,200,255,0.18)' },
-      bz: { stroke: '#f55', fill: 'rgba(255,80,80,0.12)' },
-    },
-    title: 'Edit Edgeguard Rectangles',
-    mirror: true,
-    label: (t) => (t === 'edge' ? 'Edge Region' : 'Blast Zone'),
   },
 }
 
@@ -404,31 +390,12 @@ export default function StageZoneModal({
       }
     }
 
-    // Faint read-only mirror of a box across x=0 (edge-rect mode only).
-    const drawMirror = (box: StageZoneBox, t: Target) => {
-      const c = cfg.colors[t]
-      const x = toX(-box.xMax)
-      const y = toY(box.yMax)
-      const w = (box.xMax - box.xMin) * transform.scale
-      const h = (box.yMax - box.yMin) * transform.scale
-      ctx.save()
-      ctx.globalAlpha = 0.4
-      ctx.fillStyle = c.fill
-      ctx.fillRect(x, y, w, h)
-      ctx.strokeStyle = c.stroke
-      ctx.lineWidth = 1
-      ctx.setLineDash([3, 3])
-      ctx.strokeRect(x, y, w, h)
-      ctx.restore()
-    }
-
     const it = interactionRef.current
     const liveTarget = it && it.kind !== 'pan' ? it.target : null
     const entry = zones[stageId]
     // Draw stored boxes (skip the one being interacted with — it's redrawn live)
     ;([cfg.targets[1], cfg.targets[0]] as Target[]).forEach((t) => {
       const box = entry?.[t]
-      if (box && cfg.mirror) drawMirror(box, t)
       if (t === liveTarget) return
       if (box) drawBox(box, t, t === target, t === target)
     })

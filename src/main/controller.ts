@@ -65,45 +65,6 @@ function autoFilterThreads(): number {
   return Math.min(Math.max(cores - 2, 1), 8)
 }
 
-// Regenerate the source of src/constants/rectangles.ts from edited rectangles.
-type RectBox = { xMin: number; xMax: number; yMin: number; yMax: number }
-function buildRectanglesFile(
-  rects: Record<string, { name: string; bz: RectBox; edge: RectBox }>,
-): string {
-  const fmt = (b: RectBox) =>
-    `{ xMin: ${b.xMin}, xMax: ${b.xMax}, yMin: ${b.yMin}, yMax: ${b.yMax} }`
-  const ids = Object.keys(rects)
-    .map((k) => parseInt(k, 10))
-    .filter((n) => !Number.isNaN(n))
-    .sort((a, b) => a - b)
-  const entries = ids
-    .map((id) => {
-      const e = rects[id]
-      const name = String(e.name).replace(/'/g, "\\'")
-      return `  ${id}: {\n    name: '${name}',\n    bz: ${fmt(e.bz)},\n    edge: ${fmt(e.edge)},\n  },`
-    })
-    .join('\n')
-  return `// Stage boundary rectangles for edgeguard detection
-// Keyed by Slippi stage ID. Coordinates define right-side regions;
-// the left side is mirrored by negating X values.
-//   bz   – blast zone (outside = death)
-//   edge – ledge/edge region used to detect offstage situations
-
-const rectangles: Record<
-  number,
-  {
-    name: string
-    bz: { xMin: number; xMax: number; yMin: number; yMax: number }
-    edge: { xMin: number; xMax: number; yMin: number; yMax: number }
-  }
-> = {
-${entries}
-}
-
-export default rectangles
-`
-}
-
 export default class Controller {
   mainWindow: BrowserWindow
   configDir: string
@@ -1020,52 +981,6 @@ export default class Controller {
     }
   }
 
-  // Dev tuning tool: rewrite src/constants/rectangles.ts from edited edgeguard
-  // rectangles (the Stage Zone editor in edge-rect mode). Only works in dev,
-  // where the source tree exists on disk.
-  async saveEdgeRectangles(
-    event: IpcMainEvent,
-    data: RequestEnvelope<
-      Record<
-        string,
-        {
-          name: string
-          bz: { xMin: number; xMax: number; yMin: number; yMax: number }
-          edge: { xMin: number; xMax: number; yMin: number; yMax: number }
-        }
-      >
-    >,
-  ) {
-    const { requestId, payload } =
-      unpackRequest<
-        Record<string, { name: string; bz: RectBox; edge: RectBox }>
-      >(data)
-    if (!payload || typeof payload !== 'object') {
-      return reply(event, 'saveEdgeRectangles', requestId, {
-        error: 'missing rectangles',
-      })
-    }
-    try {
-      const filePath = path.resolve(
-        app.getAppPath(),
-        'src',
-        'constants',
-        'rectangles.ts',
-      )
-      await fsPromises.access(filePath)
-      await fsPromises.writeFile(filePath, buildRectanglesFile(payload))
-      return reply(event, 'saveEdgeRectangles', requestId, {
-        success: true,
-        path: filePath,
-      })
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error)
-      return reply(event, 'saveEdgeRectangles', requestId, {
-        error: `Could not write rectangles.ts (only works in dev): ${msg}`,
-      })
-    }
-  }
-
   async updateFilter(
     event: IpcMainEvent,
     data: RequestEnvelope<{
@@ -1461,7 +1376,6 @@ export default class Controller {
     )
     ipcMain.on('closeArchive', this.closeArchive.bind(this))
     ipcMain.on('addFilter', this.addFilter.bind(this))
-    ipcMain.on('saveEdgeRectangles', this.saveEdgeRectangles.bind(this))
     ipcMain.on('updateFilter', this.updateFilter.bind(this))
     ipcMain.on('reorderFilter', this.reorderFilter.bind(this))
     ipcMain.on('removeFilter', this.removeFilter.bind(this))

@@ -8,12 +8,15 @@ import trim from './trim'
 import koDirection from './koDirection'
 import custom from './custom'
 import edgeguard from './edgeguard'
-import edgeguard2 from './edgeguard2'
 import edgeguardFilter from './edgeguardFilter'
 import deduplicate from './deduplicate'
 import zeroToDeaths from './zerotoDeaths'
 import afkDetection from './afkDetection'
 import stageCenter from './stageCenter'
+// Pressure filter parked for now — keep pressure.ts intact; re-enable by
+// uncommenting this import, the registry entry below, the sort option in
+// sort.ts, and the config entry in config.ts.
+// import pressure from './pressure'
 
 /**
  * Filter method signature. Each method takes data + params (+ optional emitter)
@@ -33,12 +36,12 @@ const methods: Record<string, FilterMethod> = {
   koDirection,
   custom,
   edgeguard,
-  edgeguard2,
   edgeguardFilter,
   deduplicate,
   zeroToDeaths,
   afkDetection,
   stageCenter,
+  // pressure,
 }
 
 export default methods
