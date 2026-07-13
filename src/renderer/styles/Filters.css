@@ -2,7 +2,11 @@
   width: 100%;
   min-width: 300px;
   height: 100%;
-  padding: 14px 16px 24px;
+  /* Bottom padding = the breathing room below the last in-flow element,
+     whether that's the filter list (when scrolling) or the open +Add menu
+     (which is in normal flow). A scroll container honours its own
+     padding-bottom even when scrolled, unlike a last-child margin-bottom. */
+  padding: 14px 16px 80px;
   box-sizing: border-box;
   overflow-y: scroll;
   direction: rtl;
@@ -857,11 +861,12 @@
 
 .filters-footer {
   display: flex;
-  align-items: center;
+  /* flex-start (not center) so the in-flow dropdown menu stacks below the
+     button instead of vertically centering the tall button+menu block. */
+  align-items: flex-start;
   gap: 10px;
   margin-top: 6px;
   padding-bottom: 16px;
-  margin-bottom: 120px;
 }
 
 .add-filter-dropdown-wrap {
@@ -895,9 +900,9 @@
   border: 1px solid var(--filter-border);
   border-radius: 10px;
   padding: 4px 0;
-  position: absolute;
-  left: 0;
-  right: 0;
+  /* In normal flow (not absolute) so opening the menu grows the panel's
+     scrollable content. The container's padding-bottom then becomes the gap
+     beneath the menu — self-sizing to any menu length, never clipped flush. */
   z-index: 100;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
 }
@@ -955,8 +960,10 @@
 
 .filter-multi-select {
   width: 100%;
+  /* Height is FIXED. Chips never grow this box — the row of them scrolls
+     sideways instead (see .filter-chips), so every × stays reachable. */
   height: 32px;
-  padding: 6px 8px;
+  padding: 0 6px;
   border-radius: 8px;
   border: 1px solid var(--filter-border);
   background: #14171c;
@@ -966,14 +973,176 @@
   box-sizing: border-box;
   text-align: left;
   cursor: pointer;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
   font-family: inherit;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  overflow: hidden;
 }
 
 .filter-multi-select:hover {
   border-color: #4d525b;
+}
+
+.filter-multi-select:focus-visible {
+  outline: 1px solid #6cf;
+  outline-offset: -1px;
+}
+
+/* Selected values inside a multi-select.
+   NOTE the class names: `filter-chip` was already taken — it's the muted,
+   UPPERCASE, letter-spaced pill shared by .filter-results / .filterMsg (and
+   redefined again below it). Reusing it made these render in caps with the
+   wrong tracking. These carry their own `filter-val-*` names on purpose. */
+
+/* Nothing selected — the old "Any" text. Matches ::placeholder on the inputs. */
+.filter-multi-placeholder {
+  color: #8b919c;
+}
+
+/* One line, never wraps. Overflowing chips scroll sideways (wheel -> horizontal,
+   handled in SelectChips) rather than pushing the selector taller — its height
+   is fixed. Scrollbar hidden; a visible one would eat height inside 32px. */
+.filter-val-chips {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none; /* Firefox */
+}
+
+.filter-val-chips::-webkit-scrollbar {
+  height: 0;
+  display: none;
+}
+
+/* Only when chips run past the right edge: fade the last one out so overflow is
+   visible instead of a silent hard cut. Set by SelectChips via ResizeObserver. */
+.filter-val-chips-overflow {
+  mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent);
+}
+
+/* ---- The pill itself ------------------------------------------------------
+   Used both in the field and in the dropdown's selected area, so the two read
+   as the same object. Reads as part of the field, not a box inside a box: no
+   border, just a faint lift off the input's background. Type matches the field
+   exactly (12px / 0.02em / sentence case) — a name should look like the name.
+   20px tall, so it sits comfortably inside the 32px field without ever
+   affecting its height. */
+.filter-val-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  flex: 0 0 auto; /* never squash — a squashed pill hides its × */
+  max-width: 150px;
+  height: 20px;
+  padding: 0 3px 0 9px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.09);
+  color: #f5f6f8;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  line-height: 1;
+}
+
+.filter-val-chip-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The remove control. An <FiX> SVG, NOT a "×" text glyph — the glyph never
+   optically centres and reads as a typo next to the app's real icons. Quiet
+   until you go for it: the pill is the object, the × is just the affordance. */
+.filter-val-chip-x {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  color: #9aa1ab;
+  cursor: pointer;
+  user-select: none;
+  transition:
+    background 0.12s ease,
+    color 0.12s ease;
+}
+
+.filter-val-chip-x svg {
+  display: block;
+  width: 11px;
+  height: 11px;
+  stroke-width: 2.5;
+}
+
+.filter-val-chip-x:hover {
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+}
+
+.filter-val-chip-x:focus-visible {
+  outline: 1px solid #6cf;
+  outline-offset: 1px;
+}
+
+/* ---- Divider between the pinned selected rows and the rest of the list ----
+   Selected values sort to the TOP of the dropdown list, so a value you've picked
+   is never something you have to hunt for again. Deliberately NOT a second panel
+   of pills: the field directly above already shows those, and repeating them in
+   the menu reads as two lists of the same thing. One list, ordered. This thin
+   rule is the only chrome, and it carries Clear all. */
+.filter-multi-divider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+}
+
+.filter-multi-divider-line {
+  flex: 1 1 auto;
+  height: 1px;
+  background: var(--filter-border);
+}
+
+/* Destructive, and sitting on a divider rather than in a text row, so there is
+   nothing for it to be mistaken for. App's existing danger palette
+   (cf. .filter-warn-btn-danger). Only rendered at 2+ selections. */
+.filter-multi-clear {
+  flex: 0 0 auto;
+  height: 20px;
+  padding: 0 9px;
+  border: 1px solid #4a3a3a;
+  border-radius: 999px;
+  background: rgba(190, 70, 70, 0.14);
+  color: #d69a9a;
+  font-family: inherit;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background 0.12s ease,
+    border-color 0.12s ease,
+    color 0.12s ease;
+}
+
+.filter-multi-clear:hover {
+  background: rgba(200, 70, 70, 0.32);
+  border-color: #b56a6a;
+  color: #fff;
+}
+
+.filter-multi-clear:focus-visible {
+  outline: 1px solid #6cf;
+  outline-offset: 1px;
 }
 
 .filter-multi-backdrop {

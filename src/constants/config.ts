@@ -14,13 +14,13 @@ export const REQUIRED_PRODUCER: Record<string, string> = {
   reverse: 'slpParser',
   zeroToDeaths: 'slpParser',
   stageCenter: 'slpParser',
-  edgeguardFilter: 'edgeguard2',
+  edgeguardFilter: 'edgeguard',
 }
 
 // Friendly name for a producer type, used in warnings ("requires … first").
 export const PRODUCER_LABEL: Record<string, string> = {
   slpParser: 'combo parser',
-  edgeguard2: 'Edgeguards Parser',
+  edgeguard: 'Edgeguards Parser',
 }
 
 export const filtersConfig = [
@@ -480,73 +480,9 @@ export const filtersConfig = [
   },
   {
     id: 'edgeguard',
-    label: 'Edgeguards (experimental)',
-    tooltip: 'Parse for edgeguard sequences (experimental)',
-    options: [
-      {
-        name: 'Edgeguarder Char',
-        id: 'comboerChar',
-        type: 'multiDropdown',
-        options: sortedCharacters,
-        default: [],
-        tooltip: 'Only parse edgeguards performed by these characters.',
-      },
-      {
-        name: 'Edgeguarder Tag',
-        id: 'comboerTag',
-        type: 'textInput',
-        default: [],
-        autocomplete: 'names',
-        tooltip: 'Only parse edgeguards by players with these tags.',
-      },
-      {
-        name: 'Edgeguarder CC',
-        id: 'comboerCC',
-        type: 'textInput',
-        default: [],
-        autocomplete: 'connectCodes',
-        tooltip: 'Only parse edgeguards by players with these connect codes.',
-      },
-      {
-        name: 'Edgeguardee Char',
-        id: 'comboeeChar',
-        type: 'multiDropdown',
-        options: sortedCharacters,
-        default: [],
-        tooltip: 'Only parse edgeguards against these characters.',
-      },
-      {
-        name: 'Edgeguardee Tag',
-        id: 'comboeeTag',
-        type: 'textInput',
-        default: [],
-        autocomplete: 'names',
-        tooltip: 'Only parse edgeguards against players with these tags.',
-      },
-      {
-        name: 'Edgeguardee CC',
-        id: 'comboeeCC',
-        type: 'textInput',
-        default: [],
-        autocomplete: 'connectCodes',
-        tooltip:
-          'Only parse edgeguards against players with these connect codes.',
-      },
-      {
-        name: 'Stage',
-        id: 'stageFilter',
-        type: 'multiDropdown',
-        options: legalStages,
-        default: [],
-        tooltip: 'Only parse edgeguards on these stages.',
-      },
-    ],
-  },
-  {
-    id: 'edgeguard2',
     label: 'Edgeguards Parser',
     tooltip:
-      'True edgeguards only: the victim makes a valid recovery attempt in range of the ledge, then the edgeguarder blocks the return (hit or ledge-steal) before the KO. Each clip is tagged with metrics that the Edgeguards Filter can refine.',
+      'Finds kills by edgeguard: the victim is knocked offstage by a hit, attempts to recover in range of the ledge, and is denied — hit back out, ledge-stolen, or forced to land on stage and punished (even killed off the top) — dying without ever recovering in between. Each clip starts at the launching hit (with a configurable lead-in) and is tagged with metrics (recovery attempts, offstage depth, forced-landing reads, clean-putaway timing, etc.) the Edgeguards Filter can refine.',
     options: [
       {
         name: 'Edgeguarder Char',
@@ -622,14 +558,6 @@ export const filtersConfig = [
           'Scales each character\'s recovery range when deciding if a recovery was "in range" (100 = use the built-in per-character range). Raise it (e.g. 130) to catch more borderline-deep recoveries; lower it (e.g. 80) to keep only clearly-recoverable situations.',
       },
       {
-        name: 'Require Edgeguarder Offstage',
-        id: 'requireEdgeguarderCommit',
-        type: 'checkbox',
-        default: false,
-        tooltip:
-          'Only keep sequences where the edgeguarder also went past the ledge (committed offstage to gimp).',
-      },
-      {
         name: 'Include Ledge-Steals',
         id: 'includeLedgeSteals',
         type: 'checkbox',
@@ -641,12 +569,198 @@ export const filtersConfig = [
         name: 'Max Lookback Frames',
         id: 'maxLookbackFrames',
         type: 'int',
-        default: '600',
+        default: '1200',
         tooltip:
-          'Cap how far back from the KO the offstage sequence can start (600 = 10 seconds). Bounds clip length.',
+          'Safety cap on how far back from the KO the sequence can start (1200 = 20 seconds). Normally the start is set by when the victim was last in control; this just bounds runaway clips.',
+      },
+      {
+        name: 'Max Actionable Frames On Stage',
+        id: 'maxActionableFrames',
+        type: 'int',
+        default: '0',
+        tooltip:
+          'How many frames the victim may be actionable (in control) back on the stage before it counts as a recovery, not an edgeguard. 0 (default) = the moment they regain control on stage — or grab the ledge — the edgeguard is over. Landing lag does NOT count as actionable, so forced onstage landings are still caught.',
+      },
+      {
+        name: 'Lead-in Frames',
+        id: 'leadInFrames',
+        type: 'int',
+        default: '30',
+        tooltip:
+          'Start the clip this many frames BEFORE the first frame of the move that knocks the opponent offstage, so it opens with a beat of lead-up. 0 = start exactly on the move.',
       },
     ],
   },
+  /* Pressure filter parked for now — re-enable by uncommenting this entry plus
+     the wiring in src/models/methods/index.ts and src/models/methods/sort.ts.
+     The algorithm itself (src/models/methods/pressure.ts) is kept intact.
+  {
+    id: 'pressure',
+    label: 'Pressure Parser',
+    tooltip:
+      'Finds sustained "pressure" stretches — where the attacker keeps the opponent on the back foot (shield, hitstun, knockdown/tech, ledge) at close range. Builds a per-frame advantage curve and grabs the long high stretches. Each clip is tagged with pressure metrics + a score. Reads .slp directly (no parser required).',
+    options: [
+      {
+        name: 'Attacker Char',
+        id: 'comboerChar',
+        type: 'multiDropdown',
+        options: sortedCharacters,
+        default: [],
+        tooltip: 'Only keep pressure applied by these characters.',
+      },
+      {
+        name: 'Attacker Tag',
+        id: 'comboerTag',
+        type: 'textInput',
+        default: [],
+        autocomplete: 'names',
+        tooltip: 'Only keep pressure by players with these tags.',
+      },
+      {
+        name: 'Attacker CC',
+        id: 'comboerCC',
+        type: 'textInput',
+        default: [],
+        autocomplete: 'connectCodes',
+        tooltip: 'Only keep pressure by players with these connect codes.',
+      },
+      {
+        name: 'Defender Char',
+        id: 'comboeeChar',
+        type: 'multiDropdown',
+        options: sortedCharacters,
+        default: [],
+        tooltip: 'Only keep pressure against these characters.',
+      },
+      {
+        name: 'Defender Tag',
+        id: 'comboeeTag',
+        type: 'textInput',
+        default: [],
+        autocomplete: 'names',
+        tooltip: 'Only keep pressure against players with these tags.',
+      },
+      {
+        name: 'Defender CC',
+        id: 'comboeeCC',
+        type: 'textInput',
+        default: [],
+        autocomplete: 'connectCodes',
+        tooltip: 'Only keep pressure against players with these connect codes.',
+      },
+      {
+        name: 'Stage',
+        id: 'stageFilter',
+        type: 'multiDropdown',
+        options: legalStages,
+        default: [],
+        tooltip: 'Only parse pressure on these stages.',
+      },
+      {
+        name: 'Threshold',
+        id: 'threshold',
+        type: 'int',
+        default: '5',
+        tooltip:
+          'Pressure-curve level (0-10) the stretch must stay at or above. Lower = the curve stays above the bar through more ebbs, giving longer/more-prolonged clips; higher = only the most relentless stretches.',
+      },
+      {
+        name: 'Min Duration Frames',
+        id: 'minDurationFrames',
+        type: 'int',
+        default: '200',
+        tooltip:
+          'A pressure stretch must last at least this many frames (200 ≈ 3.3 seconds) — the length floor. Short bursts are rejected; lower it if you want shorter clips too.',
+      },
+      {
+        name: 'Smoothing Window',
+        id: 'smoothingWindow',
+        type: 'int',
+        default: '60',
+        tooltip:
+          'Frames of trailing moving-average applied to the pressure curve. This is the main PROLONGED-clip lever: a bigger window keeps the curve elevated across rolls/repositions/brief hits, stitching a whole back-and-forth exchange into one long clip instead of fragmenting it. Smaller = tighter, more isolated bursts.',
+      },
+      {
+        name: 'Max Dip Frames',
+        id: 'maxDipFrames',
+        type: 'int',
+        default: '70',
+        tooltip:
+          'Tolerate dips below threshold up to this many frames before ending a stretch. This is the main LENGTH knob — raise it to merge bursts of pressure (with brief resets/repositions between them) into one longer clip; lower it for tight, isolated bursts.',
+      },
+      {
+        name: 'Close Range',
+        id: 'closeRange',
+        type: 'int',
+        default: '40',
+        tooltip:
+          'Distance under which attacker and defender count as "in close range" for the proximity signal.',
+      },
+      {
+        name: 'Offense Weight',
+        id: 'offenseWeight',
+        type: 'int',
+        default: '4',
+        tooltip:
+          'How much a frame adds when the attacker is attacking in close range — the relentless-aggression driver. The eval needs BOTH this and the defender being on the back foot to clear threshold.',
+      },
+      {
+        name: 'Shield Weight',
+        id: 'shieldWeight',
+        type: 'int',
+        default: '3',
+        tooltip:
+          'How much a frame adds when the defender is shielding — the signature of shield pressure. (Scrambling/dodging counts for a fraction of this.)',
+      },
+      {
+        name: 'Hitstun Weight',
+        id: 'hitstunWeight',
+        type: 'int',
+        default: '3',
+        tooltip:
+          'How much a frame adds when the defender is in hitstun (getting hit). In the extended-advantage model this is the attacker WINNING, so it keeps a long shield→hit→shield exchange together instead of splitting it. A clip still must build real shield contact (Min Shield Hits) to count, so pure juggles are dropped.',
+      },
+      {
+        name: 'Proximity Weight',
+        id: 'proximityWeight',
+        type: 'int',
+        default: '1',
+        tooltip: 'How much a frame adds when the two are within close range.',
+      },
+      {
+        name: 'Min Shield Hits',
+        id: 'minShieldHits',
+        type: 'int',
+        default: '2',
+        tooltip:
+          'Reject a stretch unless the attacker landed at least this many distinct hits on the shield — this is what keeps it shield-pressure (not a pure combo). A clip must ALSO crack into an opening or kill to be kept. Raise it to demand more shield contact before the conversion.',
+      },
+      {
+        name: 'Opening Bonus',
+        id: 'openingBonus',
+        type: 'int',
+        default: '5',
+        tooltip:
+          'Score bonus per "opening" — when the shield pressure cracks the defender into a hit or a grab. Not required to keep a clip, but it makes the cool ones rank higher.',
+      },
+      {
+        name: 'Require Kill',
+        id: 'requireKill',
+        type: 'checkbox',
+        default: false,
+        tooltip:
+          'Only keep pressure stretches that end in the defender losing a stock.',
+      },
+      {
+        name: 'Kill Bonus',
+        id: 'killBonus',
+        type: 'int',
+        default: '5',
+        tooltip: 'Score bonus added when a stretch ends in a kill.',
+      },
+    ],
+  },
+  */
   {
     id: 'edgeguardFilter',
     label: 'Edgeguards Filter',
@@ -709,12 +823,60 @@ export const filtersConfig = [
           'Keep edgeguards where the victim dropped to at least this Y (negative = below the stage; e.g. -60 for deep spikes).',
       },
       {
+        name: 'Min Recovery Attempts',
+        id: 'minRecoveryAttempts',
+        type: 'int',
+        default: '',
+        tooltip:
+          'Keep edgeguards where the victim got to START at least this many distinct recovery moves before dying — the back-and-forth contest. 1 = a one-shot gimp; 2–3+ = a multi-exchange scramble (the strongest "interesting" signal).',
+      },
+      {
+        name: 'Max Recovery Attempts',
+        id: 'maxRecoveryAttempts',
+        type: 'int',
+        default: '',
+        tooltip:
+          'Keep edgeguards with at most this many recovery attempts (e.g. 1 to isolate clean one-and-done gimps).',
+      },
+      {
+        name: 'Min Edgeguarder Depth',
+        id: 'minEdgeguarderDepth',
+        type: 'int',
+        default: '',
+        tooltip:
+          'Keep edgeguards where the EDGEGUARDER committed at least this far past the ledge + below the stage (units). Larger = a deeper, riskier offstage chase. ~0 = barely dipped out; 30+ = a deep commit.',
+      },
+      {
+        name: 'Max Edgeguarder Depth',
+        id: 'maxEdgeguarderDepth',
+        type: 'int',
+        default: '',
+        tooltip:
+          'Keep edgeguards where the EDGEGUARDER committed at most this far out. Set it low (e.g. 7) to find the ones done WITHOUT leaving the stage \u2014 lasers, ledge-traps, hitting them as they come up. Those sit at 0-7; a real offstage chase is 30+.',
+      },
+      {
+        name: 'Min Stage Touches',
+        id: 'minStageTouches',
+        type: 'int',
+        default: '',
+        tooltip:
+          'Keep edgeguards where the victim was forced back onto the stage at least this many times (ledge covered → onstage landing punished back off). 1+ isolates the rare, premium forced-landing read.',
+      },
+      {
+        name: 'Max Last-Hit-to-Death',
+        id: 'maxLastHitToDeath',
+        type: 'int',
+        default: '',
+        tooltip:
+          'Keep edgeguards where the final hit killed within this many frames (60 = 1s). Low = a clean putaway; high = a lingering flail. Ignored for pure ledge-steal kills (no final hit).',
+      },
+      {
         name: 'Min Score',
         id: 'minScore',
         type: 'int',
         default: '',
         tooltip:
-          'Keep edgeguards scoring at least this. Higher = flashier. No hard max, but scores run ~3–40: ~3–5 is a barely-qualifying gimp, 5–15 is typical, and 20+ is a long, deep, or multi-hit sequence (or one where the edgeguarder chased offstage). Built from +3 per hit, +1 per ~30 offstage frames (~½s), +4 if the edgeguarder went offstage, +2 for a ledge-steal, plus horizontal & vertical depth. Empty = no minimum.',
+          'Keep edgeguards scoring at least this. Higher = flashier. Scores run ~6–45: ~6–10 is a plain one-attempt gimp, 15–25 is typical, 30+ is a multi-exchange scramble, a forced-landing read, or a deep chase the edgeguarder survived. Built from +6 per recovery attempt, +5 per stage touch (forced landing), up to +12 for denial right at the ledge, +edgeguarder depth/10, +5 for surviving a deep commit, +3 for a clean putaway, and +1.5 per hit (capped). Empty = no minimum.',
       },
       {
         name: 'Blocked by Hit',
@@ -741,15 +903,28 @@ export const filtersConfig = [
           'No-contact edgeguards where the edgeguarder took the ledge to deny the recovery.',
       },
       {
-        name: 'Edgeguarder Offstage',
-        id: 'edgeguarderOffstage',
+        name: 'Edgeguarder Returned',
+        id: 'edgeguarderReturned',
         type: 'dropdown',
         options: [
           { name: 'Required', id: 'yes' },
           { name: 'Excluded', id: 'no' },
         ],
         default: '',
-        tooltip: 'Whether the edgeguarder committed past the ledge to gimp.',
+        tooltip:
+          'Whether the edgeguarder made it back safely onstage at the kill — a deep chase they survived reads as stylish.',
+      },
+      {
+        name: 'Died Offstage',
+        id: 'diedOffstage',
+        type: 'dropdown',
+        options: [
+          { name: 'Only offstage KOs', id: 'yes' },
+          { name: 'Only onstage / off-top KOs', id: 'no' },
+        ],
+        default: '',
+        tooltip:
+          'Splits the two flavours: "yes" = classic offstage KO (out a side or spiked); "no" = killed onstage / off the top after a forced landing (a punish read).',
       },
       {
         name: 'Edgeguarder Char',
@@ -896,6 +1071,22 @@ export const filtersConfig = [
         default: '',
         tooltip:
           'Frames to add after the clip ends. Use a negative value to trim the end.',
+      },
+    ],
+  },
+  {
+    id: 'randomSample',
+    label: 'Random Sample',
+    tooltip:
+      'Keep a random handful of clips from the input — set how many you want out',
+    options: [
+      {
+        name: 'Number of clips',
+        id: 'count',
+        type: 'int',
+        default: '100',
+        tooltip:
+          'How many clips to keep, chosen uniformly at random. You get exactly this many (or all of them, if the input has fewer).',
       },
     ],
   },

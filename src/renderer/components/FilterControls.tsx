@@ -3,12 +3,15 @@
 /* eslint-disable jsx-a11y/click-events-have-key-events */
 import { ReactElement, useState, useRef, useEffect, useMemo } from 'react'
 import { cloneDeep } from 'lodash'
+import { FiX } from 'react-icons/fi'
 import { filtersConfig } from 'constants/config'
 import { ShallowFilterInterface, PositionZones } from '../../constants/types'
-import { ZONE_STAGE_IDS } from '../../constants/stageGeometry'
-import edgeRectangles from '../../constants/rectangles'
+import {
+  ZONE_STAGE_IDS,
+  DEFAULT_OFFSTAGE_BUFFER,
+} from '../../constants/stageGeometry'
 import StageZoneModal from './StageZoneModal'
-import ipcBridge from '../ipcBridge'
+import EdgeguardZoneModal from './EdgeguardZoneModal'
 
 export function DeferredInput({
   value,
@@ -68,6 +71,100 @@ export function DeferredInput({
   )
 }
 
+type Chip = { value: string; label: string }
+
+// One selected value + its ×. NB: the class is `filter-val-chip`, not
+// `filter-chip` — that name was already taken by the muted UPPERCASE results
+// pill (.filter-results / .filterMsg), which leaked its casing in here.
+function ValueChip({
+  chip,
+  onRemove,
+}: {
+  chip: Chip
+  onRemove: (_value: string) => void
+}) {
+  return (
+    <span className="filter-val-chip">
+      <span className="filter-val-chip-label">{chip.label}</span>
+      <span
+        className="filter-val-chip-x"
+        role="button"
+        tabIndex={0}
+        aria-label={`Remove ${chip.label}`}
+        title={`Remove ${chip.label}`}
+        onClick={(e) => {
+          e.stopPropagation()
+          onRemove(chip.value)
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            e.stopPropagation()
+            onRemove(chip.value)
+          }
+        }}
+      >
+        <FiX />
+      </span>
+    </span>
+  )
+}
+
+// The chips shown INSIDE the 32px field. Height is fixed, so they can't wrap —
+// they sit on one line and scroll sideways. Two things make that bearable:
+//   - a fade on the right edge whenever there's more off-screen, so overflow is
+//     visible rather than silently truncated;
+//   - vertical wheel mapped to horizontal scroll (React's onWheel is passive, so
+//     preventDefault needs a manually-attached non-passive listener).
+// For a long selection you shouldn't be fighting this at all — open the menu and
+// use the Selected panel, which can grow freely because it floats.
+function SelectChips({
+  chips,
+  placeholder,
+  onRemove,
+}: {
+  chips: Chip[]
+  placeholder: string
+  onRemove: (_value: string) => void
+}) {
+  const rowRef = useRef<HTMLSpanElement>(null)
+  const [overflowing, setOverflowing] = useState(false)
+
+  useEffect(() => {
+    const el = rowRef.current
+    if (!el) return undefined
+    const measure = () => setOverflowing(el.scrollWidth > el.clientWidth + 1)
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    const onWheel = (e: WheelEvent) => {
+      if (el.scrollWidth <= el.clientWidth) return
+      e.preventDefault()
+      el.scrollLeft += e.deltaY + e.deltaX
+    }
+    el.addEventListener('wheel', onWheel, { passive: false })
+    el.addEventListener('scroll', measure)
+    return () => {
+      ro.disconnect()
+      el.removeEventListener('wheel', onWheel)
+      el.removeEventListener('scroll', measure)
+    }
+  }, [chips.length])
+
+  if (chips.length === 0)
+    return <span className="filter-multi-placeholder">{placeholder}</span>
+  return (
+    <span
+      className={`filter-val-chips${overflowing ? ' filter-val-chips-overflow' : ''}`}
+      ref={rowRef}
+    >
+      {chips.map((c) => (
+        <ValueChip key={c.value} chip={c} onRemove={onRemove} />
+      ))}
+    </span>
+  )
+}
+
 const positionPresets = [
   { label: 'First move', value: '0' },
   { label: 'Second move', value: '1' },
@@ -121,7 +218,6 @@ export default function FilterControls({
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
   const [zoneModalOpen, setZoneModalOpen] = useState(false)
   const [edgeRectModalOpen, setEdgeRectModalOpen] = useState(false)
-  const [edgeRectMsg, setEdgeRectMsg] = useState('')
 
   const filteredNames = useMemo(() => {
     if (namesLoading || (!multiSearch && !multiOpen)) return namesList
@@ -283,22 +379,31 @@ export default function FilterControls({
         String,
       ),
     )
-    const label =
-      selectedSet.size === 0
-        ? 'Any'
-        : [
-            ...new Set(
-              options
-                .filter((o) => selectedSet.has(String(o.id)))
-                .map((o) => o.name || o.shortName),
-            ),
-          ].join(', ')
+    // Selected ids -> chips: keep the id as the value, show the display name.
+    const selArr = Array.isArray(selected)
+      ? selected
+      : selected
+        ? [selected]
+        : []
+    const chips = [...selectedSet].map((id) => {
+      const opt = options.find((o) => String(o.id) === id)
+      return { value: id, label: opt ? opt.name || opt.shortName : id }
+    })
+    const removeChip = (v: string) =>
+      onChange(selArr.filter((x) => String(x) !== v))
 
     return (
       <div className="filter-multi-wrap">
-        <button
-          type="button"
+        <div
+          role="button"
+          tabIndex={0}
           className="filter-multi-select"
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault()
+              ;(e.currentTarget as HTMLElement).click()
+            }
+          }}
           onClick={(e) => {
             e.stopPropagation()
             if (isOpen) {
@@ -320,8 +425,8 @@ export default function FilterControls({
             }
           }}
         >
-          {label}
-        </button>
+          <SelectChips chips={chips} placeholder="Any" onRemove={removeChip} />
+        </div>
         {isOpen && multiPos && (
           <>
             <div
@@ -428,24 +533,32 @@ export default function FilterControls({
     const isOpen = multiOpen === key
     const selectedArr = Array.isArray(selected) ? selected : []
     const selectedSet = new Set(selectedArr)
-    const label =
-      selectedSet.size === 0
-        ? 'Any'
-        : namesList
-            .filter((n) => selectedSet.has(n.name))
-            .map((n) => n.name)
-            .join(', ') || selectedArr.join(', ')
-
-    const capped =
-      isOpen && !namesLoading ? filteredNames.slice(0, RENDER_CAP) : []
-    const remaining =
-      isOpen && !namesLoading ? filteredNames.length - capped.length : 0
+    // Selected values sort to the TOP of the same list — one list, ordered.
+    // NOT a second panel repeating the pills already visible in the field.
+    // Shown regardless of the search box, so a value you've picked is never
+    // something you have to go hunting for again.
+    const selectedRows = selectedArr.map(
+      (v) => namesList.find((n) => n.name === v) ?? { name: v, total: 0 },
+    )
+    const rest =
+      isOpen && !namesLoading
+        ? filteredNames.filter((n) => !selectedSet.has(n.name))
+        : []
+    const capped = rest.slice(0, RENDER_CAP)
+    const remaining = rest.length - capped.length
 
     return (
       <div className="filter-multi-wrap">
-        <button
-          type="button"
+        <div
+          role="button"
+          tabIndex={0}
           className="filter-multi-select"
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault()
+              ;(e.currentTarget as HTMLElement).click()
+            }
+          }}
           onClick={(e) => {
             e.stopPropagation()
             if (isOpen) {
@@ -468,8 +581,12 @@ export default function FilterControls({
             }
           }}
         >
-          {label}
-        </button>
+          <SelectChips
+            chips={selectedArr.map((v) => ({ value: v, label: v }))}
+            placeholder="Any"
+            onRemove={(v) => onChange(selectedArr.filter((x) => x !== v))}
+          />
+        </div>
         {isOpen && multiPos && (
           <>
             <div
@@ -509,6 +626,41 @@ export default function FilterControls({
                     onClick={(e) => e.stopPropagation()}
                     onChange={(e) => setMultiSearch(e.target.value)}
                   />
+                  {selectedRows.map((n) => (
+                    <div
+                      key={`sel-${n.name}`}
+                      className="filter-multi-item filter-multi-item-checked"
+                      title={`${n.name} — click to remove`}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        onChange(selectedArr.filter((v) => v !== n.name))
+                      }}
+                    >
+                      <span className="filter-multi-check">{'\u2714'}</span>
+                      <span className="filter-multi-name">{n.name}</span>
+                      <span className="filter-autocomplete-count">
+                        {n.total}
+                      </span>
+                    </div>
+                  ))}
+                  {selectedRows.length > 0 && (
+                    <div className="filter-multi-divider">
+                      <span className="filter-multi-divider-line" />
+                      {selectedRows.length > 1 && (
+                        <button
+                          type="button"
+                          className="filter-multi-clear"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            onChange([])
+                          }}
+                        >
+                          Clear all
+                        </button>
+                      )}
+                      <span className="filter-multi-divider-line" />
+                    </div>
+                  )}
                   {capped.map((n) => {
                     const checked = selectedSet.has(n.name)
                     return (
@@ -559,24 +711,33 @@ export default function FilterControls({
     const isOpen = multiOpen === key
     const selectedArr = Array.isArray(selected) ? selected : []
     const selectedSet = new Set(selectedArr)
-    const label =
-      selectedSet.size === 0
-        ? 'Any'
-        : connectCodesList
-            .filter((n) => selectedSet.has(n.name))
-            .map((n) => n.name)
-            .join(', ') || selectedArr.join(', ')
-
-    const capped =
-      isOpen && !codesLoading ? filteredCodes.slice(0, RENDER_CAP) : []
-    const remaining =
-      isOpen && !codesLoading ? filteredCodes.length - capped.length : 0
+    // Selected values sort to the TOP of the same list — one list, ordered.
+    // NOT a second panel repeating the pills already visible in the field.
+    // Shown regardless of the search box, so a value you've picked is never
+    // something you have to go hunting for again.
+    const selectedRows = selectedArr.map(
+      (v) =>
+        connectCodesList.find((n) => n.name === v) ?? { name: v, total: 0 },
+    )
+    const rest =
+      isOpen && !codesLoading
+        ? filteredCodes.filter((n) => !selectedSet.has(n.name))
+        : []
+    const capped = rest.slice(0, RENDER_CAP)
+    const remaining = rest.length - capped.length
 
     return (
       <div className="filter-multi-wrap">
-        <button
-          type="button"
+        <div
+          role="button"
+          tabIndex={0}
           className="filter-multi-select"
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault()
+              ;(e.currentTarget as HTMLElement).click()
+            }
+          }}
           onClick={(e) => {
             e.stopPropagation()
             if (isOpen) {
@@ -599,8 +760,12 @@ export default function FilterControls({
             }
           }}
         >
-          {label}
-        </button>
+          <SelectChips
+            chips={selectedArr.map((v) => ({ value: v, label: v }))}
+            placeholder="Any"
+            onRemove={(v) => onChange(selectedArr.filter((x) => x !== v))}
+          />
+        </div>
         {isOpen && multiPos && (
           <>
             <div
@@ -640,6 +805,41 @@ export default function FilterControls({
                     onClick={(e) => e.stopPropagation()}
                     onChange={(e) => setMultiSearch(e.target.value)}
                   />
+                  {selectedRows.map((n) => (
+                    <div
+                      key={`sel-${n.name}`}
+                      className="filter-multi-item filter-multi-item-checked"
+                      title={`${n.name} — click to remove`}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        onChange(selectedArr.filter((v) => v !== n.name))
+                      }}
+                    >
+                      <span className="filter-multi-check">{'\u2714'}</span>
+                      <span className="filter-multi-name">{n.name}</span>
+                      <span className="filter-autocomplete-count">
+                        {n.total}
+                      </span>
+                    </div>
+                  ))}
+                  {selectedRows.length > 0 && (
+                    <div className="filter-multi-divider">
+                      <span className="filter-multi-divider-line" />
+                      {selectedRows.length > 1 && (
+                        <button
+                          type="button"
+                          className="filter-multi-clear"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            onChange([])
+                          }}
+                        >
+                          Clear all
+                        </button>
+                      )}
+                      <span className="filter-multi-divider-line" />
+                    </div>
+                  )}
                   {capped.map((n) => {
                     const checked = selectedSet.has(n.name)
                     return (
@@ -1406,21 +1606,20 @@ export default function FilterControls({
           )
         })()}
       {nthMovesOption && renderNthMoves(filter, nthMovesOption)}
-      {(filter.type === 'edgeguard' || filter.type === 'edgeguard2') && (
+      {filter.type === 'edgeguard' && (
         <div className="filter-zone-row" style={{ marginTop: 8 }}>
           <button
             type="button"
             className="filter-button filter-zone-btn"
             onClick={(e) => {
               e.stopPropagation()
-              setEdgeRectMsg('')
               setEdgeRectModalOpen(true)
             }}
           >
-            ◳ Edit Edge Rectangles
+            ◳ Offstage Line
           </button>
           <span className="filter-zone-summary">
-            {edgeRectMsg || 'dev: tune & save edgeguard zones'}
+            {`${filter.params?.offstageBuffer ?? DEFAULT_OFFSTAGE_BUFFER} inside the ledge`}
           </span>
         </div>
       )}
@@ -1721,37 +1920,15 @@ export default function FilterControls({
         />
       )}
       {edgeRectModalOpen && (
-        <StageZoneModal
-          mode="edgeRects"
-          initialStageId={ZONE_STAGE_IDS[0]}
-          hasParser={hasParser}
-          initialZones={
-            ZONE_STAGE_IDS.reduce(
-              (acc, sid) => {
-                const r = (edgeRectangles as any)[sid]
-                if (r) acc[sid] = { edge: r.edge, bz: r.bz }
-                return acc
-              },
-              {} as Record<number, any>,
-            ) as any
+        <EdgeguardZoneModal
+          initialBuffer={
+            filter.params?.offstageBuffer ?? DEFAULT_OFFSTAGE_BUFFER
           }
           onClose={() => setEdgeRectModalOpen(false)}
-          onApply={(nextRects) => {
-            const payload: Record<number, any> = {}
-            for (const sid of ZONE_STAGE_IDS) {
-              const r = (edgeRectangles as any)[sid]
-              if (!r) continue
-              const edited = (nextRects as any)[sid] || {}
-              payload[sid] = {
-                name: r.name,
-                bz: edited.bz || r.bz,
-                edge: edited.edge || r.edge,
-              }
-            }
-            ipcBridge.saveEdgeRectangles(payload, (res: any) => {
-              if (res?.error) setEdgeRectMsg(`Save failed: ${res.error}`)
-              else setEdgeRectMsg('Saved to rectangles.ts — rebuild to apply')
-            })
+          onApply={(offstageBuffer) => {
+            const filterClone = cloneDeep(filter)
+            filterClone.params.offstageBuffer = offstageBuffer
+            updateFilter(filterClone, filter)
             setEdgeRectModalOpen(false)
           }}
         />

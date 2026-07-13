@@ -144,7 +144,6 @@ export function Tray({
     'actionStateFilter',
     'reverse',
     'edgeguard',
-    'edgeguard2',
     'edgeguardFilter',
   ])
   const isClips = useMemo(() => {
@@ -1184,6 +1183,11 @@ export function Tray({
         {hasContent && mode === 'full' && paginatedClips.length > 0 && (
           <FullCard
             data={paginatedClips[0]}
+            filterId={
+              isGameFilter && !activeFilter?.isProcessed
+                ? 'files'
+                : activeFilterId
+            }
             isSelected={(() => {
               const clip = paginatedClips[0]
               const clipId =

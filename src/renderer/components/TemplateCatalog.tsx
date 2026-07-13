@@ -79,7 +79,7 @@ export default function TemplateCatalog({
       <div className="tc-modal" onClick={(e) => e.stopPropagation()}>
         {/* Header */}
         <div className="tc-header">
-          <span className="tc-title">Browse Templates</span>
+          <span className="tc-title">Browse more</span>
           <div className="tc-search-wrap">
             <input
               ref={searchRef}

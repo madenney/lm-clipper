@@ -103,9 +103,19 @@ export type EdgeguardParams = {
   comboeeTag?: string[] | string
   comboeeCC?: string[] | string
   stageFilter?: (string | number)[]
+  minOffstageFrames?: string
+  rangeLeniency?: string
+  includeLedgeSteals?: boolean
+  maxLookbackFrames?: string
+  maxActionableFrames?: string
+  leadInFrames?: string
+  // World units inward from each stage's real ledge at which "offstage" begins.
+  // Set by the Offstage Line editor; every other stage boundary is derived from
+  // Melee's geometry. See DEFAULT_OFFSTAGE_BUFFER in constants/stageGeometry.
+  offstageBuffer?: number
 }
 
-export type Edgeguard2Params = {
+export type PressureParams = {
   comboerChar?: (string | number)[]
   comboeeChar?: (string | number)[]
   comboerTag?: string[] | string
@@ -113,11 +123,19 @@ export type Edgeguard2Params = {
   comboeeTag?: string[] | string
   comboeeCC?: string[] | string
   stageFilter?: (string | number)[]
-  minOffstageFrames?: string
-  rangeLeniency?: string
-  requireEdgeguarderCommit?: boolean
-  includeLedgeSteals?: boolean
-  maxLookbackFrames?: string
+  threshold?: string
+  minDurationFrames?: string
+  smoothingWindow?: string
+  maxDipFrames?: string
+  closeRange?: string
+  shieldWeight?: string
+  hitstunWeight?: string
+  offenseWeight?: string
+  proximityWeight?: string
+  openingBonus?: string
+  minShieldHits?: string
+  requireKill?: boolean
+  killBonus?: string
 }
 
 export type EdgeguardFilterParams = {
@@ -128,11 +146,19 @@ export type EdgeguardFilterParams = {
   maxLedgeDist?: string
   minDepthX?: string
   maxMinY?: string
+  // Discriminative metrics (match Edgeguards Parser's EdgeguardMetrics).
+  minRecoveryAttempts?: string
+  maxRecoveryAttempts?: string
+  minEdgeguarderDepth?: string
+  maxEdgeguarderDepth?: string
+  minStageTouches?: string
+  maxLastHitToDeath?: string
   minScore?: string
   // Tri-state: '' = any, 'yes' = required, 'no' = excluded.
   blockedByHit?: string
   ledgeSteal?: string
-  edgeguarderOffstage?: string
+  edgeguarderReturned?: string
+  diedOffstage?: string
   comboerChar?: (string | number)[]
   comboeeChar?: (string | number)[]
   comboerTag?: string[] | string
@@ -181,6 +207,11 @@ export type SortParams = {
   reverse?: boolean
 }
 
+export type RandomSampleParams = {
+  // Exact number of clips to keep, chosen uniformly at random.
+  count?: string
+}
+
 export type CustomParams = Record<string, any>
 
 export type FilterParams =
@@ -189,8 +220,8 @@ export type FilterParams =
   | ComboFilterParams
   | ActionStateFilterParams
   | EdgeguardParams
-  | Edgeguard2Params
   | EdgeguardFilterParams
+  | PressureParams
   | ZeroToDeathsParams
   | StageCenterParams
   | AfkDetectionParams
@@ -200,6 +231,7 @@ export type FilterParams =
   | TrimParams
   | ReverseParams
   | SortParams
+  | RandomSampleParams
   | CustomParams
 
 // ---------------------------------------------------------------------------
@@ -377,6 +409,9 @@ export interface FileInterface {
 }
 
 export interface ClipInterface {
+  // SQLite rowid of this clip within its filter table. Attached at read time by
+  // Archive.parseRows (obj.id = row.id); unique per filter table, not globally.
+  id?: number
   startFrame: number
   endFrame: number
   path: string
@@ -408,9 +443,30 @@ export interface ClipInterface {
     minLedgeDist: number
     blockedByHit: boolean
     ledgeSteal: boolean
-    edgeguarderOffstage: boolean
     maxDepthX: number
     minY: number
+    recoveryAttempts: number
+    edgeguarderDepth: number
+    edgeguarderReturned: boolean
+    lastHitToDeath: number
+    stageTouches: number
+    diedOffstage: boolean
+    score: number
+  }
+  // Pressure: shield-pressure stretch score + metrics (attached so a downstream
+  // Sort can rank by it).
+  pressureScore?: number
+  pressureMetrics?: {
+    durationFrames: number
+    shieldHits: number
+    shieldFrames: number
+    scrambleFrames: number
+    hitstunFrames: number
+    openings: number
+    hadOpening: boolean
+    peakEval: number
+    avgEval: number
+    endedInKill: boolean
     score: number
   }
 }

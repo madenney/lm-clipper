@@ -268,6 +268,29 @@
   white-space: nowrap;
 }
 
+/* Clip ID handle (copyable monospace) */
+.fullcard-clipid {
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  font-size: 12px;
+  color: #6cf;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.fullcard-clipid-copy {
+  margin-left: 8px;
+  padding: 1px 4px;
+  background: none;
+  border: none;
+  color: #888;
+  cursor: pointer;
+  vertical-align: middle;
+}
+
+.fullcard-clipid-copy:hover {
+  color: #ddd;
+}
+
 /* File path (selectable monospace) */
 .fullcard-filepath {
   font-family: 'Consolas', 'Monaco', 'Courier New', monospace;

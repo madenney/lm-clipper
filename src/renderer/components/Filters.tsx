@@ -57,6 +57,12 @@ function getUnprocessedPrereqs(
   filters: ShallowFilterInterface[],
   targetIndex: number,
   branchingOn: boolean,
+  // Indices of filters currently running. A running upstream is already
+  // producing output, so it isn't a prerequisite to kick off — the target just
+  // runs on its partial results (FilterExecutor handles the live table). Treat
+  // it like a processed input and stop the walk, so we don't pop a "run the
+  // parser first" warning for a parser the user already has running.
+  runningIndices: Set<number>,
 ): ShallowFilterInterface[] {
   const chain: ShallowFilterInterface[] = []
   const seen = new Set<number>()
@@ -70,8 +76,14 @@ function getUnprocessedPrereqs(
     const inputFilter = filters[inputIdx]
     // A filter with partial results (stopped mid-run, resume banner still
     // showing) has usable output — reuse it rather than re-running. It only
-    // counts as needing a run once those partial results are dismissed.
-    if (inputFilter.isProcessed || inputFilter.resumable) break
+    // counts as needing a run once those partial results are dismissed. A
+    // filter that's actively running is likewise already producing output.
+    if (
+      inputFilter.isProcessed ||
+      inputFilter.resumable ||
+      runningIndices.has(inputIdx)
+    )
+      break
     chain.unshift(inputFilter)
     idx = inputIdx
   }
@@ -115,6 +127,15 @@ const RESET_WARN_TIERS: {
 // the native filter type instead of a custom JS template.
 const nativeCatalogFilters: SavedCustomFilter[] = [
   {
+    name: 'Blank',
+    code: '',
+    nativeType: 'custom',
+    builtIn: true,
+    category: 'Basic',
+    description:
+      'Start from an empty custom-code filter — write your own JavaScript to keep or drop clips.',
+  },
+  {
     name: 'Stage Center Distance',
     code: '',
     nativeType: 'stageCenter',
@@ -125,22 +146,13 @@ const nativeCatalogFilters: SavedCustomFilter[] = [
       "Keep combos that started within X pixels of the stage's center vertical line.",
   },
   {
-    name: 'Edgeguards (experimental)',
+    name: 'Edgeguards Parser',
     code: '',
     nativeType: 'edgeguard',
     builtIn: true,
     category: 'Advanced',
     description:
-      'Parse replays for edgeguard sequences. Experimental — loads full frame data.',
-  },
-  {
-    name: 'Edgeguards Parser',
-    code: '',
-    nativeType: 'edgeguard2',
-    builtIn: true,
-    category: 'Advanced',
-    description:
-      'Smarter edgeguards: clips the full offstage sequence, scores it by hits/duration/depth, and catches no-contact ledge-steals. Tags each clip with metrics the Edgeguards Filter can refine.',
+      'Finds kills by edgeguard: the victim is knocked offstage by a hit, tries to recover, and is denied — hit back out, ledge-stolen, or forced to land and punished (even off the top) — dying without recovering in between. Clips start at the launching hit and are tagged with metrics the Edgeguards Filter can refine.',
   },
 ]
 
@@ -386,7 +398,12 @@ export default function Filters({
     const targetIndex = archive.filters.findIndex((f) => f.id === filter.id)
     const prereqs =
       targetIndex >= 0
-        ? getUnprocessedPrereqs(archive.filters, targetIndex, branchingOn)
+        ? getUnprocessedPrereqs(
+            archive.filters,
+            targetIndex,
+            branchingOn,
+            runningFilters,
+          )
         : []
     // Confirm before auto-running an EXPENSIVE parser prerequisite only: a big
     // parse, or re-running a parser that previously took a while. A small first
@@ -440,6 +457,17 @@ export default function Filters({
   // explicit confirm (see CustomCodeConsentModal).
   async function unapprovedCustomFilters(filters: ShallowFilterInterface[]) {
     const approved = new Set(config.approvedCustomCodeHashes || [])
+    // Built-in templates ship with the app, so their (unmodified) code is
+    // trusted and must NOT trip the consent gate — only code the user wrote or
+    // edited should. Pre-approve every built-in template's code hash; the moment
+    // a user edits a template the code diverges, its hash no longer matches, and
+    // it prompts again (as it should).
+    for (const t of config.savedCustomFilters || []) {
+      if (t.builtIn && typeof t.code === 'string' && t.code.trim()) {
+        // eslint-disable-next-line no-await-in-loop
+        approved.add(await sha256Hex(t.code))
+      }
+    }
     const out: { filter: ShallowFilterInterface; hash: string }[] = []
     for (const f of filters) {
       const code = f.type === 'custom' ? f.params?.code : undefined
@@ -1126,17 +1154,19 @@ export default function Filters({
               {(() => {
                 // These native filters are surfaced in the Browse Templates
                 // modal instead of the main dropdown.
+                // 'custom' (blank custom-code) is offered as "Blank" in the
+                // Browse-more modal instead of cluttering the main dropdown.
                 const hiddenFilters = new Set([
                   'zeroToDeaths',
-                  'edgeguard',
                   'stageCenter',
+                  'custom',
                 ])
                 const visible = filtersConfig.filter(
                   (p) => p.id !== 'files' && !hiddenFilters.has(p.id),
                 )
                 // Lift the Edgeguards Parser + Filter so they sit directly
                 // beneath the Combo Parser + Combo Filter on the list.
-                const edgeIds = ['edgeguard2', 'edgeguardFilter']
+                const edgeIds = ['edgeguard', 'edgeguardFilter']
                 const edge = visible.filter((p) => edgeIds.includes(p.id))
                 const rest = visible.filter((p) => !edgeIds.includes(p.id))
                 const comboIdx = rest.findIndex((p) => p.id === 'comboFilter')
@@ -1185,11 +1215,6 @@ export default function Filters({
                       )}
                     </div>,
                   ]
-                  if (p.id === 'sort') {
-                    items.push(
-                      <div key="divider" className="add-filter-divider" />,
-                    )
-                  }
                   return items
                 })
               })()}
@@ -1209,7 +1234,7 @@ export default function Filters({
                   }
                 }}
               >
-                Browse Templates...
+                Browse more...
               </div>
             </div>
           )}

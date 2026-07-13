@@ -28,6 +28,9 @@ import {
 
 type FullCardProps = {
   data: ClipData
+  /** Filter/table this clip came from — combined with the row id to form a
+   *  fully-unique, copyable handle (row id alone repeats across tables). */
+  filterId?: string
   isSelected?: boolean
   onMouseDown?: (_e: React.MouseEvent) => void
   onPlay?: (_payload: {
@@ -129,8 +132,43 @@ function CopyButton({ data }: { data: ClipData }) {
   )
 }
 
+/**
+ * Clip ID row — shows the fully-unique `<filterId>#<rowId>` handle with a
+ * one-click copy, so a clip can be referenced/looked up exactly.
+ */
+function ClipIdRow({ handle }: { handle: string }) {
+  const [copied, setCopied] = useState(false)
+  const handleCopy = useCallback(() => {
+    navigator.clipboard.writeText(handle).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    })
+  }, [handle])
+
+  return (
+    <div className="fullcard-row">
+      <span className="fullcard-row-label">Clip ID</span>
+      <span className="fullcard-row-value">
+        <code className="fullcard-clipid">{handle}</code>
+        <button
+          type="button"
+          className="fullcard-clipid-copy"
+          onClick={(e) => {
+            e.stopPropagation()
+            handleCopy()
+          }}
+          title="Copy clip ID"
+        >
+          {copied ? <FiCheck /> : <FiCopy />}
+        </button>
+      </span>
+    </div>
+  )
+}
+
 function FullCardComponent({
   data,
+  filterId,
   isSelected,
   onMouseDown,
   onPlay,
@@ -200,6 +238,11 @@ function FullCardComponent({
   }
 
   const preventDrag = (e: React.DragEvent) => e.preventDefault()
+
+  // Fully-unique handle: row id is only unique within its filter table, so
+  // qualify it with the table id. e.g. "filter_3#1345".
+  const clipId = 'id' in data && data.id != null ? String(data.id) : null
+  const clipHandle = clipId != null ? `${filterId ?? 'files'}#${clipId}` : null
 
   const classNames = ['fullcard']
   if (isSelected) classNames.push('fullcard--selected')
@@ -316,6 +359,9 @@ function FullCardComponent({
 
       {/* ─── Body ─── */}
       <div className="fullcard-body">
+        {/* Clip ID */}
+        {clipHandle && <ClipIdRow handle={clipHandle} />}
+
         {/* Player Details */}
         {(player1 || player2) && (
           <ExpandableSection title="Player Details" defaultOpen>
