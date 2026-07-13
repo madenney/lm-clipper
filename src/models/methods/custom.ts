@@ -81,10 +81,20 @@ export default (
     },
   }
 
+  // Global input size (full row count of the filter's input), threaded in by
+  // Worker.ts. The worker hands custom code only a 1000-row CHUNK at a time, so
+  // `clips.length` is NOT the dataset size — `total` is, letting global ops like
+  // random sampling stay correct (e.g. keep each item with probability
+  // count/total). Falls back to the chunk size if unset.
+  const total =
+    typeof (params as any).__total === 'number'
+      ? (params as any).__total
+      : sliced.length
+
   let script: vm.Script
   try {
     script = new vm.Script(
-      `(function(clips, params, SlippiGame, console) { ${code} })(clips, params, SlippiGame, console)`,
+      `(function(clips, params, total, SlippiGame, console) { ${code} })(clips, params, total, SlippiGame, console)`,
     )
   } catch (err: any) {
     throw new Error(
@@ -96,6 +106,7 @@ export default (
     const sandbox = {
       clips: sliced,
       params: mergedParams,
+      total,
       SlippiGame,
       console: fakeConsole,
     }

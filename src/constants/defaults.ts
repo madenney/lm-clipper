@@ -78,20 +78,8 @@ export const config = {
   includeDefaultFilters: true,
   savedCustomFilters: [
     // ── Sampling ──
-    {
-      name: 'Random Sample',
-      category: 'Sampling',
-      description: 'Shuffle clips and take a random subset',
-      code: `// Shuffle clips and take a random sample
-const shuffled = [...clips]
-for (let i = shuffled.length - 1; i > 0; i--) {
-  const j = Math.floor(Math.random() * (i + 1));
-  [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]]
-}
-return shuffled.slice(0, params.count)`,
-      customParams: [{ name: 'count', type: 'int', value: '50' }],
-      builtIn: true,
-    },
+    // (Random Sample is now a built-in native filter — see filtersConfig
+    // 'randomSample' — not a custom-code template.)
     {
       name: 'Limit Per Player',
       category: 'Sampling',

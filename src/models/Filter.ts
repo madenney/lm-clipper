@@ -123,8 +123,13 @@ export default class Filter {
     }
 
     const minThreads = Math.max(1, numFilterThreads)
+    // sort and randomSample must see the whole input on ONE worker: sort needs a
+    // true global ordering, randomSample a uniform sample of the entire set (N
+    // workers would each emit their own sample).
     const threadCount =
-      this.type === 'sort' ? 1 : Math.min(minThreads, maxFiles)
+      this.type === 'sort' || this.type === 'randomSample'
+        ? 1
+        : Math.min(minThreads, maxFiles)
     const slices = createSlices(maxFiles, threadCount)
     this._activeSlices = slices
     const workerResults = new Array(slices.length).fill(0)
@@ -177,11 +182,11 @@ export default class Filter {
           'slpParser',
           'actionStateFilter',
           'edgeguard',
-          'edgeguard2',
           'reverse',
           'removeStarKOFrames',
           'koDirection',
           'stageCenter',
+          'pressure',
         ])
         const resourceLimits = slowIOTypes.has(this.type)
           ? { maxOldGenerationSizeMb: 1024 }

@@ -1,5 +1,6 @@
 import { WorkerMessage, FilesTableRow, FilterTableRow } from 'constants/types'
 import { parentPort, workerData } from 'worker_threads'
+import { existsSync } from 'fs'
 import Database from 'better-sqlite3'
 
 import methods from './methods'
@@ -13,8 +14,9 @@ const MAX_ERRORS = 5
 const PARSER_LOAD_CHUNK = 5000
 // Rows to process at once for non-parser filters (prevents OOM on 6M+ row tables)
 const FILTER_CHUNK_SIZE = 5000
-// Rows per INSERT for sort (prevents OOM on large ORDER BY operations)
-const SORT_CHUNK_SIZE = 50000
+// Custom filters run user code in a vm over the whole chunk at once and often
+// operate on heavy combo data — a smaller chunk keeps peak memory down.
+const CUSTOM_FILTER_CHUNK_SIZE = 1000
 // Slow I/O filters process 1 item per chunk (each opens .slp file)
 const SLOW_FILTER_CHUNK_SIZE = 1
 // Batch size for lastFrame backfill updates during parser
@@ -26,7 +28,6 @@ const METHODS_WITH_EMITTER = new Set([
   'comboFilter',
   'custom',
   'edgeguard',
-  'edgeguard2',
   'edgeguardFilter',
   'zeroToDeaths',
   'files',
@@ -77,30 +78,23 @@ function run() {
       }
       try {
         const total = slice.top - slice.bottom + 1
-        let inserted = 0
 
-        const sortTransaction = db.transaction(() => {
-          for (
-            let offset = slice.bottom;
-            offset <= slice.top;
-            offset += SORT_CHUNK_SIZE
-          ) {
-            const chunkEnd = Math.min(offset + SORT_CHUNK_SIZE - 1, slice.top)
-            db.prepare(
-              `INSERT INTO "${nextTableId}" (JSON) ` +
-                `SELECT JSON FROM "${prevTableId}" ` +
-                `WHERE id >= ? AND id <= ? ` +
-                `ORDER BY ${orderExpr}`,
-            ).run(offset, chunkEnd)
-            inserted += chunkEnd - offset + 1
-            postMessage({
-              type: 'progress',
-              current: inserted,
-              total,
-            })
-          }
-        })
-        sortTransaction()
+        // Single global ORDER BY. SQLite's sorter spills to temp storage
+        // (temp_store=FILE) instead of holding every row in RAM, so this stays
+        // memory-safe even on millions of rows — and, unlike the previous
+        // per-50k-id-block approach, it produces a TRUE global ordering. The old
+        // version sorted only WITHIN each 50k block and concatenated them, so any
+        // dataset larger than one block came out only locally sorted (the real
+        // top clip could be stuck behind the top of every later block).
+        db.pragma('temp_store = FILE')
+        postMessage({ type: 'progress', current: 0, total })
+        db.prepare(
+          `INSERT INTO "${nextTableId}" (JSON) ` +
+            `SELECT JSON FROM "${prevTableId}" ` +
+            `WHERE id >= ? AND id <= ? ` +
+            `ORDER BY ${orderExpr}`,
+        ).run(slice.bottom, slice.top)
+        postMessage({ type: 'progress', current: total, total })
 
         const row = db
           .prepare(`SELECT COUNT(*) as cnt FROM "${nextTableId}"`)
@@ -115,6 +109,117 @@ function run() {
         })
         postMessage({ type: 'done', results: 0 })
       }
+      return
+    }
+
+    // Random sample: keep exactly `count` clips chosen uniformly at random.
+    // Single-threaded (Filter.ts forces one worker) so this slice IS the whole
+    // input. Uses reservoir sampling (Algorithm R) — one pass, memory bounded to
+    // `count`, correct without knowing the total up front. Streams via parseRows
+    // so it works identically on the files table and on filter output tables.
+    if (type === 'randomSample') {
+      const total = slice.top - slice.bottom + 1
+      // Blank/invalid count = no limit (keep everything), matching the app's
+      // other numeric fields — clearing the field shouldn't silently drop every
+      // clip. An explicit 0 still means zero.
+      const rawStr = params.count == null ? '' : String(params.count).trim()
+      const raw = parseInt(rawStr, 10)
+      const target = rawStr === '' || Number.isNaN(raw) || raw < 0 ? total : raw
+      const stmt = db.prepare(`INSERT INTO "${nextTableId}" (JSON) VALUES (?)`)
+      const insertBatch = db.transaction((items: Record<string, unknown>[]) => {
+        for (const it of items) stmt.run(JSON.stringify(it))
+      })
+
+      if (target === 0 || total === 0) {
+        postMessage({ type: 'done', results: 0 })
+        return
+      }
+
+      postMessage({ type: 'progress', current: 0, total, results: 0 })
+
+      // Keeping everything (count >= input, or blank): stream through in chunks
+      // and insert as we go, so memory stays O(chunk) instead of holding the
+      // whole input. No sampling needed.
+      if (target >= total) {
+        let inserted = 0
+        let currentBottom = slice.bottom
+        let lastProgressTime = 0
+        while (currentBottom <= slice.top) {
+          const currentTop = Math.min(
+            currentBottom + FILTER_CHUNK_SIZE - 1,
+            slice.top,
+          )
+          const chunk = parseRows(
+            prevTableId,
+            getRows(db, prevTableId, {
+              bottom: currentBottom,
+              top: currentTop,
+            }),
+          )
+          if (chunk.length > 0) {
+            insertBatch(chunk)
+            inserted += chunk.length
+          }
+          const now = Date.now()
+          if (now - lastProgressTime >= PROGRESS_THROTTLE_MS) {
+            postMessage({
+              type: 'progress',
+              current: inserted,
+              total,
+              results: inserted,
+            })
+            lastProgressTime = now
+          }
+          currentBottom = currentTop + 1
+        }
+        postMessage({ type: 'done', results: inserted })
+        return
+      }
+
+      // Reservoir sampling (Algorithm R): one pass, memory bounded to `target`.
+      const reservoir: Record<string, unknown>[] = []
+      let seen = 0
+      let currentBottom = slice.bottom
+      let lastProgressTime = 0
+      while (currentBottom <= slice.top) {
+        const currentTop = Math.min(
+          currentBottom + FILTER_CHUNK_SIZE - 1,
+          slice.top,
+        )
+        const chunk = parseRows(
+          prevTableId,
+          getRows(db, prevTableId, { bottom: currentBottom, top: currentTop }),
+        )
+        for (const item of chunk) {
+          if (seen < target) {
+            reservoir.push(item)
+          } else {
+            const j = Math.floor(Math.random() * (seen + 1))
+            if (j < target) reservoir[j] = item
+          }
+          seen += 1
+        }
+        const now = Date.now()
+        if (now - lastProgressTime >= PROGRESS_THROTTLE_MS) {
+          postMessage({
+            type: 'progress',
+            current: seen,
+            total,
+            results: reservoir.length,
+          })
+          lastProgressTime = now
+        }
+        currentBottom = currentTop + 1
+      }
+
+      if (reservoir.length > 0) insertBatch(reservoir)
+      postMessage({
+        type: 'progress',
+        current: seen,
+        total,
+        results: reservoir.length,
+      })
+      postMessage({ type: 'done', results: reservoir.length })
       return
     }
 
@@ -290,6 +395,13 @@ function run() {
       let processed = 0
       let skippedCount = 0
       let currentBottom = slice.bottom
+      // Slow file-reading filters (edgeguard, etc.) swallow read errors and
+      // just skip the item, so a moved/deleted file — or a whole unmounted
+      // drive — produces zero results with no warning. Count missing files
+      // here and report them in the `done` message so Filter.ts/FilterExecutor
+      // surface the same "N file(s) not found" notice as the combo parser.
+      let missingCount = 0
+      const readErrorExamples: string[] = []
 
       // Slow I/O filters (open .slp files per item) use chunk size 1 so
       // results update after every file; fast filters use large chunks.
@@ -299,14 +411,32 @@ function run() {
         'removeStarKOFrames',
         'koDirection',
         'edgeguard',
-        'edgeguard2',
         'afkDetection',
         'stageCenter',
+        'pressure',
       ])
       const isSlow = slowTypes.has(type)
       const effectiveChunkSize = isSlow
         ? SLOW_FILTER_CHUNK_SIZE
-        : FILTER_CHUNK_SIZE
+        : type === 'custom'
+          ? CUSTOM_FILTER_CHUNK_SIZE
+          : FILTER_CHUNK_SIZE
+
+      // Custom filters are handed only one chunk at a time, so global operations
+      // (random sampling, etc.) can't see the dataset size from `clips`. Give
+      // them the FULL input row count (across all workers/chunks) via params so
+      // they can sample correctly — e.g. keep each item with probability
+      // count/total.
+      if (type === 'custom') {
+        try {
+          const row = db
+            .prepare(`SELECT COUNT(*) AS c FROM "${prevTableId}"`)
+            .get() as { c: number } | undefined
+          ;(params as any).__total = row?.c ?? total
+        } catch {
+          ;(params as any).__total = total
+        }
+      }
 
       while (currentBottom <= slice.top) {
         const currentTop = Math.min(
@@ -318,6 +448,22 @@ function run() {
           top: currentTop,
         })
         const chunk = parseRows(prevTableId, chunkRows)
+
+        // Pre-flight existence check for filters that open .slp files. The
+        // methods themselves catch read failures and silently skip, so without
+        // this an unmounted drive / moved files would yield zero results and no
+        // warning. `existsSync` here is negligible next to the .slp parse it
+        // gates, and only runs for slow (file-reading) filter types.
+        if (isSlow) {
+          for (const item of chunk) {
+            if (typeof item.path === 'string' && !existsSync(item.path)) {
+              missingCount++
+              if (readErrorExamples.length < 3) {
+                readErrorExamples.push(item.path)
+              }
+            }
+          }
+        }
 
         if (
           skipSet &&
@@ -382,7 +528,13 @@ function run() {
         currentBottom = currentTop + 1
       }
 
-      postMessage({ type: 'done', results: totalInserted })
+      postMessage({
+        type: 'done',
+        results: totalInserted,
+        missing: missingCount,
+        corrupt: 0,
+        examples: readErrorExamples,
+      })
     }
   } finally {
     try {
