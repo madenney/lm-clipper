@@ -132,17 +132,21 @@ export default function Top({ config, setConfig, onRunSetupWizard }: TopProps) {
             Reset SLPZ
           </button>
         )}
-        {/* TEMP dev helper — instant app reset (no confirm). Remove before GA. */}
-        <button
-          type="button"
-          className="top-lunar-btn"
-          onClick={() =>
-            window.electron.ipcRenderer.sendMessage('resetApp', null)
-          }
-          title="Reset app to first-run and restart (dev helper)"
-        >
-          <span>Reset App</span>
-        </button>
+        {/* Dev helper — wipes config to first-run and restarts, with NO confirm.
+            testMode-gated like the Reset SLPZ button beside it: a one-click,
+            unconfirmed "delete everything" is a footgun in a shipped build. */}
+        {config.testMode && (
+          <button
+            type="button"
+            className="top-lunar-btn"
+            onClick={() =>
+              window.electron.ipcRenderer.sendMessage('resetApp', null)
+            }
+            title="Reset app to first-run and restart (dev helper)"
+          >
+            <span>Reset App</span>
+          </button>
+        )}
         <button
           type="button"
           className="top-lunar-btn"

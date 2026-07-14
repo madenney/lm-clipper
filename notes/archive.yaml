@@ -196,3 +196,12 @@
     maxLookbackFrames is already 1200 in the user's current params. Re-filed as
     "Re-run the edgeguard parser on full_db under the new algorithm".
   archived_at: '2026-07-13T18:30:00'
+- human: Remove or testMode-gate the dev "Reset App" button before GA
+  done: true
+  ai: |
+    Done 2026-07-13. src/renderer/components/Top.tsx — the "Reset App" button (sendMessage
+    'resetApp'), which wiped config to defaults and relaunched with NO confirmation, is now
+    behind {config.testMode && (...)}, matching the "Reset SLPZ" button next to it. It had
+    been shipping in the beta and sat in the header right beside "Lunar Database", so it was
+    also going to appear in every marketing screenshot.
+  archived_at: '2026-07-13T23:40:00'

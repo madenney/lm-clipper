@@ -52,10 +52,6 @@
     ALSO: minScore thresholds shifted. Score values went UP with the re-tune — minScore ~37 now means what 30 used to. Check any saved Edgeguards Filter threshold.
 
     This supersedes the archived "re-run only the 10s-capped clips" plan, whose premise (surgically fixing 2% of an otherwise-good 7.8M set) is dead now that the whole set is stale. maxLookbackFrames is already 1200 in the current params.
-- human: Remove or testMode-gate the dev "Reset App" button before GA
-  done: false
-  ai: |
-    src/renderer/components/Top.tsx has a TEMP "Reset App" button (sendMessage 'resetApp') that wipes config to defaults + relaunches with NO confirmation — a data-loss footgun for end users. Intentionally shipped in the beta for Windows testing. Before stable GA, gate it behind {config.testMode && (...)} like the neighboring "Reset SLPZ" button, or delete it. Its own comment says "Remove before GA". Review task #25.
 - human: Free Windows code signing via SignPath Foundation before GA
   done: false
   ai: |
@@ -109,3 +105,55 @@
   done: false
   ai: |
     Review task #38, deferred. (a) The preload SEND_CHANNELS Set (src/main/preload.ts) is hand-maintained and drifts from controller.ts's ipcMain.on registrations — a forgotten channel fails SILENTLY for ~30s until the ipcBridge stale-reaper fires. A test (src/__tests__/ipcAllowlist.test.ts) now CATCHES that drift in CI, so the urgency is gone; the clean fix is to derive SEND_CHANNELS from one source of truth shared with the registration loop. (b) The Sort filter is single-threaded: Filter.ts forces threadCount=1 and Worker.ts does one global SQLite ORDER BY with temp_store=FILE, so it spills to disk rather than OOMing. It is memory-safe but slow on the ~6M-combo DB; an indexed SQL sort would be faster. NOTE the new randomSample filter is ALSO forced single-threaded, deliberately — it reservoir-samples the whole input on one worker; do not "optimize" it to N threads or each worker will emit its own independent sample. The SQL-sort rewrite is risky — post-beta.
+- human: Capture demo media (screenshots + clips) for the lunarmelee.com software page
+  done: false
+  ai: |
+    PAUSED 2026-07-13, will resume. The website side sent a shot list: hero.mp4,
+    wow-01-detect.mp4 (auto-detection: point at a folder, scan runs, highlights populate),
+    wow-02-export.mp4 (select clips -> export -> real .mp4 files), optional wow-03-scale.mp4,
+    plus fallback stills. Specs: fixed window size across every clip, 30fps (60 for gameplay),
+    no audio, 16:9, raw/uncompressed source (the site does the conversion), short + loopable,
+    deliberate pacing. Matt is shooting these HIMSELF — do not run captures unprompted.
+
+    GROUNDWORK ALREADY DONE (all of it is on disk, reusable):
+
+    (1) SCRUBBED DEMO PROJECT — ~/Projects/lunar-clipper-demo/Lunar Clipper Demo.lunar.
+    A copy of "Untitled 3.lunar" (11,673 replays -> 5,488 edgeguard clips) with every real
+    identity removed. THE NON-OBVIOUS PART: it is not just the display names. The replay FILE
+    PATHS are rendered in the Tray AND the clip detail card, and they read
+    /home/matt/Projects/worker/lunar_db/.../netplay/Mew2king/Mew2king Slippi Replays/... —
+    i.e. a real player's name, twice, in a path. Also connectCode (KOTU#737) and stream tags
+    (type !HelpM2K / type !Roblox / HelloFresh / Suck2King). The scrub replaces displayName +
+    connectCode + nametag (1,036 distinct identities -> a fake pool: COMET14, NOVA17, ...) and
+    rewrites every path to ~/Projects/lunar-clipper-demo/replays/Game_NNNNN.slp, which are
+    SYMLINKS to the real files — so clips still PLAY and RENDER. The original project was not
+    touched. Verified: zero leaks across files + all 3 filter tables.
+
+    (2) CAPTURE RIG — ~/Projects/lunar-clipper-demo/{prep.sh, record.sh, shot.sh, lib.sh}.
+    Verified producing real 1920x1080 h264 30fps. Two traps it works around, both of which
+    cost real time to find:
+      - The app window sits at y=118 with height 1011 => 1129 > 1080, i.e. it runs OFF the
+        bottom of the screen. ffmpeg's x11grab flatly REFUSES a capture area that extends past
+        the screen and writes a zero-byte file. ./prep.sh full fullscreens the window (giving
+        an exact 1920x1080 frame); ./prep.sh 720 gives a windowed 1280x720 instead.
+      - `xdotool search --name "Lunar Clipper"` matches THREE windows, including a Chrome tab
+        titled "Lunar Clipper — Software Page Mockup". lib.sh's find_win matches the app window
+        specifically and excludes browsers.
+      - NEVER wrap the recorder in `timeout` — SIGTERM kills ffmpeg before it finalises the MP4
+        container, producing a 0-byte file. Use SECS= (ffmpeg's own -t).
+
+    THREE SPECS IN THE BRIEF THAT DO NOT SURVIVE CONTACT:
+      - 1920x1080 WINDOWED is impossible: the screen IS 1920x1080, so there's no room for a
+        title bar. Fullscreen the app (exact 1920x1080) or use 1280x720.
+      - LEGIBILITY vs RESOLUTION: a 1920px window downscaled to the page's ~600px is a 3.2x
+        reduction — 12px UI text lands under 4px, unreadable. For shots where reading matters
+        (the scan counter, the results list), zoom the app or crop to a region.
+      - OBS is NOT installed on this machine. ffmpeg x11grab is equivalent.
+
+    ALSO: recording takes over the display (x11grab captures screen pixels, so the app must be
+    fullscreen and frontmost for the whole take). It cannot be done quietly in the background —
+    it needs a deliberate session.
+
+    HARDEST SHOT: wow-02-export. It needs Dolphin configured + an ISO + a real render; the rest
+    are just UI. wow-01-detect needs a folder sized so the scan is visible but loops in ~10s —
+    a few hundred replays, not 11k and not 20.
