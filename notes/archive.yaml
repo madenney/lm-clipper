@@ -80,3 +80,119 @@
   ai: |
     Release-push work alongside the review: (1) rebuilt the release pipeline so published builds actually auto-update — upload latest/beta .yml manifests + blockmaps, publish (not draft), beta/stable channels from the tag, allowPrerelease from version; dropped macOS, retired Conveyor; runbook in RELEASING.md. (2) anonymous usage telemetry: src/main/telemetry.ts (install/app_open/video_created/import_completed/filter_run) -> lunarmelee.com/api/app-usage with a random installId; opt-out + first-run notice; NO consent gate (GDPR legitimate interest). Wire contract + dashboard spec for the website is docs/telemetry-api.md (SERVER MUST DISCARD THE CLIENT IP). (3) CI hardening: npm ci + real prod-dep audit gate (fixed lodash/react-router), release-binary verify step, explicit webPreferences + tighter CSP, serialized/atomic config writes, tests 31 -> 178. See memory release-pipeline.md, usage-telemetry.md.
   archived_at: '2026-06-20T10:00:39'
+- human: Rebuild the edgeguard parser on real stage geometry; fix the algorithm
+  done: true
+  ai: |
+    Done 2026-07-13 (commit 002eb31, shipped in v2.0.0-beta.5). Supersedes the old
+    "Tune edgeguard2 detection and scoring" item, of which items (3) recoveryRange
+    and (4) score weights are now closed; items (1) isRecoveryMove and (2) the KO
+    gate remain and were re-filed as a fresh todo.
+
+    Geometry. Boundaries now derive from src/constants/stageGeometry.ts using
+    libmelee's constants (EDGE_GROUND_POSITION / EDGE_POSITION / BLASTZONES).
+    src/constants/rectangles.ts is DELETED — it held 12 hand-drawn numbers, every
+    one a multiple of 5, with implied offstage buffers ranging 7.3-18.4 across
+    stages. Its dev box editor (the saveEdgeRectangles IPC, which rewrote a source
+    file and errored out in packaged builds) is gone too; StageZoneModal keeps only
+    its 'zones' mode for the position/action-state filters. The distance ruler is
+    EDGE_POSITION (where a character HANGS), not EDGE_GROUND_POSITION — they differ
+    by 2.91, so the old value scored a perfect ledge grab as ~2.9 short. One tunable
+    remains: offstageBuffer (how far inside the ledge counts as "in trouble" —
+    geometry cannot answer that). Default 0; lives in filter.params so it
+    invalidates results. Edited via the new EdgeguardZoneModal ("Offstage Line").
+
+    Algorithm. The buffered line applies to the VICTIM only; the launching-hit
+    window and every edgeguarder test use the true stage edge. Using the buffered
+    line for the launch window collapsed it (the victim read as "already offstage"
+    while standing near the ledge), so no connecting hit was found and real clips
+    were silently discarded — noLaunchingHit rejections climbed 303 -> 385 as the
+    buffer grew. A hit (or ledge-steal) now only DENIES a recovery if it lands while
+    the victim is within recovery range of the ledge: that is what judges projectiles
+    correctly in BOTH directions (a laser clipping a Marth 40 units from the ledge is
+    an edgeguard; the same laser pinging him 240 units out in the void denied
+    nothing). Do NOT try to filter lasers by weak damage or attacker distance — that
+    breaks real projectile edgeguards. The discriminator is where the VICTIM was.
+
+    recoveryData.ts is now MEASURED, not guessed: the p99 distance each character
+    actually recovered from, over 81,329 successful offstage recoveries in 2,485
+    corpus games. Marth was 105, is 90 — that gap is exactly what let launch-to-death
+    kills through as edgeguards. Everyone clusters 75-110; the old hand-guessed table
+    spread 70-210 and had Puff recovering from 3x farther than Bowser (measured: 93.3
+    vs 94.9).
+
+    Metrics/score/sorts. edgeguarderOffstage DELETED (true 92% of the time, carried no
+    information edgeguarderDepth doesn't) along with the parser's requireEdgeguarderCommit
+    option; replaced by a maxEdgeguarderDepth FILTER option, which is how you now isolate
+    the edgeguards done WITHOUT leaving the stage (lasers/ledge-traps sit at depth 0-7,
+    a real chase is 30+). Score re-tuned (clutch was zeroing 56% of clips, cleanRead 96%).
+    NOTE: score values shifted UP — minScore ~37 now means what 30 used to. The
+    'edgeguard: hype' sort is deleted (it reimplemented the score in SQL, gave an
+    identical ordering on all 757 test clips, and invited drift); 'edgeguard: intensity'
+    renamed 'edgeguard: score'. Net over a 408-game corpus: 749 -> 786 clips; the ones
+    now dropped have median minLedgeDist 100.8 vs 13.8 for those kept.
+  archived_at: '2026-07-13T18:30:00'
+- human: Auto-update was 404ing on every release — pin spaceless artifact names
+  done: true
+  ai: |
+    Done 2026-07-13 (commit ef3f56e, shipped in v2.0.0-beta.5). Auto-update had NEVER
+    worked, through every release up to and including v2.0.0-beta.4.
+
+    ROOT CAUSE: build.productName is "Lunar Clipper" — it contains a SPACE — and no
+    artifactName was set, so electron-builder's default name was "Lunar Clipper Setup
+    <ver>.exe". The two consumers then disagreed about that space: electron-builder
+    wrote the update manifest url HYPHENATED (beta.yml -> Lunar-Clipper-Setup-x.exe)
+    while GitHub renamed the uploaded asset with DOTS (Lunar.Clipper.Setup.x.exe). So
+    electron-updater read beta.yml, requested the hyphenated name, and got a 404. The
+    manifests were being uploaded correctly all along — they just pointed at a filename
+    that never existed.
+
+    FIX: pin explicit spaceless names in package.json —
+      build.win.artifactName   = "Lunar-Clipper-Setup-${version}.${ext}"
+      build.linux.artifactName = "Lunar-Clipper-${version}.${ext}"
+    Never let productName's space reach an artifact name.
+
+    LESSON: a green Release run proves NOTHING here. beta.4's run was fully green —
+    both platforms built, all assets uploaded, .yml manifests present, not a draft —
+    and it shipped a release whose updater could not download anything. After every
+    release, verify with an ACTUAL HTTP check, not by eyeballing the asset list:
+      curl -sL .../releases/download/<tag>/beta.yml     # read the `path:` field
+      curl -s -o /dev/null -w "%{http_code}" -L .../releases/download/<tag>/<that path>
+    200 = auto-update works. 404 = it does not.
+
+    Good consequence: because electron-updater always reads the NEWEST release's
+    manifest, users stranded on older betas can now auto-update to beta.5 — no manual
+    reinstall needed. beta.4's release was deleted; 17 stale drafts (v0.9.0 through
+    v2.0.0-beta.2.5) were deleted too, tags preserved.
+  archived_at: '2026-07-13T18:30:00'
+- human: Cut v2.0.0-beta.4 (release half — smoke-tests re-filed separately)
+  done: true
+  ai: |
+    Done 2026-07-13. Master pushed; shipped v2.0.0-beta.5 (beta.4 was tagged first but
+    its updater 404'd — see the auto-update entry — so it was deleted and superseded).
+    CI green on all four jobs (lint, typecheck ratchet at 0/0, 177 tests, audit); the
+    production build was verified locally before tagging.
+
+    The SMOKE-TEST half of this todo is NOT done and has been re-filed as its own item
+    ("Smoke-test v2.0.0-beta.5 on Windows").
+  archived_at: '2026-07-13T18:30:00'
+- human: Apply stocks-only computeStocks() to edgeguard.ts too
+  done: true
+  ai: |
+    Obsolete as of 2026-07-13 — nothing to do. This item was about the OLD v1
+    edgeguard.ts, which called game.getStats(). That file is deleted: v1 was dropped,
+    edgeguard2.ts was renamed to edgeguard.ts and took the canonical filter id. The
+    surviving parser already uses computeStocks() (src/lib/slippiStocks.ts).
+  archived_at: '2026-07-13T18:30:00'
+- human: Re-run only the 10s-capped edgeguard clips with a longer lookback
+  done: true
+  ai: |
+    Obsolete as of 2026-07-13 — its premise is dead. The plan was to surgically
+    reprocess the ~2% (154,001) of clips pinned at the 600-frame lookback cap in
+    full_db.lunar's 7.8M-clip set, to avoid redoing all 2.8M games (~35h).
+
+    But the edgeguard ALGORITHM changed substantially on 2026-07-13 (geometry,
+    recovery ranges, the denial test, the score), so that entire 7.8M result set is
+    stale — not just the capped 2%. A full re-run supersedes the surgical merge, and
+    maxLookbackFrames is already 1200 in the user's current params. Re-filed as
+    "Re-run the edgeguard parser on full_db under the new algorithm".
+  archived_at: '2026-07-13T18:30:00'

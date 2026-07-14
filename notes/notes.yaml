@@ -3,6 +3,89 @@
 #   ai:    verbose, self-contained brief for a future bot with no prior context
 #   done:  checkbox state (default false)
 # Standard: <shelf>/docs/notes-convention.md
+- human: BUG — a crashed filter run shows 0/total instead of the real progress
+  done: false
+  ai: |
+    BUG/UX (found 2026-06-21 during real crash recovery on the 46GB full_db.lunar project). After a PC crash 20% into a ~12h edgeguard run, reopening showed the filter at "0 / 2,815,620" even though 1,893,957 result rows were committed and durable. Devastating to see as a user — looks like all the work was lost when it wasn't.
+
+    ROOT CAUSE: the live progress count (`lastProgress`) in src/models/Filter.ts run3() is tracked IN MEMORY and streamed to the UI, but it is only ever written to the DB column `filter_runs.processed` on a clean Stop or normal completion (src/main/managers/FilterExecutor.ts ~line 284, `updateFilterRunProgressAsync(path, filterId, lastProgress)`). During a normal in-flight run it is NEVER persisted, so it sits at the initial 0 written by upsertFilterRun (src/main/db.ts ~line 397, `VALUES (?, ?, ?, 'running', ?)`). A crash therefore leaves processed=0. On reopen, DbWorker.ts (~line 473-482) detects the resumable run (status==='running' AND run.params_json === JSON.stringify(filter.params)) and sets filter.resumeProgress = { processed: run.processed ?? 0, totalInput: run.total_input } -> UI renders 0/total. The RESULTS are fine (resume rebuilds its skip-set from getProcessedSourceIds = DISTINCT _sourceId in the results table, not from the counter), only the displayed number is wrong.
+
+    FIX (primary): in Filter.ts run3(), inside the worker 'progress' message handler where `lastProgress` already updates on every message (right after `lastProgress = totalCompleted`), add a THROTTLED persist of lastProgress to filter_runs.processed via the existing updateFilterRunProgressAsync helper (already used by FilterExecutor; import into Filter.ts from ../main/dbAsync). Throttle to ~every 2s (time-based; Date.now() is fine in app runtime — the no-Date rule only applies to Workflow scripts) so it's a couple of cheap single-row UPDATEs/sec through DbWorker, NOT per-row. Then a crash leaves an accurate recent number (lose at most ~2s) and reopen shows e.g. "612,000 / 2,815,620".
+
+    FIX (bonus, belt-and-suspenders): in DbWorker.ts resumable detection (~line 479), if run.processed is 0/falsy but the results table is non-empty, fall back to a committed count so even an un-checkpointed crash never shows a flat 0. Note unit mismatch: total_input counts INPUT games; the results table row count is CLIPS and DISTINCT _sourceId is games-that-produced-clips (a lower bound on games processed, since zero-clip games aren't tracked). DISTINCT _sourceId is the most honest fallback but COUNT(DISTINCT JSON_EXTRACT(JSON,'$._sourceId')) scans the table (~seconds on 1.9M rows) — acceptable on open, or skip the bonus and rely on the primary fix.
+
+    SCOPE/GOTCHAS: touches src/models/Filter.ts (+ maybe DbWorker.ts) — both are bundled into the main webpack build, so taking effect needs `NODE_ENV=development TS_NODE_TRANSPILE_ONLY=true npx webpack --config ./.erb/configs/webpack.config.main.dev.ts` AND an app restart (electronmon restart alone runs stale code). Add a jest test to keep the tsc + jest gates green. Pairs naturally with the cachedCounts bug below — same files, same rebuild+restart requirement.
+- human: BUG — a completed filter shows a frozen mid-run result count
+  done: false
+  ai: |
+    BUG (found 2026-06-23 on the 56GB full_db.lunar project). After the 7.8M-row edgeguard run completed, the filter card showed "17,427" results instead of 7,803,511 — and Ctrl+R kept re-showing 17,427. The actual table was fine (7,803,511 rows); only the displayed count was wrong, frozen at a stale mid-run value. Very alarming to a user (looks like 35h of results vanished).
+
+    ROOT CAUSE: two separate count fields get out of sync. (1) `filter.results` — set correctly at completion. (2) `cachedCounts[filterId]` in metadata.extra — the value the UI actually trusts. cachedCounts is ONLY ever written by the lazy background counter (src/main/DbWorker.ts ~line 168, getFilterCount handler calls `cacheFilterCount(db, tableId, count)`). At some point mid-run a lazy count ran and cached 17,427; nothing invalidates/updates cachedCounts while a run keeps adding rows, so it stayed frozen as the table grew to 7.8M. Then getMetadata (DbWorker.ts ~line 435-439) OVERWRITES `filter.results` FROM cachedCounts on every read — so even the correct completion value gets clobbered by the stale cache. Compounding it: the completion finalize in FilterExecutor.ts (~line 289-360, withCompletionLock) uses getTableCountAsync (counts but does NOT cache) and evidently errored partway here (left isProcessed=false; the catch path re-reads stale metadata), so the cache was never refreshed.
+
+    FIX (bulletproof, primary): invalidate cachedCounts[filterId] when a run STARTS (in FilterExecutor._executeFilter run-start, and for descendants reset on completion). With it null, getMetadata sets filter.results=null -> lazy re-hydration runs a live COUNT -> always truthful, even if completion errors (exactly the failure that bit us). Implement an invalidate either by a new DbWorker method (delete extra.cachedCounts[tableId]) or by writing a sentinel <0 (getMetadata treats `cachedCounts[id] >= 0 ? ... : null`, so any negative invalidates).
+    FIX (avoid spinner, secondary): at completion, swap getTableCountAsync -> getFilterCountAsync (the latter COUNTS *and* caches via cacheFilterCount), so cachedCounts holds the true final count immediately. Also make completion finalize robust so a slow/failed COUNT can't leave isProcessed=false with a stale cache.
+
+    SURGICAL FIX ALREADY APPLIED (2026-06-23) to the live + backup DB: set cachedCounts.filter_11504=7803511, results=7803511, isProcessed=true; metadata.path stamped to full_db.lunar. So the user's project is correct now; this todo is the CODE fix to prevent recurrence. Add a jest test.
+- human: Smoke-test v2.0.0-beta.5 on Windows (incl. the first real auto-update hop)
+  done: false
+  ai: |
+    v2.0.0-beta.5 is published (2026-07-13) with auto-update verified working for the FIRST TIME — see the archived "Auto-update was 404ing" entry; every prior release shipped an updater that 404'd. Nothing has yet been exercised on Windows by hand.
+
+    (0) AUTO-UPDATE, end to end: install v2.0.0-beta.3 on Windows, open it, and confirm it detects and self-installs v2.0.0-beta.5 via UpdateBanner. This is the payoff of the artifactName fix and has never once worked. The manifests were confirmed to resolve (HTTP 200 on the exact url each beta.yml names) but the actual download+install hop is untested.
+
+    Then the things tsc + jest cannot verify:
+    (1) custom-code consent gate — running a custom filter pops "Run custom code?"; "Always trust" stops re-prompting;
+    (2) the nodeIntegrationInWorker removal in main.ts — confirm the Tray density/webgl visualization STILL renders (the most likely regression);
+    (3) tightened CSP (index.ejs / codeEditor.ejs) — app loads, no blank screen;
+    (4) data integrity — import a zero-.slp zip (modal closes, no hang), quit mid-filter-run, Run-All;
+    (5) NEW this release — the multi-select value pills (player names / connect codes / characters): the X removes one value, the selector's height never changes, and selected rows pin to the top of the dropdown. Also the new built-in Random Sample filter (one "Number of clips" field, returns exactly N).
+    See RELEASING.md.
+- human: Re-run the edgeguard parser on full_db under the new algorithm
+  done: false
+  ai: |
+    The edgeguard algorithm changed substantially on 2026-07-13 (see the archived "Rebuild the edgeguard parser" entry): stage geometry now derives from libmelee, recovery ranges were re-measured, the denial test requires the victim to be in range when hit, edgeguarderOffstage is gone and the score was re-tuned.
+
+    Filter RESULTS were NOT auto-invalidated — the parser's CODE changed but its PARAMS did not, so isProcessed stayed true and every saved edgeguard result set is stale. That includes full_db.lunar's 7.8M-clip run and the 182-clip filter_65149 in full_db_only_games.lunar.
+
+    ACTION: re-run the Edgeguards Parser wherever edgeguard results matter. Expect the launch-to-death false positives to disappear, PLUS genuinely NEW clips that the old code was silently discarding (its launch window collapsed, so no connecting hit was found and the clip was dropped). Over a 408-game corpus the net was 749 -> 786 clips.
+
+    ALSO: minScore thresholds shifted. Score values went UP with the re-tune — minScore ~37 now means what 30 used to. Check any saved Edgeguards Filter threshold.
+
+    This supersedes the archived "re-run only the 10s-capped clips" plan, whose premise (surgically fixing 2% of an otherwise-good 7.8M set) is dead now that the whole set is stale. maxLookbackFrames is already 1200 in the current params.
+- human: Remove or testMode-gate the dev "Reset App" button before GA
+  done: false
+  ai: |
+    src/renderer/components/Top.tsx has a TEMP "Reset App" button (sendMessage 'resetApp') that wipes config to defaults + relaunches with NO confirmation — a data-loss footgun for end users. Intentionally shipped in the beta for Windows testing. Before stable GA, gate it behind {config.testMode && (...)} like the neighboring "Reset SLPZ" button, or delete it. Its own comment says "Remove before GA". Review task #25.
+- human: Free Windows code signing via SignPath Foundation before GA
+  done: false
+  ai: |
+    Windows builds ship UNSIGNED. Consequence: SmartScreen shows an "unknown publisher" warning on install (the user must click More info -> Run anyway), and some AV products flag an unsigned Electron installer. Auto-update DOES still work unsigned — electron-updater only enforces a publisher match when the build was signed to begin with. So this is a trust/conversion problem, not a functional one.
+
+    A commercial OV cert is ~$200-400/yr; an EV cert (which clears SmartScreen immediately) costs more. The user will not pay. SignPath Foundation (signpath.org) grants FREE code-signing certificates to qualifying OPEN-SOURCE projects, which lm-clipper is (public repo, github.com/madenney/lm-clipper). Signing happens through their hosted service — you never hold the private key; CI calls out to SignPath, which signs the artifact and hands it back.
+
+    STEPS: (1) apply to the Foundation programme with the repo URL — approval is MANUAL and slow, so start early; (2) once approved, add the SignPath step to .github/workflows/release.yml; (3) set win.publisherName in package.json to the exact CN on the issued certificate, so electron-updater's signature check passes on subsequent updates; (4) store the SignPath API token as a repo secret.
+
+    ORDERING TRAP, do not miss this: signing CHANGES THE BYTES, hence the hash. The update manifest (beta.yml / latest.yml) embeds a sha512 of the installer. If you sign AFTER electron-builder writes the manifest, the manifest describes the UNSIGNED file and every auto-update will fail integrity verification — a silent, total breakage exactly like the artifactName bug. So sign INSIDE the electron-builder pipeline (it exposes a `sign` hook) or regenerate the manifests after signing, and re-compute SHA256SUMS afterwards too. Then verify with a real download+install, not by eyeballing CI.
+
+    Do before stable GA. See RELEASING.md "Code signing".
+- human: Tune what's left of edgeguard detection — isRecoveryMove and the KO gate
+  done: false
+  ai: |
+    Two deliberately-deferred soft spots remain in src/models/methods/edgeguard.ts. (The other two items from the original "tune edgeguard2" todo — the per-character recoveryRange values and the score weights — were CLOSED on 2026-07-13; see the archived "Rebuild the edgeguard parser" entry.)
+
+    (1) isRecoveryMove treats ANY actionStateId >= 341 as a recovery move. In Melee, 0-340 are universal states and 341+ are per-character, so offstage this is USUALLY an up-B/side-B — but it also catches every other character-specific state (aerials, specials thrown out as attacks, etc.). This is the main remaining false-positive risk: a victim who throws an offstage aerial can be scored as "attempting to recover", which feeds recoveryFrame, recoveryAttempts (the single strongest term in the score) and gate (a). A per-character up-B/side-B whitelist would be precise but high-maintenance. Measure first: how many detected clips hinge on a >=341 state that is NOT a recovery special?
+
+    (2) The KO gate rejects a death above the top blast zone as "off the top", which wrongly rejects side-kills near the TOP CORNER (launched out AND up, crossing the side blastzone while high). Tighten to something like `death.y >= bz.yMax && Math.abs(death.x) < ledge` so only a genuinely central top-KO is rejected. Note bz.yMax now comes from stageGeometry.ts (libmelee BLASTZONES); rectangles.ts is deleted.
+- human: Surface edgeguard metrics on the Tray clip cards
+  done: false
+  ai: |
+    Every edgeguard clip carries a full `edgeguardMetrics` object — see the EdgeguardMetrics type in src/models/methods/edgeguard.ts (NOT edgeguard2.ts; that file no longer exists). Current fields: hits, offstageFrames, recoveryFrame, minLedgeDist, blockedByHit, ledgeSteal, maxDepthX, minY, recoveryAttempts, edgeguarderDepth, edgeguarderReturned, lastHitToDeath, stageTouches, diedOffstage, score. (edgeguarderOffstage was DELETED on 2026-07-13 — it was true 92% of the time and carried no information edgeguarderDepth doesn't. Use edgeguarderDepth, which is continuous: 0-7 means they never really left the stage — a laser/ledge-trap edgeguard — while 30+ is a real offstage chase.)
+
+    Only `edgeguardScore` is surfaced anywhere (it feeds the 'edgeguard: score' sort and the filter's minScore). The clip cards show none of it. Task: render a compact metrics line on edgeguard clip cards in the Tray (src/renderer/components/Tray/), e.g. "3 hits - 2 recovery attempts - ledge-steal - depth 34 - score 22", gated on the clip having `edgeguardMetrics` so normal clips are unaffected. Purpose: let the user eyeball what a score of 20 vs 40 actually looks like — especially now, since the score was re-tuned and the old intuition for its range is stale (minScore ~37 now means what 30 used to).
+- human: Generate the 650 character-matchup edgeguard filter configs
+  done: false
+  ai: |
+    Goal: a clip set of every character edgeguarding every other character. Melee has 26 characters (Slippi IDs 0-25, Zelda/Sheik counted separately), so 26x25 = 650 ordered (edgeguarder, edgeguardee) pairs — 676 if you include mirrors. Edgeguarding is directional so the pairs are ordered. Plan: one Edgeguards Parser run, then 650 Edgeguards Filter configs each pinned to a (comboerChar, comboeeChar) pair. Don't hand-click 650 of them — generate the filter param objects programmatically. Filter type id is 'edgeguardFilter' (src/models/methods/edgeguardFilter.ts); relevant params are comboerChar / comboeeChar (arrays of Slippi char ids). Char ids are listed in src/constants/recoveryData.ts and src/constants/characters. Not started — was offered, user hasn't decided on the generation approach. DO THIS AFTER the full_db re-run, or all 650 sets get built from stale parser output.
 - human: In-app tutorials — Setup, How to Use, Advanced
   done: false
   ai: |
@@ -11,77 +94,18 @@
     output folder (this is what the existing SetupWizard covers; the tutorial
     should frame/explain it). (2) How to Use — the core loop: import .slp/.slpz
     replays (or drag a folder onto the Start screen), build a filter chain
-    (Game Filter → Combo Parser → Combo Filter → Sort, or Edgeguards
-    Parser→Filter), then play in Dolphin / export MP4s. (3) Advanced — filter
-    branching (tree inputs), custom JavaScript filters via the code editor,
+    (Game Filter -> Combo Parser -> Combo Filter -> Sort, or Edgeguards
+    Parser -> Edgeguards Filter), then play in Dolphin / export MP4s. (3) Advanced —
+    filter branching (tree inputs), custom JavaScript filters via the code editor,
     edgeguard metrics/scoring, overlays, performance/thread settings. Surface
-    these from the Getting Started panel and Help → Welcome (see
+    these from the Getting Started panel and Help -> Welcome (see
     src/renderer/components/GettingStarted.tsx). Format TBD — could be a guided
     overlay, a docs site, or short embedded videos. Not started; just captured.
-- human: Surface edgeguard metrics on the Tray clip cards
-  done: false
-  ai: |
-    Every edgeguard clip carries a full `edgeguardMetrics` object (hits, offstageFrames, recoveryFrame, minLedgeDist, blockedByHit, ledgeSteal, edgeguarderOffstage, maxDepthX, minY, score) — see the EdgeguardMetrics type in src/models/methods/edgeguard2.ts — but only `edgeguardScore` is used anywhere (it feeds Sort). The clip cards show none of it. Task: render a compact metrics line on edgeguard clip cards in the Tray (src/renderer/components/Tray/), e.g. "3 hits · 142f offstage · ledge-steal · score 18", gated on the clip having `edgeguardMetrics` so normal clips are unaffected. Purpose: let the user eyeball what a score of 15 vs 30 actually looks like. Not started.
-- human: Generate the 650 character-matchup edgeguard filter configs
-  done: false
-  ai: |
-    Goal: a clip set of every character edgeguarding every other character. Melee has 26 characters (Slippi IDs 0-25, Zelda/Sheik counted separately), so 26x25 = 650 ordered (edgeguarder, edgeguardee) pairs — 676 if you include mirrors. Edgeguarding is directional so the pairs are ordered. Plan: one Edgeguards Parser run, then 650 Edgeguards Filter configs each pinned to a (comboerChar, comboeeChar) pair. Don't hand-click 650 of them — generate the filter param objects programmatically. Filter type id is 'edgeguardFilter' (src/models/methods/edgeguardFilter.ts); relevant params are comboerChar / comboeeChar (arrays of Slippi char ids). Char ids are in src/constants/recoveryData.ts and characters. Not started — was offered, user hasn't decided on the generation approach yet.
-- human: Tune edgeguard2 detection and scoring
-  done: false
-  ai: |
-    src/models/methods/edgeguard2.ts has known, deliberately-deferred soft spots: (1) `isRecoveryMove` treats any actionStateId >= 341 as a recovery move, which catches ALL character-specific states, not just up-B/side-B — main false- positive risk; a per-character up-B/side-B whitelist would be precise but high-maintenance. (2) The KO gate rejects `death.y >= rects.bz.yMax` as "off the top", which wrongly rejects side-kills near the top corner — could tighten to `death.y >= bz.yMax && Math.abs(death.x) < edge.xMax`. (3) Per-character `recoveryRange` values in src/constants/recoveryData.ts are rough estimates meant to be tuned. (4) Score weights (hits*3 + offstageFrames/30 + edgeguarderOffstage 4 + ledgeSteal 2 + maxDepthX/50 + depthFactor 0-2) are heuristic; effective range ~3-40, 5-15 typical, 20+ = long/deep/multi-hit. All left as-is pending review against real results.
-- human: Apply stocks-only computeStocks() to edgeguard.ts too
-  done: false
-  ai: |
-    edgeguard2.ts now computes stocks via computeStocks() (src/lib/slippiStocks.ts) — runs only slippi-js StockComputer instead of the full SlippiGame.getStats() (which also runs combos/conversions/actions/inputs/targets + overall). ~1/3 less post-parse CPU per file, verified byte-identical stocks. The older edgeguard.ts still calls `game.getStats()` then reads `stats.stocks` with the same one-line pattern and would benefit identically. Minor: swap for `computeStocks(game)`.
-- human: Cut v2.0.0-beta.4 and smoke-test the pre-release fixes on Windows
-  done: false
-  ai: |
-    ~28 commits of pre-release review fixes sit on local master, UNPUSHED. Push master + tag v2.0.0-beta.4 to trigger .github/workflows/release.yml (builds win+linux, publishes a prerelease with auto-update manifests). This also re-tests the auto-updater: an installed beta.3 should self-update to beta.4 (the first hop that works — beta.2.5 predates the prerelease-aware updater). Then smoke-test what tsc + jest can't verify: (1) custom-code consent gate — running a custom filter pops "Run custom code?"; "Always trust" stops re-prompting; (2) the nodeIntegrationInWorker removal in main.ts — confirm the Tray density/webgl visualization STILL renders (the most likely regression); (3) tightened CSP (index.ejs/codeEditor.ejs) — app loads, no blank screen; (4) data-integrity fixes — import a zero-.slp zip (modal closes, no hang), quit mid-filter-run, Run-All. See RELEASING.md.
-- human: Remove or testMode-gate the dev "Reset App" button before GA
-  done: false
-  ai: |
-    src/renderer/components/Top.tsx has a TEMP "Reset App" button (sendMessage 'resetApp') that wipes config to defaults + relaunches with NO confirmation — a data-loss footgun for end users. Intentionally shipped in the beta for Windows testing. Before stable GA, gate it behind {config.testMode && (...)} like the neighboring "Reset SLPZ" button, or delete it. Its own comment says "Remove before GA". Review task #25.
-- human: Free Windows code signing via SignPath Foundation before GA
-  done: false
-  ai: |
-    Windows builds ship UNSIGNED (SmartScreen "unknown publisher" nag; auto-update still works unsigned). User won't pay for a cert. SignPath Foundation grants free code-signing certs to qualifying open-source projects (lm-clipper is public). Apply, then add one signing step in release.yml between Package and the checksum step + win.publisherName in package.json; electron-updater's verifyUpdateCodeSignature then passes with no client change. Do before stable GA. See RELEASING.md "Code signing".
 - human: Finish breaking up god-objects — big React components + ConfigManager
   done: false
   ai: |
-    Review task #35 did the SAFE slice only (extracted config-type migration to src/main/configStore.ts + tests). Deferred because high-churn with UI regression risk tsc/jest can't catch: (1) split the 2331-line CodeEditorPage.tsx and 1761-line FilterControls.tsx into per-panel components; (2) move config STATE ownership out of controller.ts (1700 lines, 68 IPC handlers) into a dedicated ConfigManager (load/merge/save/recent-projects/updateConfig). Do in a dedicated session WITH the app running so each extraction is smoke-tested. NOT pre-beta work.
+    Review task #35 did the SAFE slice only (extracted config-type migration to src/main/configStore.ts + tests). Deferred because it is high-churn with UI regression risk that tsc/jest cannot catch: (1) split CodeEditorPage.tsx (~2331 lines) and FilterControls.tsx (~1800 lines and GROWING — it gained the multi-select value pills and the Offstage Line modal on 2026-07-13) into per-panel components; (2) move config STATE ownership out of controller.ts (1700 lines, 68 IPC handlers) into a dedicated ConfigManager (load/merge/save/recent-projects/updateConfig). Do in a dedicated session WITH the app running so each extraction is smoke-tested. NOT pre-beta work.
 - human: Single-source the IPC channel allowlist + push Sort into SQL
   done: false
   ai: |
-    Review task #38, deferred. (a) The preload SEND_CHANNELS Set (src/main/preload.ts) is hand-maintained and drifts from controller.ts's ipcMain.on registrations — a forgotten channel fails silently ~30s. A new test (src/__tests__/ipcAllowlist.test.ts) now CATCHES drift in CI, so urgency is gone; the clean fix is to derive SEND_CHANNELS from one source of truth shared with the registration loop. (b) The Sort filter (src/models/Worker.ts) loads ALL rows on one thread to sort in JS — won't scale to the ~6M-combo DB; push into SQL ORDER BY with an index. The SQL-sort is a risky rewrite — post-beta.
-- human: Persist filter run progress periodically so a crashed run shows the real number, not 0
-  done: false
-  ai: |
-    BUG/UX (found 2026-06-21 during real crash recovery on the 46GB full_db.lunar project). After a PC crash 20% into a ~12h edgeguard2 run, reopening showed the filter at "0 / 2,815,620" even though 1,893,957 result rows were committed and durable. Devastating to see as a user — looks like all the work was lost when it wasn't.
-
-    ROOT CAUSE: the live progress count (`lastProgress`) in src/models/Filter.ts run3() is tracked IN MEMORY and streamed to the UI, but it is only ever written to the DB column `filter_runs.processed` on a clean Stop or normal completion (src/main/managers/FilterExecutor.ts ~line 284, `updateFilterRunProgressAsync(path, filterId, lastProgress)`). During a normal in-flight run it is NEVER persisted, so it sits at the initial 0 written by upsertFilterRun (src/main/db.ts ~line 397, `VALUES (?, ?, ?, 'running', ?)`). A crash therefore leaves processed=0. On reopen, DbWorker.ts (~line 473-482) detects the resumable run (status==='running' AND run.params_json === JSON.stringify(filter.params)) and sets filter.resumeProgress = { processed: run.processed ?? 0, totalInput: run.total_input } → UI renders 0/total. The RESULTS are fine (resume rebuilds its skip-set from getProcessedSourceIds = DISTINCT _sourceId in the results table, not from the counter), only the displayed number is wrong.
-
-    FIX (primary): in Filter.ts run3(), inside the worker 'progress' message handler where `lastProgress` already updates on every message (around Filter.ts:235-252, right after `lastProgress = totalCompleted`), add a THROTTLED persist of lastProgress to filter_runs.processed via the existing updateFilterRunProgressAsync helper (already used by FilterExecutor; import into Filter.ts from ../main/dbAsync). Throttle to ~every 2s (time-based, Date.now() is fine in app runtime — the no-Date rule only applies to Workflow scripts) so it's a couple cheap single-row UPDATEs/sec through DbWorker, NOT per-row. Then a crash leaves an accurate recent number (lose at most ~2s) and reopen shows e.g. "612,000 / 2,815,620".
-
-    FIX (bonus, belt-and-suspenders): in DbWorker.ts resumable detection (~line 479), if run.processed is 0/falsy but the results table is non-empty, fall back to a committed count so even an un-checkpointed crash never shows a flat 0. Note unit mismatch: total_input counts INPUT games; the results table row count is CLIPS and DISTINCT _sourceId is games-that-produced-clips (a lower bound on games processed, since zero-clip games aren't tracked). DISTINCT _sourceId is the most honest fallback but COUNT(DISTINCT JSON_EXTRACT(JSON,'$._sourceId')) scans the table (~seconds on 1.9M rows) — acceptable on open, or skip the bonus and rely on the primary fix.
-
-    SCOPE/GOTCHAS: touches src/models/Filter.ts (+ maybe DbWorker.ts) — both are bundled into the main webpack build, so taking effect needs `NODE_ENV=development TS_NODE_TRANSPILE_ONLY=true npx webpack --config ./.erb/configs/webpack.config.main.dev.ts` AND an app restart (electronmon restart alone runs stale code). DO THIS ONLY AFTER the current ~12h edgeguard2 resume run finishes — a rebuild/restart would kill it. This fix is for FUTURE runs; it cannot retroactively fix the current run's already-baked processed=0 record. Add a jest test (the progress-persist throttle / resumeProgress derivation) to keep tsc+jest green.
-- human: Fix stale cachedCounts so a completed filter shows real result count, not a frozen mid-run snapshot
-  done: false
-  ai: |
-    BUG (found 2026-06-23 on the 56GB full_db.lunar project). After the 7.8M-row edgeguard2 run completed, the filter card showed "17,427" results instead of 7,803,511 — and Ctrl+R kept re-showing 17,427. The actual table was fine (7,803,511 rows); only the displayed count was wrong, frozen at a stale mid-run value. Very alarming to a user (looks like 35h of results vanished).
-
-    ROOT CAUSE: two separate count fields get out of sync. (1) `filter.results` — set correctly at completion. (2) `cachedCounts[filterId]` in metadata.extra — the value the UI actually trusts. cachedCounts is ONLY ever written by the lazy background counter (src/main/DbWorker.ts ~line 168, getFilterCount handler calls `cacheFilterCount(db, tableId, count)`). At some point mid-run a lazy count ran and cached 17,427; nothing invalidates/updates cachedCounts while a run keeps adding rows, so it stayed frozen as the table grew to 7.8M. Then getMetadata (DbWorker.ts ~line 435-439) OVERWRITES `filter.results` FROM cachedCounts on every read — so even the correct completion value gets clobbered by the stale cache. Compounding it: the completion finalize in FilterExecutor.ts (~line 289-360, withCompletionLock) uses getTableCountAsync (counts but does NOT cache) and evidently errored partway here (left isProcessed=false; the catch path re-reads stale metadata), so the cache was never refreshed.
-
-    FIX (bulletproof, primary): invalidate cachedCounts[filterId] when a run STARTS (in FilterExecutor._executeFilter run-start, and for descendants reset on completion). With it null, getMetadata sets filter.results=null → lazy re-hydration runs a live COUNT → always truthful, even if completion errors (exactly the failure that bit us). Implement an invalidate either by a new DbWorker method (delete extra.cachedCounts[tableId]) or by writing a sentinel <0 (getMetadata treats `cachedCounts[id] >= 0 ? ... : null`, so any negative invalidates).
-    FIX (avoid spinner, secondary): at completion, swap getTableCountAsync -> getFilterCountAsync (the latter COUNTS *and* caches via cacheFilterCount), so cachedCounts holds the true final count immediately. Also make completion finalize robust so a slow/failed COUNT can't leave isProcessed=false with a stale cache.
-
-    SURGICAL FIX ALREADY APPLIED (2026-06-23) to the live + backup DB: set cachedCounts.filter_11504=7803511, results=7803511, isProcessed=true; metadata.path stamped to full_db.lunar. So the user's project is correct now; this todo is the code fix to prevent recurrence. Pairs naturally with the progress-persist fix above (same files, same rebuild+restart requirement). Add a jest test. Related: [[no-claude-commit-attribution]] is irrelevant here; see the typecheck/test gates.
-- human: Re-run only the 10s-capped edgeguard clips with a longer lookback, then swap them back in
-  done: false
-  ai: |
-    OPTIMIZATION (planned 2026-06-23, do later). The big edgeguard2 run on full_db.lunar (project at /home/matt/Projects/_lm-clipper-projects/full_db.lunar) used maxLookbackFrames=600 (= 10s @ 60fps). Measured the result: of 7,803,511 clips, ~2% (154,001, offstageFrames >= 595) are PINNED at the 600-frame cap — i.e. truncated. Their true start is cut off; they're the longest/most dramatic gimps (score includes offstageFrames/30). The other ~98% found their natural start before the floor and are UNAFFECTED by the window (a full re-run would reproduce them identically). offstage distribution: <1s 0.21%, 1-3s 25.4%, 3-6s 59.2%, 6-9s 12.1%, 9-10s 3.1%; avg ~4.2s.
-
-    GOAL: instead of redoing all 2.8M games (~35h) to improve 2% of clips, reprocess ONLY the capped games with a bigger window (e.g. maxLookbackFrames=1200 = 20s), then merge the extended clips back into the main set. Only ~3-5% of games need it -> roughly a 1-2h job, not 35h.
-
-    PLAN: (1) Get target games: SELECT DISTINCT CAST(JSON_EXTRACT(JSON,'$._sourceId') AS INTEGER) FROM filter_11504 WHERE CAST(JSON_EXTRACT(JSON,'$.edgeguardMetrics.offstageFrames') AS INTEGER) >= 595 (this is a row id into filter_0, the Game Filter input — see Worker.ts `_sourceId: row.id`). Measure the exact distinct-game count first for a real ETA. (2) Restrict edgeguard2 to just those games: a CUSTOM allowlist filter (src/renderer code editor) that reads filter_0 and passes only games whose id is in the target set -> small subset table. Open question: bake the ~100k id list into the custom filter code (Set literal) vs self-query. (3) Run edgeguard2 with maxLookbackFrames=1200 on that subset (a new filter branch via inputId, so the current 7.8M is untouched). (4) Merge: delete the target games' rows from the main filter_11504 and insert the re-emitted (full-length) ones; reprocessing a game re-emits ALL its edgeguards (capped ones now longer, others identical). VERIFIED BACKUP exists at /home/matt/Projects/_lm-clipper-projects/backups/full_db_2026-06-23.lunar so this is risk-free to build/test. edgeguard2 param/clip logic: src/models/methods/edgeguard2.ts (lookbackFloor = deathFrame-1-maxLookbackFrames; offstageFrames = deathFrame-startFrame, capped at 600). User explicitly wants this LATER, not now.
+    Review task #38, deferred. (a) The preload SEND_CHANNELS Set (src/main/preload.ts) is hand-maintained and drifts from controller.ts's ipcMain.on registrations — a forgotten channel fails SILENTLY for ~30s until the ipcBridge stale-reaper fires. A test (src/__tests__/ipcAllowlist.test.ts) now CATCHES that drift in CI, so the urgency is gone; the clean fix is to derive SEND_CHANNELS from one source of truth shared with the registration loop. (b) The Sort filter is single-threaded: Filter.ts forces threadCount=1 and Worker.ts does one global SQLite ORDER BY with temp_store=FILE, so it spills to disk rather than OOMing. It is memory-safe but slow on the ~6M-combo DB; an indexed SQL sort would be faster. NOTE the new randomSample filter is ALSO forced single-threaded, deliberately — it reservoir-samples the whole input on one worker; do not "optimize" it to N threads or each worker will emit its own independent sample. The SQL-sort rewrite is risky — post-beta.
