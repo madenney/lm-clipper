@@ -420,7 +420,7 @@ export default class ImportManager {
         slpzConfig,
       },
     )
-    const { terminated, failed } = result
+    const { terminated, failed, inserted } = result
 
     if (this.currentImportAbortController === importAbortController) {
       this.currentImportAbortController = null
@@ -486,8 +486,10 @@ export default class ImportManager {
     )
     this.consoleManager.stopConsole()
     if (!terminated) {
-      const added = Math.max(0, (currentArchive?.files ?? 0) - fileCountBefore)
-      track('import_completed', { added, failed })
+      // Count the rows addFiles actually wrote. Diffing archive.files can't work
+      // here: inserting invalidates the cached file count, so the refreshed
+      // archive reports null (counts hydrate lazily) and the diff was always 0.
+      track('import_completed', { added: inserted, failed })
     }
     this.mainWindow.webContents.send('importingFileUpdate', {
       finished: true,

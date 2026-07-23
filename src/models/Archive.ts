@@ -84,6 +84,12 @@ export default class Archive {
     let processed = 0
     let failed = 0
     let pendingNewItemCount = 0
+    // Cumulative rows actually written this run. Unlike pendingNewItemCount
+    // (which emitProgress drains), this survives to the return value — it's the
+    // only reliable "how many files did this import add" number, since the
+    // archive's own file count is lazily hydrated and reads null right after an
+    // import invalidates it.
+    let inserted = 0
     let lastProgressAt = 0
     let pendingBatch: FileInterface[] = []
     let flushQueue = Promise.resolve()
@@ -119,6 +125,7 @@ export default class Archive {
         try {
           await insertFiles(dbPath, batch)
           pendingNewItemCount += batch.length
+          inserted += batch.length
         } catch (error) {
           console.error('Error inserting batch:', error)
         }
@@ -233,7 +240,7 @@ export default class Archive {
       this.activeImportPool = null
     }
 
-    return { terminated, failed }
+    return { terminated, failed, inserted }
   }
 
   async addFilter(newFilterJSON: FilterInterface) {
