@@ -259,6 +259,22 @@ export default class VideoManager {
       replays[replays.length - 1].endFrame += lastClipOffset
     }
 
+    // Footage length for telemetry, derived from frames instead of read back
+    // off disk. Melee is locked to 60fps, and the 60-frame lead-in slpToVideo
+    // adds before each clip is trimmed straight back off afterwards (`-ss 1`),
+    // so a clip's rendered length is just its frame span.
+    //
+    // Preferred over probing the output because it's deterministic and free —
+    // no subprocess that can go missing and silently report zero. Slightly
+    // over-reports clips whose padding runs past the end of the game, since
+    // slpToVideo clamps those to the game's last frame and we don't have that
+    // here; immaterial at the aggregate level this feeds.
+    const renderedFootageSec =
+      replays.reduce(
+        (sum, r) => sum + Math.max(0, r.endFrame - r.startFrame),
+        0,
+      ) / 60
+
     console.log('Replays: ', replays)
     console.log('Config: ', videoConfig)
     this.mainWindow.webContents.send(
@@ -295,7 +311,6 @@ export default class VideoManager {
     }
     // Send completion details to renderer for the "recording complete" modal
     let completedClipCount = 0
-    let completedDuration: number | null = null
     if (!stopped && videoConfig.outputPath) {
       try {
         const ext = videoConfig.convertToMp4 ? '.mp4' : '.avi'
@@ -382,7 +397,6 @@ export default class VideoManager {
         }
 
         completedClipCount = clips.length
-        completedDuration = duration
         this.mainWindow.webContents.send('videoCompleted', {
           outputPath: videoConfig.outputPath,
           files: allFiles,
@@ -396,10 +410,13 @@ export default class VideoManager {
       if (config.autoOpenOutputFolder) {
         shell.openPath(videoConfig.outputPath).catch(() => {})
       }
-      // Report anonymous usage stats (no-ops if the user opted out).
+      // Report anonymous usage stats (no-ops if the user opted out). Duration
+      // comes from the frame spans above, not the probe — the modal needs the
+      // real file's length, but the aggregate stat is better served by a
+      // number that can't fail to resolve.
       track('video_created', {
         clips: completedClipCount,
-        durationSec: completedDuration ?? 0,
+        durationSec: Math.round(renderedFootageSec * 100) / 100,
       })
     }
     return reply(event, 'generateVideo', requestId)

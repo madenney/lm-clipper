@@ -106,7 +106,10 @@ Field notes for the server:
 // video_created
 "data": {
   "clips": 42,                          // number of clips in the rendered video
-  "durationSec": 137                    // total video length in seconds (0 if unknown)
+  "durationSec": 137                    // total rendered length, seconds (0 if unknown)
+                                        // derived from clip frame spans at 60fps,
+                                        // not probed off the output file
+
 }
 
 // import_completed
@@ -170,7 +173,10 @@ daily rollup table keyed on `(day, event)` keeps the dashboard cheap.
 - **Engagement / output** — `video_created` counts, sum of `clips`, sum of
   `durationSec`; `import_completed` (`added` files); `filter_run` by
   `filterType` to see which features get used.
-- **Funnel** — `install` → first `app_open` → first `video_created`.
+- **Funnel** — installed → first `app_open` → first `video_created`. Base the
+  first stage on distinct `install_id`, not on `install` events: `install` only
+  fires for a genuinely fresh config, so anyone upgrading from a pre-telemetry
+  build has an id but no `install` event, and later stages would exceed it.
 
 ## Abuse / hardening (server-side, since the endpoint is public)
 
