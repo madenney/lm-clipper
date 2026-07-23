@@ -30,7 +30,7 @@ jest.mock('electron', () => ({
 // eslint-disable-next-line import/first
 import https from 'https'
 // eslint-disable-next-line import/first
-import { initTelemetry, track } from '../main/telemetry'
+import { initTelemetry, track, applyUsageConsent } from '../main/telemetry'
 // eslint-disable-next-line import/first
 import type { ConfigInterface } from '../constants/types'
 
@@ -128,5 +128,78 @@ describe('track — enabled (POSTs a JSON body)', () => {
       throw new Error('socket exploded')
     })
     expect(() => track('filter_run')).not.toThrow()
+  })
+})
+
+/**
+ * The usage-data toggle reports its own change. track() reads the LIVE config
+ * on every call and drops everything while the flag is off, so the report has
+ * to straddle the flip: opt-out BEFORE it, opt-in AFTER it. Reverse either and
+ * the event vanishes silently.
+ *
+ * These drive applyUsageConsent() — the real function the controller calls —
+ * with a config the `flip` callback actually mutates, so a regression in the
+ * ordering fails here. Asserting against a re-implementation of the sequence
+ * would pass no matter what the shipping code does.
+ */
+describe('applyUsageConsent — reports the toggle around the flip', () => {
+  let config: ConfigInterface
+
+  const sentEvents = () =>
+    mockReq.write.mock.calls.map((c) => JSON.parse(c[0]).event)
+
+  beforeEach(() => {
+    config = makeConfig({ sendAnonymousUsage: true, installId: 'install-xyz' })
+    initTelemetry({ getConfig: () => config })
+  })
+
+  // flip() mirrors the controller: it mutates the same config track() reads.
+  const flipTo = (v: boolean) => () => {
+    config.sendAnonymousUsage = v
+  }
+
+  it('sends usage_opt_out when turning it off, and applies the change', () => {
+    applyUsageConsent(true, false, flipTo(false))
+    expect(sentEvents()).toEqual(['usage_opt_out'])
+    expect(config.sendAnonymousUsage).toBe(false)
+  })
+
+  it('sends usage_opt_in when turning it back on, and applies the change', () => {
+    config.sendAnonymousUsage = false
+    applyUsageConsent(false, true, flipTo(true))
+    expect(sentEvents()).toEqual(['usage_opt_in'])
+    expect(config.sendAnonymousUsage).toBe(true)
+  })
+
+  it('sends nothing when the value is unchanged (on -> on)', () => {
+    applyUsageConsent(true, true, flipTo(true))
+    expect(httpsRequest).not.toHaveBeenCalled()
+  })
+
+  it('sends nothing when the value is unchanged (off -> off)', () => {
+    config.sendAnonymousUsage = false
+    applyUsageConsent(false, false, flipTo(false))
+    expect(httpsRequest).not.toHaveBeenCalled()
+  })
+
+  it('still applies the change when telemetry is a no-op', () => {
+    config.installId = ''
+    applyUsageConsent(true, false, flipTo(false))
+    expect(httpsRequest).not.toHaveBeenCalled()
+    expect(config.sendAnonymousUsage).toBe(false)
+  })
+
+  // The promise made on the privacy page: after opting out, nothing at all.
+  it('stays silent for every event type once opted out', () => {
+    applyUsageConsent(true, false, flipTo(false))
+    httpsRequest.mockClear()
+    mockReq.write.mockClear()
+    track('install')
+    track('app_open')
+    track('video_created', { clips: 3, durationSec: 12 })
+    track('import_completed', { added: 100, failed: 0 })
+    track('filter_run', { filterType: 'combo', durationMs: 5 })
+    track('usage_opt_out')
+    expect(httpsRequest).not.toHaveBeenCalled()
   })
 })

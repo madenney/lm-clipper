@@ -41,7 +41,7 @@ import {
 import { closeDb } from './dbConnection'
 import { appendPerfEvents } from './perfLogger'
 import { logMain, logRenderer, getLogPath } from './logger'
-import { initTelemetry, track } from './telemetry'
+import { initTelemetry, track, applyUsageConsent } from './telemetry'
 import { migrateConfigTypes } from './configStore'
 import { RequestEnvelope, unpackRequest, reply } from './ipcUtils'
 import ConsoleManager from './managers/ConsoleManager'
@@ -420,7 +420,21 @@ export default class Controller {
     if (!payload) {
       return reply(event, 'updateConfig', requestId)
     }
-    this.config[payload.key] = payload.value
+    const applyValue = () => {
+      this.config[payload.key] = payload.value
+    }
+    if (payload.key === 'sendAnonymousUsage') {
+      // This one setting reports its own change. applyUsageConsent owns the
+      // before/after-the-flip ordering that makes that work — don't inline it.
+      applyUsageConsent(
+        this.config.sendAnonymousUsage !== false,
+        payload.value !== false,
+        applyValue,
+      )
+    } else {
+      applyValue()
+    }
+
     if (payload.key === 'ffmpegPath') {
       setFFMPEGPathOverride(payload.value as string)
     }

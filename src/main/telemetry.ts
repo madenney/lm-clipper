@@ -15,6 +15,8 @@ export type TelemetryEvent =
   | 'video_created' // a render finished
   | 'import_completed' // an import finished (files added)
   | 'filter_run' // a filter finished running
+  | 'usage_opt_out' // the user just turned this off — the last event we send
+  | 'usage_opt_in' // the user turned it back on
 
 let getConfig: (() => ConfigInterface) | null = null
 
@@ -64,4 +66,28 @@ export function track(
   } catch {
     // Telemetry must never affect app behaviour.
   }
+}
+
+/**
+ * Apply a change to the `sendAnonymousUsage` setting, reporting the change
+ * itself around the flip.
+ *
+ * The ordering is the whole point of this function existing, and it is not
+ * something to inline at the call site: `track()` reads the LIVE config on
+ * every call and drops everything while the flag is off. So the opt-out ping
+ * has to go out BEFORE the flag flips (while consent is still active) and the
+ * opt-in ping AFTER. Reverse either and the event vanishes silently, with no
+ * error and nothing in the data to hint at it.
+ *
+ * `usage_opt_out` is the last thing an opting-out install ever sends; the
+ * privacy page discloses this explicitly.
+ */
+export function applyUsageConsent(
+  wasOptedIn: boolean,
+  nowOptedIn: boolean,
+  flip: () => void,
+) {
+  if (wasOptedIn && !nowOptedIn) track('usage_opt_out')
+  flip()
+  if (!wasOptedIn && nowOptedIn) track('usage_opt_in')
 }

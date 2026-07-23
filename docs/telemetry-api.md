@@ -93,6 +93,24 @@ Field notes for the server:
 | `video_created`    | A video render finished successfully          | None                         |
 | `import_completed` | An `.slp` import finished (not cancelled)     | None                         |
 | `filter_run`       | A filter finished running (not cancelled)     | None                         |
+| `usage_opt_out`    | The user switched usage data **off**          | Last event the install sends |
+| `usage_opt_in`     | The user switched usage data back **on**      | None                         |
+
+### Consent events
+
+`usage_opt_out` is sent *as consent is withdrawn* and is the final event an
+install ever sends — the client goes silent immediately afterwards and stays
+that way until the setting is re-enabled. This is disclosed on the privacy page;
+do not add anything else that fires after opt-out.
+
+The ordering is load-bearing on the client. `track()` reads the live config and
+drops everything while the flag is off, so `usage_opt_out` must be sent *before*
+the setting flips and `usage_opt_in` *after* it. `applyUsageConsent()` in
+`src/main/telemetry.ts` owns that; don't inline the sequence at a call site.
+
+Server-side, treat the counts as a floor: an install that opts out and is then
+deleted still counts as opted out forever, and only builds new enough to send
+these events are represented at all.
 
 ### `data` payloads
 
@@ -123,6 +141,9 @@ Field notes for the server:
   "filterType": "comboFilter",          // filter method id (see note)
   "durationMs": 84213                   // wall-clock runtime of the filter
 }
+
+// usage_opt_out / usage_opt_in
+"data": {}                              // envelope only — no payload
 ```
 
 **`filterType` values** are the app's internal filter method ids — a small,
