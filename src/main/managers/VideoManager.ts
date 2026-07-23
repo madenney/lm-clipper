@@ -360,7 +360,7 @@ export default class VideoManager {
             duration = await probeDuration(finalFile)
           } else if (clips.length > 0) {
             // Separate clips — sum them all, with bounded concurrency so we
-            // don't spawn hundreds of ffprobe processes at once.
+            // don't spawn hundreds of probe processes at once.
             const CONCURRENCY = 16
             let total = 0
             let any = false
@@ -378,7 +378,7 @@ export default class VideoManager {
             duration = any ? total : null
           }
         } catch {
-          // ffprobe not available — leave duration null
+          // Probe unavailable or unreadable — leave duration null
         }
 
         completedClipCount = clips.length
