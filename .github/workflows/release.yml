@@ -43,11 +43,34 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Both ffmpeg hosts are third-party and rate-limit cloud runner IPs, and
+      # they answer a throttled request with a small HTML page rather than an
+      # HTTP error — so a bare download "succeeds" and the extract step blows
+      # up on garbage (this sank the v2.0.0-beta.6 build). Retry with backoff,
+      # and validate the archive's magic bytes before trusting it.
       - name: Download ffmpeg (Linux)
         if: matrix.platform == 'linux'
         run: |
+          set -euo pipefail
           mkdir -p release/app/ffmpeg
-          curl -L -o /tmp/ffmpeg.tar.xz https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz
+          url=https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz
+          ok=
+          for attempt in 1 2 3 4 5; do
+            rm -f /tmp/ffmpeg.tar.xz
+            if curl -fL --connect-timeout 20 --max-time 600 -o /tmp/ffmpeg.tar.xz "$url" \
+               && [ -s /tmp/ffmpeg.tar.xz ] \
+               && file -b /tmp/ffmpeg.tar.xz | grep -qi 'XZ compressed'; then
+              ok=1
+              break
+            fi
+            size=$(wc -c < /tmp/ffmpeg.tar.xz 2>/dev/null || echo 0)
+            echo "ffmpeg download attempt $attempt failed (got $size bytes)"
+            sleep $((attempt * 15))
+          done
+          if [ -z "$ok" ]; then
+            echo "::error::ffmpeg download failed after 5 attempts: $url"
+            exit 1
+          fi
           tar -xf /tmp/ffmpeg.tar.xz -C /tmp
           cp /tmp/ffmpeg-*-amd64-static/ffmpeg release/app/ffmpeg/ffmpeg-linux-x64
           chmod +x release/app/ffmpeg/ffmpeg-linux-x64
@@ -56,9 +79,31 @@ jobs:
         if: matrix.platform == 'win'
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path release/app/ffmpeg
-          Invoke-WebRequest -Uri "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip" -OutFile "$env:TEMP\ffmpeg.zip"
-          Expand-Archive -Path "$env:TEMP\ffmpeg.zip" -DestinationPath "$env:TEMP\ffmpeg"
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force -Path release/app/ffmpeg | Out-Null
+          $url = 'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip'
+          $zip = "$env:TEMP\ffmpeg.zip"
+          $ok = $false
+          foreach ($attempt in 1..5) {
+            Remove-Item $zip -Force -ErrorAction SilentlyContinue
+            try {
+              Invoke-WebRequest -Uri $url -OutFile $zip -TimeoutSec 600 -UseBasicParsing
+              # "PK" magic marks a real zip; a throttling page will not have it.
+              $head = New-Object byte[] 2
+              $fs = [System.IO.File]::OpenRead($zip)
+              try { $null = $fs.Read($head, 0, 2) } finally { $fs.Close() }
+              if ($head[0] -eq 0x50 -and $head[1] -eq 0x4B) { $ok = $true; break }
+              Write-Host "attempt ${attempt}: not a zip ($((Get-Item $zip).Length) bytes)"
+            } catch {
+              Write-Host "attempt ${attempt}: $_"
+            }
+            Start-Sleep -Seconds ($attempt * 15)
+          }
+          if (-not $ok) {
+            Write-Host "::error::ffmpeg download failed after 5 attempts: $url"
+            exit 1
+          }
+          Expand-Archive -Path $zip -DestinationPath "$env:TEMP\ffmpeg" -Force
           $ffmpegExe = Get-ChildItem -Path "$env:TEMP\ffmpeg" -Recurse -Filter "ffmpeg.exe" | Select-Object -First 1
           Copy-Item $ffmpegExe.FullName -Destination "release/app/ffmpeg/ffmpeg-win32-x64.exe"
 
