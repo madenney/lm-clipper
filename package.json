@@ -1,7 +1,7 @@
 {
   "name": "lm-clipper",
   "description": "An application for creating melee clips",
-  "version": "2.0.0-beta.5",
+  "version": "2.0.0-beta.6",
   "license": "GPL-3.0-only",
   "repository": {
     "type": "git",
