@@ -325,36 +325,31 @@ export default class VideoManager {
         // last clip, so the modal reported a single ~5s clip as the total.)
         let duration: number | null = null
         try {
-          const ffmpegDir = path.dirname(getFFMPEGPath())
-          const ffprobePath =
-            ffmpegDir === '.'
-              ? 'ffprobe'
-              : path.resolve(
-                  ffmpegDir,
-                  `ffprobe${process.platform === 'win32' ? '.exe' : ''}`,
-                )
+          // Probe with ffmpeg, not ffprobe: only ffmpeg is bundled (see the
+          // extraResources blocks in package.json), so a packaged build has no
+          // ffprobe to spawn and every duration came back null.
+          //
+          // `ffmpeg -i <file>` with no output file prints the container header
+          // to stderr and then exits non-zero ("At least one output file must
+          // be specified"). That exit code is expected — parse stderr either way.
+          const ffmpegBin = getFFMPEGPath()
           const probeDuration = (file: string) =>
             new Promise<number | null>((resolve) => {
               execFile(
-                ffprobePath,
-                [
-                  '-v',
-                  'quiet',
-                  '-print_format',
-                  'json',
-                  '-show_format',
-                  path.resolve(videoConfig.outputPath, file),
-                ],
+                ffmpegBin,
+                ['-i', path.resolve(videoConfig.outputPath, file)],
                 { timeout: 10000 },
-                (err, stdout) => {
-                  if (err) return resolve(null)
-                  try {
-                    const info = JSON.parse(stdout)
-                    const dur = parseFloat(info?.format?.duration)
-                    resolve(Number.isFinite(dur) ? dur : null)
-                  } catch {
-                    resolve(null)
-                  }
+                (_err, _stdout, stderr) => {
+                  // e.g. "  Duration: 00:00:07.57, start: 0.000000, bitrate: ..."
+                  const m = /Duration:\s*(\d+):(\d\d):(\d\d(?:\.\d+)?)/.exec(
+                    stderr || '',
+                  )
+                  if (!m) return resolve(null)
+                  const dur =
+                    parseInt(m[1], 10) * 3600 +
+                    parseInt(m[2], 10) * 60 +
+                    parseFloat(m[3])
+                  resolve(Number.isFinite(dur) ? dur : null)
                 },
               )
             })

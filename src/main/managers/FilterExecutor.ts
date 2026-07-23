@@ -513,6 +513,15 @@ export default class FilterExecutor {
             : `${filterJSON.label} complete`,
       )
       this.consoleManager.stopConsole()
+      if (!terminated && !failed) {
+        // Run All executes the same work as a single run, so it reports the
+        // same event — otherwise every filter run started from "Run All" (the
+        // common path) is invisible to telemetry.
+        track('filter_run', {
+          filterType: filterJSON.type,
+          durationMs: durationMs ?? 0,
+        })
+      }
 
       this.runningFilterControllers.delete(filterJSON.id)
       this.runningFilterIndices.delete(i)
