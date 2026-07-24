@@ -492,12 +492,15 @@ export default class Controller {
   async getDirectory(event: IpcMainEvent, data?: RequestEnvelope<null>) {
     const { requestId } = unpackRequest<null>(data)
     try {
-      const { canceled, filePaths } = await dialog.showOpenDialog({
-        properties: ['openDirectory'],
-        defaultPath: this.config.lastArchivePath
-          ? this.config.lastArchivePath
-          : '',
-      })
+      const { canceled, filePaths } = await dialog.showOpenDialog(
+        this.mainWindow,
+        {
+          properties: ['openDirectory'],
+          defaultPath: this.config.lastArchivePath
+            ? this.config.lastArchivePath
+            : '',
+        },
+      )
       if (canceled) return reply(event, 'directory', requestId)
       return reply(event, 'directory', requestId, filePaths[0])
     } catch (error) {
@@ -509,16 +512,19 @@ export default class Controller {
   async openExistingArchive(event: IpcMainEvent, data?: RequestEnvelope<null>) {
     const { requestId } = unpackRequest<null>(data)
     try {
-      const { canceled, filePaths } = await dialog.showOpenDialog({
-        properties: ['openFile'],
-        filters: [
-          { name: 'Lunar Clipper Project', extensions: ['lunar'] },
-          { name: 'All Files', extensions: ['*'] },
-        ],
-        defaultPath: this.config.lastArchivePath
-          ? path.dirname(this.config.lastArchivePath)
-          : undefined,
-      })
+      const { canceled, filePaths } = await dialog.showOpenDialog(
+        this.mainWindow,
+        {
+          properties: ['openFile'],
+          filters: [
+            { name: 'Lunar Clipper Project', extensions: ['lunar'] },
+            { name: 'All Files', extensions: ['*'] },
+          ],
+          defaultPath: this.config.lastArchivePath
+            ? path.dirname(this.config.lastArchivePath)
+            : undefined,
+        },
+      )
       if (canceled) return reply(event, 'openExistingArchive', requestId)
 
       this.stopNameCountWorker()
@@ -607,14 +613,26 @@ export default class Controller {
       })
     }
 
-    const { canceled, filePath: rawPath } = await dialog.showSaveDialog({
-      title: 'Save Project As',
-      defaultPath: path.resolve(
-        path.dirname(this.archive.path),
-        this.archive.name,
-      ),
-      filters: [{ name: 'Lunar Clipper Project', extensions: ['lunar'] }],
-    })
+    // Parent the dialog to the main window. A parentless dialog on
+    // Linux/X11 isn't transient-for the app, so GNOME can spawn it behind
+    // the window with its filename-autocomplete popup floating detached.
+    const { canceled, filePath: rawPath } = await dialog.showSaveDialog(
+      this.mainWindow,
+      {
+        title: 'Save Project As',
+        // Suggest a complete filename *with* the .lunar extension. Passing
+        // the bare display name ("Untitled 6") left the GTK save dialog's
+        // name field holding a prefix that matches the sibling
+        // "Untitled *.lunar" files, so it popped an autocomplete dropdown
+        // over the field on open — which read as a "strange non-functional
+        // menu". A finished name has nothing to autocomplete against.
+        defaultPath: path.resolve(
+          path.dirname(this.archive.path),
+          ensureProjectExt(this.archive.name),
+        ),
+        filters: [{ name: 'Lunar Clipper Project', extensions: ['lunar'] }],
+      },
+    )
     if (canceled || !rawPath) {
       return reply(event, 'saveAsArchive', requestId)
     }
@@ -1314,7 +1332,10 @@ export default class Controller {
         opts.defaultPath = resolved
       }
     }
-    const { canceled, filePaths } = await dialog.showOpenDialog(opts)
+    const { canceled, filePaths } = await dialog.showOpenDialog(
+      this.mainWindow,
+      opts,
+    )
     if (canceled) return reply(event, 'getPath', requestId)
     return reply(event, 'getPath', requestId, filePaths[0])
   }
