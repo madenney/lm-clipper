@@ -505,6 +505,7 @@ const processReplays = async (
   eventEmitter: (_msg: string) => void,
   signal: VideoSignal,
   workerStatuses: VideoWorkerStatus[],
+  onClipEncoded?: (_replay: ReplayInterface) => void,
 ) => {
   const queue = [...replays]
   const total = replays.length
@@ -546,6 +547,7 @@ const processReplays = async (
       if (ok) {
         progress.encoded += 1
         emitStatus()
+        onClipEncoded?.(replay)
       }
       workerStatuses[workerIndex] = {
         replayPath: '',
@@ -908,6 +910,10 @@ const slpToVideo = (
   replays: ReplayInterface[],
   config: ConfigInterface & { numProcesses: number; gameMusicOn: boolean },
   eventEmitter: (_msg: string) => void,
+  // Called once per clip the moment its final file is written, so the caller
+  // can report progress incrementally (e.g. checkpointed usage telemetry) and
+  // not lose a whole long render if the process is killed before it finishes.
+  onClipEncoded?: (_replay: ReplayInterface) => void,
 ): VideoJobController => {
   const signal: VideoSignal = {
     stopped: false,
@@ -948,7 +954,14 @@ const slpToVideo = (
       })
       .then(() => configureDolphin(config, eventEmitter))
       .then(() =>
-        processReplays(replays, config, eventEmitter, signal, workerStatuses),
+        processReplays(
+          replays,
+          config,
+          eventEmitter,
+          signal,
+          workerStatuses,
+          onClipEncoded,
+        ),
       )
       .catch((err) => {
         logMain('slpToVideo: error', err)

@@ -259,21 +259,36 @@ export default class VideoManager {
       replays[replays.length - 1].endFrame += lastClipOffset
     }
 
-    // Footage length for telemetry, derived from frames instead of read back
-    // off disk. Melee is locked to 60fps, and the 60-frame lead-in slpToVideo
-    // adds before each clip is trimmed straight back off afterwards (`-ss 1`),
-    // so a clip's rendered length is just its frame span.
+    // Anonymous usage: report rendered clips in checkpoints instead of a single
+    // ping at the very end. A long multi-hundred-clip render that is stopped,
+    // hits a per-clip ffmpeg error, or has its process killed (terminal crash,
+    // reboot) would otherwise report *nothing* — even though the clips landed on
+    // disk. We flush a running delta every CHECKPOINT_CLIPS, plus a final flush
+    // in the `finally` below, so at most the last un-flushed chunk is ever lost.
     //
-    // Preferred over probing the output because it's deterministic and free —
-    // no subprocess that can go missing and silently report zero. Slightly
-    // over-reports clips whose padding runs past the end of the game, since
-    // slpToVideo clamps those to the game's last frame and we don't have that
-    // here; immaterial at the aggregate level this feeds.
-    const renderedFootageSec =
-      replays.reduce(
-        (sum, r) => sum + Math.max(0, r.endFrame - r.startFrame),
-        0,
-      ) / 60
+    // Each event carries a delta (not a running total) tagged with a shared
+    // renderId; the server sums `clips`/`durationSec` and counts distinct
+    // renderIds, so the several pings roll up to one render with the right
+    // totals. Footage per clip is derived from its frame span (Melee is locked
+    // to 60fps; the 60-frame lead-in slpToVideo adds is trimmed straight back
+    // off), which is deterministic and free — no probe that can silently zero.
+    const CHECKPOINT_CLIPS = 50
+    const renderId = crypto.randomBytes(8).toString('hex')
+    let pendingClips = 0
+    let pendingFootageSec = 0
+    const flushUsage = (final: boolean) => {
+      if (pendingClips === 0) return
+      const clips = pendingClips
+      const durationSec = Math.round(pendingFootageSec * 100) / 100
+      pendingClips = 0
+      pendingFootageSec = 0
+      track('video_created', { clips, durationSec, renderId, final })
+    }
+    const onClipEncoded = (replay: ReplayInterface) => {
+      pendingClips += 1
+      pendingFootageSec += Math.max(0, replay.endFrame - replay.startFrame) / 60
+      if (pendingClips >= CHECKPOINT_CLIPS) flushUsage(false)
+    }
 
     console.log('Replays: ', replays)
     console.log('Config: ', videoConfig)
@@ -283,10 +298,15 @@ export default class VideoManager {
     )
     this.consoleManager.startConsole('recording', 'Recording')
     this.videoStopRequested = false
-    this.activeVideoJob = slpToVideo(replays, videoConfig, (msg: string) => {
-      this.mainWindow.webContents.send('videoMsg', msg)
-      if (msg) this.consoleManager.pushConsoleLog(msg.startsWith('Error') ? 'error' : 'info', msg) // prettier-ignore
-    })
+    this.activeVideoJob = slpToVideo(
+      replays,
+      videoConfig,
+      (msg: string) => {
+        this.mainWindow.webContents.send('videoMsg', msg)
+        if (msg) this.consoleManager.pushConsoleLog(msg.startsWith('Error') ? 'error' : 'info', msg) // prettier-ignore
+      },
+      onClipEncoded,
+    )
     let stopped = false
     try {
       await this.activeVideoJob.promise
@@ -308,9 +328,12 @@ export default class VideoManager {
       this.consoleManager.stopConsole()
       this.activeVideoJob = null
       this.mainWindow.webContents.send('videoJobFinished')
+      // Report clips from the last (un-checkpointed) chunk. Runs on every exit
+      // path — clean finish, Stop/Cancel, or ffmpeg error — so a partial render
+      // still reports what it produced. Only a hard process kill loses this.
+      flushUsage(true)
     }
     // Send completion details to renderer for the "recording complete" modal
-    let completedClipCount = 0
     if (!stopped && videoConfig.outputPath) {
       try {
         const ext = videoConfig.convertToMp4 ? '.mp4' : '.avi'
@@ -396,7 +419,6 @@ export default class VideoManager {
           // Probe unavailable or unreadable — leave duration null
         }
 
-        completedClipCount = clips.length
         this.mainWindow.webContents.send('videoCompleted', {
           outputPath: videoConfig.outputPath,
           files: allFiles,
@@ -410,14 +432,6 @@ export default class VideoManager {
       if (config.autoOpenOutputFolder) {
         shell.openPath(videoConfig.outputPath).catch(() => {})
       }
-      // Report anonymous usage stats (no-ops if the user opted out). Duration
-      // comes from the frame spans above, not the probe — the modal needs the
-      // real file's length, but the aggregate stat is better served by a
-      // number that can't fail to resolve.
-      track('video_created', {
-        clips: completedClipCount,
-        durationSec: Math.round(renderedFootageSec * 100) / 100,
-      })
     }
     return reply(event, 'generateVideo', requestId)
   }

@@ -90,7 +90,7 @@ Field notes for the server:
 | ------------------ | --------------------------------------------- | ---------------------------- |
 | `install`          | Once, the first launch of a brand-new install | Fires once ever per install  |
 | `app_open`         | On launch                                     | **At most once per UTC day** |
-| `video_created`    | A video render finished successfully          | None                         |
+| `video_created`    | Clips finished rendering (checkpointed — see below) | None                   |
 | `import_completed` | An `.slp` import finished (not cancelled)     | None                         |
 | `filter_run`       | A filter finished running (not cancelled)     | None                         |
 | `usage_opt_out`    | The user switched usage data **off**          | Last event the install sends |
@@ -123,11 +123,15 @@ these events are represented at all.
 
 // video_created
 "data": {
-  "clips": 42,                          // number of clips in the rendered video
-  "durationSec": 137                    // total rendered length, seconds (0 if unknown)
-                                        // derived from clip frame spans at 60fps,
-                                        // not probed off the output file
-
+  "clips": 42,                          // clips in THIS checkpoint (a delta, not a
+                                        // running total — see "Checkpointing" below)
+  "durationSec": 137,                   // rendered length of this checkpoint's clips,
+                                        // seconds; derived from clip frame spans at
+                                        // 60fps, not probed off the output file
+  "renderId": "9f3a1c0b7e2d5a48",       // groups the checkpoints of one render.
+                                        // Optional — legacy clients omit it
+  "final": false                        // true on the render's last checkpoint.
+                                        // Informational; not used for counting
 }
 
 // import_completed
@@ -145,6 +149,31 @@ these events are represented at all.
 // usage_opt_out / usage_opt_in
 "data": {}                              // envelope only — no payload
 ```
+
+### Checkpointing `video_created`
+
+A single render (one user click) does **not** map to one `video_created` event.
+Rendering hundreds of clips takes a long time, and the run is regularly cut
+short — the user hits Stop, one clip's ffmpeg errors, or the whole process is
+killed (crash, reboot). Reporting only at the end meant a run that produced 600
+clips but didn't finish cleanly reported **zero**.
+
+So the client reports **incrementally**: every ~50 clips it flushes a
+`video_created` event carrying the **delta** since the last flush (not a running
+total), plus a final flush when the render ends by any path. All events from one
+render share a `renderId`. At most the last un-flushed chunk (< 50 clips) is lost,
+and only to a hard process kill.
+
+Server aggregation rules that follow from this:
+
+- **Total clips / footage** — just `$sum` `data.clips` / `data.durationSec` across
+  all `video_created` events. Deltas add up to the true total for free.
+- **Render count** (the "videos created" stat) — count **distinct `renderId`**, not
+  the number of events (which would over-count ~12×). Legacy events predate
+  `renderId`; fall back to the document `_id` so each still counts as one render:
+  `$group: { _id: { $ifNull: ['$data.renderId', '$_id'] } }`.
+- **Per-install "has rendered"** (funnel) — unchanged; a distinct `install_id`
+  over `video_created` still answers "did this install ever render".
 
 **`filterType` values** are the app's internal filter method ids — a small,
 low-cardinality enum. Current set includes: `files`, `slpParser` (Combo Parser),
@@ -191,9 +220,10 @@ daily rollup table keyed on `(day, event)` keeps the dashboard cheap.
 - **Version adoption** — distinct `install_id` per `app_version` per day; great
   for confirming an auto-update rollout is landing.
 - **Platform split** — `os` / `arch` distribution.
-- **Engagement / output** — `video_created` counts, sum of `clips`, sum of
-  `durationSec`; `import_completed` (`added` files); `filter_run` by
-  `filterType` to see which features get used.
+- **Engagement / output** — renders (**distinct `renderId`**, not event count —
+  see "Checkpointing `video_created`"), sum of `clips`, sum of `durationSec`;
+  `import_completed` (`added` files); `filter_run` by `filterType` to see which
+  features get used.
 - **Funnel** — installed → first `app_open` → first `video_created`. Base the
   first stage on distinct `install_id`, not on `install` events: `install` only
   fires for a genuinely fresh config, so anyone upgrading from a pre-telemetry

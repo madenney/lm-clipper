@@ -12,7 +12,7 @@ const ENDPOINT = 'https://www.lunarmelee.com/api/app-usage'
 export type TelemetryEvent =
   | 'install' // once, the first time a fresh install launches
   | 'app_open' // at most once per calendar day (DAU / version / OS)
-  | 'video_created' // a render finished
+  | 'video_created' // a checkpoint of rendered clips (many per render, shared renderId)
   | 'import_completed' // an import finished (files added)
   | 'filter_run' // a filter finished running
   | 'usage_opt_out' // the user just turned this off — the last event we send
