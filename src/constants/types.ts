@@ -29,6 +29,21 @@ export type SlpParserParams = {
   didKill?: boolean
 }
 
+export type EarlyQuitOutParams = {
+  minHits?: string
+  maxFiles?: string
+  comboTimeout?: string
+  // Only emit when the victim was at or above this percent when they quit —
+  // the "would this have been a kill?" gate.
+  killPercent?: string
+  comboerChar?: (string | number)[]
+  comboeeChar?: (string | number)[]
+  comboerTag?: string[] | string
+  comboerCC?: string[] | string
+  comboeeTag?: string[] | string
+  comboeeCC?: string[] | string
+}
+
 export type ComboFilterParams = {
   minHits?: string
   maxHits?: string
@@ -217,6 +232,7 @@ export type CustomParams = Record<string, any>
 export type FilterParams =
   | FilesFilterParams
   | SlpParserParams
+  | EarlyQuitOutParams
   | ComboFilterParams
   | ActionStateFilterParams
   | EdgeguardParams
@@ -424,6 +440,10 @@ export interface ClipInterface {
     startPercent: number
     endPercent: number | null | undefined
     didKill: boolean
+    // Set by the Early Quit Out parser: didKill is true because the combo
+    // WOULD have killed, but the victim quit out (No Contest) before the stock
+    // was actually taken. Distinguishes a denied kill from a real one.
+    earlyQuit?: boolean
     moves?: {
       playerIndex: number
       frame: number
@@ -547,6 +567,11 @@ export interface SavedCustomFilter {
   category?: string
   description?: string
   requiresParser?: boolean
+  // The specific upstream filter type this entry needs (e.g. an Edgeguards
+  // Filter needs an 'edgeguard' parser above it). Set on derived native catalog
+  // entries so the modal can grey the RIGHT ones; `requiresParser` is the
+  // legacy shorthand for "needs the combo parser" used by JS templates.
+  requiredProducer?: string
   // When set, this catalog entry adds a native filter of this type instead of
   // a custom JS template (used for frame-data filters that can't be JS code).
   nativeType?: string

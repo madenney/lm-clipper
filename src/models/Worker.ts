@@ -24,6 +24,10 @@ const LASTFRAME_FLUSH_SIZE = 500
 // Progress throttle for parser (ms between IPC progress messages)
 const PROGRESS_THROTTLE_MS = 200
 
+// Parser methods read .slp files one at a time and return { combos, lastFrame }
+// (not an array). They share the streaming + lastFrame-backfill path below.
+const PARSER_METHOD_TYPES = new Set(['slpParser', 'earlyQuitOut'])
+
 const METHODS_WITH_EMITTER = new Set([
   'comboFilter',
   'custom',
@@ -254,7 +258,7 @@ function run() {
       }
     }
 
-    if (type === 'slpParser') {
+    if (PARSER_METHOD_TYPES.has(type)) {
       // Parser methods read .slp files from disk (slow) — stream from DB
       // in chunks so we don't load 100K+ rows into memory before starting
       const total = slice.top - slice.bottom + 1

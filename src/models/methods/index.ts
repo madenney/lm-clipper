@@ -1,5 +1,6 @@
 import files from './files'
 import slpParser from './slpParser'
+import earlyQuitOut from './earlyQuitOut'
 import comboFilter from './comboFilter'
 import actionStateFilter from './actionStateFilter'
 import removeStarKOFrames from './removeStarKOFrames'
@@ -28,6 +29,7 @@ type FilterMethod = (..._args: any[]) => any
 const methods: Record<string, FilterMethod> = {
   files,
   slpParser,
+  earlyQuitOut,
   comboFilter,
   actionStateFilter,
   removeStarKOFrames,

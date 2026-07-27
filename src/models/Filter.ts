@@ -180,6 +180,7 @@ export default class Filter {
         // Worker threads default to a small heap (~48-64 MB) so we bump it.
         const slowIOTypes = new Set([
           'slpParser',
+          'earlyQuitOut',
           'actionStateFilter',
           'edgeguard',
           'reverse',

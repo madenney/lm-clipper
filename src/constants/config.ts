@@ -23,6 +23,54 @@ export const PRODUCER_LABEL: Record<string, string> = {
   edgeguard: 'Edgeguards Parser',
 }
 
+// SINGLE SOURCE OF TRUTH for where native filters appear and in what order.
+//
+// - `main`        — the "+ Add Filter" dropdown, in this exact order. It's a
+//                   workflow pipeline (parse → filter → order → thin), so the
+//                   order is meaningful and deliberately NOT alphabetical.
+// - `modalTabs`   — the "Browse more" modal's tabs, in display order.
+// - `modalNatives`— which native filter ids live in each modal tab. This is
+//                   membership only — the modal sorts each tab alphabetically,
+//                   so the order within these arrays doesn't affect display.
+//                   Code templates (defaults.ts `savedCustomFilters`) land in
+//                   the same tabs via their matching `category` string.
+//
+// Any native filter not listed in `main` or `modalNatives` is simply hidden.
+// `files` is the always-present root (never in the Add menu); `pressure` is
+// parked (commented out of the registry) and intentionally absent here.
+//
+// The renderer derives the dropdown AND the native catalog entries from this,
+// so a filter can't be double-listed or orphaned the way it could when the
+// placement lived in two hand-maintained lists in Filters.tsx.
+export const FILTER_LAYOUT: {
+  main: string[]
+  modalTabs: string[]
+  modalNatives: Record<string, string[]>
+} = {
+  main: [
+    'slpParser',
+    'comboFilter',
+    'sort',
+    'randomSample',
+    'trim',
+    'deduplicate',
+  ],
+  modalTabs: ['Kills', 'Combos', 'Sampling', 'Utility', 'Advanced'],
+  modalNatives: {
+    Kills: [
+      'edgeguard',
+      'edgeguardFilter',
+      'earlyQuitOut',
+      'zeroToDeaths',
+      'koDirection',
+    ],
+    Combos: ['reverse', 'stageCenter'],
+    Sampling: [],
+    Utility: ['afkDetection', 'removeStarKOFrames'],
+    Advanced: ['custom', 'actionStateFilter'],
+  },
+}
+
 export const filtersConfig = [
   {
     id: 'files',
@@ -176,6 +224,100 @@ export const filtersConfig = [
         type: 'checkbox',
         default: false,
         tooltip: 'Only keep combos that resulted in a kill.',
+      },
+    ],
+  },
+  {
+    id: 'earlyQuitOut',
+    label: 'Early Quit Out',
+    tooltip:
+      'Finds kills the combo parser misses: the victim is comboed to a lethal percent, then quits out (holds L+R+A+Start) before the stock is actually taken. Emits one clip per game, tagged as a kill.',
+    options: [
+      {
+        name: 'Kill Percent',
+        id: 'killPercent',
+        type: 'int',
+        default: '80',
+        placeholder: '80',
+        tooltip:
+          'Only keep quit-outs where the victim was at least this percent when they bailed — the "would this have killed?" gate. Lower = more inclusive; higher = only clear kill-percent situations.',
+      },
+      {
+        name: 'Min Hits',
+        id: 'minHits',
+        type: 'int',
+        default: '1',
+        tooltip:
+          'Minimum hits in the interrupted combo. 1 keeps single-hit denials (e.g. a lone would-be-lethal smash they quit on).',
+      },
+      {
+        name: 'Max Files',
+        id: 'maxFiles',
+        type: 'int',
+        default: '',
+        tooltip: 'Stop parsing after this many files. Empty = parse all.',
+      },
+      {
+        name: 'Comboer Char',
+        id: 'comboerChar',
+        type: 'multiDropdown',
+        options: sortedCharacters,
+        default: [],
+        tooltip:
+          'Only keep quit-outs where the player who forced the quit is these characters.',
+      },
+      {
+        name: 'Comboer Tag',
+        id: 'comboerTag',
+        type: 'textInput',
+        default: [],
+        autocomplete: 'names',
+        tooltip:
+          'Only keep quit-outs by players with these tags (the one who forced the quit).',
+      },
+      {
+        name: 'Comboer CC',
+        id: 'comboerCC',
+        type: 'textInput',
+        default: [],
+        autocomplete: 'connectCodes',
+        tooltip: 'Only keep quit-outs by players with these connect codes.',
+      },
+      {
+        name: 'Comboee Char',
+        id: 'comboeeChar',
+        type: 'multiDropdown',
+        options: sortedCharacters,
+        default: [],
+        tooltip:
+          'Only keep quit-outs where the player who QUIT is these characters.',
+      },
+      {
+        name: 'Comboee Tag',
+        id: 'comboeeTag',
+        type: 'textInput',
+        default: [],
+        autocomplete: 'names',
+        tooltip:
+          'Only keep quit-outs against players with these tags (the one who quit).',
+      },
+      {
+        name: 'Comboee CC',
+        id: 'comboeeCC',
+        type: 'textInput',
+        default: [],
+        autocomplete: 'connectCodes',
+        tooltip:
+          'Only keep quit-outs against players with these connect codes.',
+      },
+      {
+        name: 'Combo Timeout',
+        id: 'comboTimeout',
+        type: 'int',
+        default: '',
+        placeholder: '45',
+        tooltip:
+          'Frames the victim must be out of hitstun before the combo ends. Same as the Combo Parser. Default: 45 (~0.75s).',
       },
     ],
   },
@@ -1155,6 +1297,14 @@ export const settingsCategories = [
 export const videoConfig = [
   // Paths
   {
+    label: 'Output Directory',
+    default: '',
+    id: 'outputPath',
+    type: 'openDirectory',
+    category: 'paths',
+    tooltip: 'Where recorded video files are saved.',
+  },
+  {
     label: 'Melee .iso Path',
     default: '',
     id: 'ssbmIsoPath',
@@ -1171,14 +1321,6 @@ export const videoConfig = [
     category: 'paths',
     tooltip:
       'Path to the Slippi Dolphin executable. Required for playback and recording.',
-  },
-  {
-    label: 'Output Directory',
-    default: '',
-    id: 'outputPath',
-    type: 'openDirectory',
-    category: 'paths',
-    tooltip: 'Where recorded video files are saved.',
   },
   {
     label: 'Default Project Directory',

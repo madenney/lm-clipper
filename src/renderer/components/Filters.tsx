@@ -14,6 +14,7 @@ import {
   filtersConfig,
   REQUIRED_PRODUCER,
   PRODUCER_LABEL,
+  FILTER_LAYOUT,
 } from 'constants/config'
 import ipcBridge from '../ipcBridge'
 import useIpcListener from '../hooks/useIpcListener'
@@ -122,39 +123,28 @@ const RESET_WARN_TIERS: {
   },
 ]
 
-// Native (frame-data) filters that can't be expressed as JS templates but are
-// surfaced in the Browse Templates modal. `nativeType` tells addFilter to add
-// the native filter type instead of a custom JS template.
-const nativeCatalogFilters: SavedCustomFilter[] = [
-  {
-    name: 'Blank',
-    code: '',
-    nativeType: 'custom',
-    builtIn: true,
-    category: 'Basic',
-    description:
-      'Start from an empty custom-code filter — write your own JavaScript to keep or drop clips.',
-  },
-  {
-    name: 'Stage Center Distance',
-    code: '',
-    nativeType: 'stageCenter',
-    builtIn: true,
-    category: 'Advanced',
-    requiresParser: true,
-    description:
-      "Keep combos that started within X pixels of the stage's center vertical line.",
-  },
-  {
-    name: 'Edgeguards Parser',
-    code: '',
-    nativeType: 'edgeguard',
-    builtIn: true,
-    category: 'Advanced',
-    description:
-      'Finds kills by edgeguard: the victim is knocked offstage by a hit, tries to recover, and is denied — hit back out, ledge-stolen, or forced to land and punished (even off the top) — dying without recovering in between. Clips start at the launching hit and are tagged with metrics the Edgeguards Filter can refine.',
-  },
-]
+// Native filters surfaced in the "Browse more" modal, DERIVED from FILTER_LAYOUT
+// so their tab and order live in one place (config.ts) next to the dropdown —
+// no separate hand-maintained list to drift out of sync. `nativeType` tells
+// addFilter to add the native filter instead of a JS template; `requiredProducer`
+// lets the modal grey the entries whose upstream parser isn't present yet.
+const nativeCatalogFilters: SavedCustomFilter[] =
+  FILTER_LAYOUT.modalTabs.flatMap((tab) =>
+    (FILTER_LAYOUT.modalNatives[tab] || []).map((id) => {
+      const cfg = filtersConfig.find((f) => f.id === id) as
+        | { label?: string; tooltip?: string }
+        | undefined
+      return {
+        name: cfg?.label || id,
+        code: '',
+        nativeType: id,
+        builtIn: true,
+        category: tab,
+        description: cfg?.tooltip || '',
+        requiredProducer: REQUIRED_PRODUCER[id],
+      }
+    }),
+  )
 
 type FiltersProps = {
   archive: ShallowArchiveInterface | null
@@ -1152,32 +1142,14 @@ export default function Filters({
           {dropdownOpen && (
             <div className="add-filter-menu">
               {(() => {
-                // These native filters are surfaced in the Browse Templates
-                // modal instead of the main dropdown.
-                // 'custom' (blank custom-code) is offered as "Blank" in the
-                // Browse-more modal instead of cluttering the main dropdown.
-                const hiddenFilters = new Set([
-                  'zeroToDeaths',
-                  'stageCenter',
-                  'custom',
-                ])
-                const visible = filtersConfig.filter(
-                  (p) => p.id !== 'files' && !hiddenFilters.has(p.id),
-                )
-                // Lift the Edgeguards Parser + Filter so they sit directly
-                // beneath the Combo Parser + Combo Filter on the list.
-                const edgeIds = ['edgeguard', 'edgeguardFilter']
-                const edge = visible.filter((p) => edgeIds.includes(p.id))
-                const rest = visible.filter((p) => !edgeIds.includes(p.id))
-                const comboIdx = rest.findIndex((p) => p.id === 'comboFilter')
-                const ordered =
-                  comboIdx >= 0
-                    ? [
-                        ...rest.slice(0, comboIdx + 1),
-                        ...edge,
-                        ...rest.slice(comboIdx + 1),
-                      ]
-                    : [...rest, ...edge]
+                // The dropdown is the everyday chain only; its contents and
+                // order come straight from FILTER_LAYOUT.main (single source of
+                // truth). Everything else lives in the "Browse more" modal.
+                const ordered = FILTER_LAYOUT.main
+                  .map((id) => filtersConfig.find((p) => p.id === id))
+                  .filter((p): p is (typeof filtersConfig)[number] =>
+                    Boolean(p),
+                  )
                 return ordered.flatMap((p) => {
                   // Grey out a filter that needs an upstream producer until one
                   // exists (combo filter → combo parser, edgeguard filter →
@@ -1345,9 +1317,7 @@ export default function Filters({
             ...nativeCatalogFilters,
             ...(config.savedCustomFilters || []),
           ]}
-          hasParser={
-            archive?.filters.some((f) => f.type === 'slpParser') ?? false
-          }
+          presentTypes={archive?.filters.map((f) => f.type) ?? []}
           onClose={() => setCatalogOpen(false)}
           onSelect={(tmpl: SavedCustomFilter) => {
             setCatalogOpen(false)

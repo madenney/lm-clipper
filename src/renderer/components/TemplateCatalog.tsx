@@ -2,24 +2,28 @@
 /* eslint-disable jsx-a11y/click-events-have-key-events */
 import { useState, useMemo, useRef, useEffect } from 'react'
 import { SavedCustomFilter } from '../../constants/types'
+import { FILTER_LAYOUT, PRODUCER_LABEL } from '../../constants/config'
 import '../styles/TemplateCatalog.css'
 
 interface TemplateCatalogProps {
   templates: SavedCustomFilter[]
   onSelect: (_template: SavedCustomFilter) => void
   onClose: () => void
-  hasParser: boolean
+  // Filter types currently in the chain — used to grey entries whose required
+  // upstream producer isn't present yet.
+  presentTypes: string[]
 }
 
 export default function TemplateCatalog({
   templates,
   onSelect,
   onClose,
-  hasParser,
+  presentTypes,
 }: TemplateCatalogProps) {
   const [search, setSearch] = useState('')
   const [activeCategory, setActiveCategory] = useState('All')
   const searchRef = useRef<HTMLInputElement>(null)
+  const presentSet = useMemo(() => new Set(presentTypes), [presentTypes])
 
   useEffect(() => {
     searchRef.current?.focus()
@@ -45,33 +49,47 @@ export default function TemplateCatalog({
         hasUser = true
       }
     }
-    const sorted = [...builtInCats].sort()
+    // Tab order comes from FILTER_LAYOUT (the single source of truth); any
+    // category not listed there (e.g. a future template-only one) falls back
+    // to alphabetical after the known tabs.
+    const rank = (c: string) => {
+      const i = FILTER_LAYOUT.modalTabs.indexOf(c)
+      return i === -1 ? FILTER_LAYOUT.modalTabs.length : i
+    }
+    const sorted = [...builtInCats].sort(
+      (a, b) => rank(a) - rank(b) || a.localeCompare(b),
+    )
     const cats = ['All', ...sorted]
     if (hasUser) cats.push('My Templates')
     cats.push('Community')
     return cats
   }, [templates])
 
-  // Filter templates by category + search
+  // Filter templates by category + search, then sort alphabetically. This is a
+  // browse list, so A–Z makes a known filter easy to find; native filters and
+  // code templates interleave by name. (The main dropdown deliberately does NOT
+  // sort — it reads in workflow/pipeline order.)
   const filtered = useMemo(() => {
     const q = search.toLowerCase().trim()
-    return templates.filter((t) => {
-      // Category filter
-      if (activeCategory === 'My Templates') {
-        if (t.builtIn) return false
-      } else if (activeCategory !== 'All') {
-        if (t.builtIn && (t.category || 'Other') !== activeCategory)
-          return false
-        if (!t.builtIn) return false
-      }
-      // Search filter
-      if (q) {
-        const haystack =
-          `${t.name} ${t.description || ''} ${t.category || ''}`.toLowerCase()
-        return haystack.includes(q)
-      }
-      return true
-    })
+    return templates
+      .filter((t) => {
+        // Category filter
+        if (activeCategory === 'My Templates') {
+          if (t.builtIn) return false
+        } else if (activeCategory !== 'All') {
+          if (t.builtIn && (t.category || 'Other') !== activeCategory)
+            return false
+          if (!t.builtIn) return false
+        }
+        // Search filter
+        if (q) {
+          const haystack =
+            `${t.name} ${t.description || ''} ${t.category || ''}`.toLowerCase()
+          return haystack.includes(q)
+        }
+        return true
+      })
+      .sort((a, b) => a.name.localeCompare(b.name))
   }, [templates, activeCategory, search])
 
   return (
@@ -141,21 +159,27 @@ export default function TemplateCatalog({
             )}
             {activeCategory !== 'Community' &&
               filtered.map((t, i) => {
-                const disabled = t.requiresParser && !hasParser
+                // A native catalog entry names its exact producer; a JS template
+                // uses the legacy `requiresParser` shorthand for the combo parser.
+                const needProducer =
+                  t.requiredProducer ??
+                  (t.requiresParser ? 'slpParser' : undefined)
+                const needLabel = needProducer
+                  ? PRODUCER_LABEL[needProducer] || needProducer
+                  : ''
+                const disabled = !!needProducer && !presentSet.has(needProducer)
                 return (
                   <div
                     key={`${t.name}-${i}`}
                     className={`tc-item${disabled ? ' tc-item-disabled' : ''}`}
                     onClick={() => !disabled && onSelect(t)}
-                    title={
-                      disabled ? 'Add a Combo Parser filter first' : undefined
-                    }
+                    title={disabled ? `Add a ${needLabel} first` : undefined}
                   >
                     <div className="tc-item-top">
                       <span className="tc-item-name">{t.name}</span>
                       {disabled && (
                         <span className="tc-item-badge tc-item-badge-parser">
-                          Needs Parser
+                          Needs {needLabel}
                         </span>
                       )}
                       {t.category && t.builtIn && (

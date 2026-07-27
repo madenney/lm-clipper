@@ -158,7 +158,7 @@ return clips.filter(clip => {
     // ── Combos ──
     {
       name: 'Zero to Death',
-      category: 'Combos',
+      category: 'Kills',
       description: 'Combos that started near 0% and ended in a kill',
       code: `// Keep combos that started at or below the threshold % and killed
 const threshold = Number(params.startThreshold) || 0
@@ -617,7 +617,7 @@ return clips.map(clip => {
     },
     {
       name: 'Group & Rank',
-      category: 'Advanced',
+      category: 'Sampling',
       description: 'Rank clips within groups and keep top N per group',
       code: `// Group clips by comboer and keep top N per player sorted by damage
 const groups = {}
@@ -642,7 +642,7 @@ return result`,
     },
     {
       name: 'Consecutive Aerials',
-      category: 'Advanced',
+      category: 'Combos',
       description: 'Keep combos with N+ aerial moves in a row',
       code: `// Keep combos with N or more consecutive aerial moves
 // Aerials: 13=nair, 14=fair, 15=bair, 16=uair, 17=dair
@@ -663,7 +663,7 @@ return clips.filter(clip => {
     },
     {
       name: 'All Aerials',
-      category: 'Advanced',
+      category: 'Combos',
       description: 'Keep combos where every hit is an aerial',
       code: `// Keep combos where all moves are aerials
 const aerials = new Set([13, 14, 15, 16, 17])
@@ -677,7 +677,7 @@ return clips.filter(clip => {
     },
     {
       name: 'Spike Finisher',
-      category: 'Advanced',
+      category: 'Kills',
       description: 'Keep combos that end with a spike/meteor (dair)',
       code: `// Keep combos ending with dair (moveId 17)
 return clips.filter(clip => {
@@ -690,7 +690,7 @@ return clips.filter(clip => {
     },
     {
       name: 'Smash Finisher',
-      category: 'Advanced',
+      category: 'Kills',
       description: 'Keep combos that end with a smash attack',
       code: `// Keep combos ending with a smash attack (10=fsmash, 11=usmash, 12=dsmash)
 const smashes = new Set([10, 11, 12])
