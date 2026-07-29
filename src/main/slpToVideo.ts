@@ -562,8 +562,13 @@ const processReplays = async (
   for (let i = 0; i < config.numProcesses; i++) workers.push(worker(i))
   await Promise.all(workers)
 
-  // Concatenate all output clips into a single video
-  if (config.concatenate && !signal.stopped && !signal.cancelled) {
+  // Concatenate the finished clips into a single video. Runs on a normal finish
+  // AND on Stop — Stop means "keep completed clips": it lets the in-flight clip
+  // finish and kills nothing, so every per-clip final on disk is complete and
+  // safe to concat (partial `-unmerged`/`-merged` intermediates are filtered out
+  // below regardless). Only Cancel — which kills active processes and can leave a
+  // half-written clip — skips concatenation.
+  if (config.concatenate && !signal.cancelled) {
     console.log('Concatenating clips...')
     eventEmitter('Concatenating clips...')
 
@@ -808,6 +813,138 @@ const buildGeckoSettings = (config: ConfigInterface): string[] => {
   }
 
   return settings
+}
+
+/** Parse "HH:MM:SS.xx" (ffmpeg time/duration) into seconds. */
+const parseFfmpegTime = (m: RegExpMatchArray): number =>
+  parseInt(m[1], 10) * 3600 + parseInt(m[2], 10) * 60 + parseFloat(m[3])
+
+/**
+ * Total duration (seconds) of a concat list, for driving the stitch progress
+ * bar. A metadata-only pass — `ffmpeg -i <concat>` with no output prints the
+ * container header (the concat demuxer reports the summed Duration) to stderr
+ * then exits non-zero. We bundle ffmpeg but not ffprobe, so this is the way in.
+ * Best-effort: 0 means "unknown" and the caller shows an indeterminate bar.
+ */
+const probeConcatDurationSec = (listPath: string): Promise<number> =>
+  new Promise((resolve) => {
+    const p = spawn(
+      ffmpegPath,
+      ['-f', 'concat', '-safe', '0', '-i', listPath],
+      {
+        stdio: ['ignore', 'ignore', 'pipe'],
+      },
+    )
+    let err = ''
+    p.stderr?.on('data', (c: Buffer) => {
+      err += c.toString()
+    })
+    p.on('error', () => resolve(0))
+    p.on('exit', () => {
+      const m = /Duration:\s*(\d+):(\d\d):(\d\d(?:\.\d+)?)/.exec(err)
+      resolve(m ? parseFfmpegTime(m) : 0)
+    })
+  })
+
+/**
+ * Stitch already-rendered clips into one video, in the given order. The
+ * standalone counterpart to the concat step baked into a recording run — used
+ * by the Stitch tool on an existing output folder. Stream-copies video (fast,
+ * lossless); for .avi it re-encodes audio to AAC, mirroring the run path.
+ *
+ * `files` are absolute paths in final order. `onProgress` (optional) reports
+ * 0–100 as ffmpeg works. Resolves { ok } / { ok:false, error } rather than
+ * throwing, so the caller can surface a clean message.
+ */
+export async function concatClips(
+  files: string[],
+  output: string,
+  opts: { convertToMp4: boolean; bitrateKbps: number },
+  onProgress?: (_percent: number) => void,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!files || files.length < 2) {
+    return { ok: false, error: 'Need at least 2 clips to stitch.' }
+  }
+  const listPath = path.resolve(
+    path.dirname(output),
+    `stitch_list_${crypto.randomBytes(6).toString('hex')}.txt`,
+  )
+  // ffmpeg concat demuxer: one `file '…'` line per input. Escape single quotes.
+  const lines = files.map((f) => `file '${f.replace(/'/g, "'\\''")}'`)
+  await fsPromises.writeFile(listPath, lines.join('\n'))
+
+  const args = [
+    '-f',
+    'concat',
+    '-safe',
+    '0',
+    '-i',
+    listPath,
+    '-c:v',
+    'copy',
+    '-fflags',
+    '+genpts',
+  ]
+  if (opts.convertToMp4) {
+    args.push('-c:a', 'copy')
+  } else {
+    args.push(
+      '-b:v',
+      `${opts.bitrateKbps}k`,
+      '-af',
+      'aresample=async=1:first_pts=0',
+      '-c:a',
+      'aac',
+      '-b:a',
+      '128k',
+    )
+  }
+  args.push('-y', output)
+
+  logMain('stitch: spawning ffmpeg concat', { args })
+  try {
+    // Total up front (best-effort) so stderr `time=` can be turned into %.
+    const totalSec = onProgress ? await probeConcatDurationSec(listPath) : 0
+    onProgress?.(0)
+
+    const proc = spawn(ffmpegPath, args, {
+      stdio: ['ignore', 'ignore', 'pipe'],
+    })
+    let stderr = ''
+    let lastPct = -1
+    proc.stderr?.on('data', (c: Buffer) => {
+      const s = c.toString()
+      stderr += s
+      if (onProgress && totalSec > 0) {
+        const times = [...s.matchAll(/time=(\d+):(\d\d):(\d\d(?:\.\d+)?)/g)]
+        const last = times[times.length - 1]
+        if (last) {
+          // Cap at 99 while running; the 100 comes only on a clean exit.
+          const pct = Math.min(
+            99,
+            Math.max(0, Math.round((parseFfmpegTime(last) / totalSec) * 100)),
+          )
+          if (pct !== lastPct) {
+            lastPct = pct
+            onProgress(pct)
+          }
+        }
+      }
+    })
+    const code = await exit(proc)
+    if (code !== 0) {
+      logMain(`stitch: ffmpeg concat failed (code ${code})`, {
+        stderr: stderr.slice(-2000),
+      })
+      return { ok: false, error: `ffmpeg exited with code ${code}` }
+    }
+    onProgress?.(100)
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, error: (err as Error)?.message || 'ffmpeg failed' }
+  } finally {
+    await fsPromises.unlink(listPath).catch(() => {})
+  }
 }
 
 // Writes only the GALE01.ini gecko codes from the current config. Used by the

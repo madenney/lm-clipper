@@ -16,7 +16,11 @@ import {
   ReplayInterface,
 } from '../../constants/types'
 import Archive from '../../models/Archive'
-import slpToVideo, { VideoJobController, writeGeckoCodes } from '../slpToVideo'
+import slpToVideo, {
+  VideoJobController,
+  writeGeckoCodes,
+  concatClips,
+} from '../slpToVideo'
 import {
   detectPlaybackDolphin,
   detectMeleeIso,
@@ -434,6 +438,136 @@ export default class VideoManager {
       }
     }
     return reply(event, 'generateVideo', requestId)
+  }
+
+  // Report which sub-output folders under the configured output root hold
+  // enough finished clips to stitch (>= 2). Drives the footer's Stitch button:
+  // it only appears when there's actually something to merge. A completed clip
+  // can leave both a .avi and a .mp4, so we count one extension (prefer mp4) to
+  // avoid double-counting, and ignore intermediates + any existing `final`.
+  async checkStitchable(event: IpcMainEvent, data?: RequestEnvelope<null>) {
+    const { requestId } = unpackRequest<null>(data)
+    const root = this.getConfig().outputPath
+    const folders: {
+      path: string
+      name: string
+      ext: string
+      clips: string[]
+    }[] = []
+    try {
+      const entries = await fsPromises.readdir(root, { withFileTypes: true })
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue
+        const dir = path.resolve(root, entry.name)
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          const files = await fsPromises.readdir(dir)
+          const isClip = (f: string, ext: string) =>
+            f.endsWith(ext) &&
+            !f.includes('-unmerged') &&
+            !f.includes('-merged') &&
+            !f.startsWith('final')
+          const mp4 = files.filter((f) => isClip(f, '.mp4'))
+          const avi = files.filter((f) => isClip(f, '.avi'))
+          // A finished clip can leave both an .avi and an .mp4; prefer the mp4
+          // set so a clip isn't listed twice.
+          const useMp4 = mp4.length > 0
+          const clips = (useMp4 ? mp4 : avi).slice().sort()
+          if (clips.length >= 2) {
+            folders.push({
+              path: dir,
+              name: entry.name,
+              ext: useMp4 ? '.mp4' : '.avi',
+              clips,
+            })
+          }
+        } catch {
+          // Unreadable subfolder — skip it.
+        }
+      }
+    } catch {
+      // Output root missing/unreadable — nothing to stitch.
+    }
+    return reply(event, 'checkStitchable', requestId, { folders })
+  }
+
+  // Stitch a user-chosen, ordered selection of clips into one video. The
+  // selection may span sub-folders. Every clip is basename-sanitized, resolved
+  // under its folder, and rejected unless it lives inside the configured output
+  // root — so a renderer can't point this at arbitrary paths. When the whole
+  // selection is one folder the result is `final<ext>` in it; a cross-folder
+  // selection writes `stitched<ext>` in the output root. Either is versioned
+  // (`_2…`) rather than overwriting an existing file.
+  async stitchClips(
+    event: IpcMainEvent,
+    data?: RequestEnvelope<{
+      clips: { folder: string; name: string }[]
+      ext: string
+    }>,
+  ) {
+    const { requestId, payload } = unpackRequest<{
+      clips: { folder: string; name: string }[]
+      ext: string
+    }>(data)
+    const clips = payload?.clips ?? []
+    if (clips.length < 2) {
+      return reply(event, 'stitchClips', requestId, {
+        ok: false,
+        error: 'Select at least 2 clips.',
+      })
+    }
+    const root = path.resolve(this.getConfig().outputPath)
+    const rootPrefix = root + path.sep
+    const files: string[] = []
+    const usedFolders = new Set<string>()
+    for (const c of clips) {
+      const folder = path.resolve(c.folder)
+      const abs = path.resolve(folder, path.basename(c.name))
+      if (abs !== root && !abs.startsWith(rootPrefix)) continue // outside root
+      files.push(abs)
+      usedFolders.add(folder)
+    }
+    if (files.length < 2) {
+      return reply(event, 'stitchClips', requestId, {
+        ok: false,
+        error: 'No valid clips to stitch.',
+      })
+    }
+    const ext = payload?.ext === '.avi' ? '.avi' : '.mp4'
+    const single = usedFolders.size === 1
+    const outDir = single ? [...usedFolders][0] : root
+    const baseName = single ? 'final' : 'stitched'
+    let output = path.resolve(outDir, `${baseName}${ext}`)
+    let n = 2
+    while (fs.existsSync(output)) {
+      output = path.resolve(outDir, `${baseName}_${n}${ext}`)
+      n += 1
+    }
+    try {
+      const res = await concatClips(
+        files,
+        output,
+        {
+          convertToMp4: ext === '.mp4',
+          bitrateKbps: this.getConfig().bitrateKbps,
+        },
+        (percent) =>
+          this.mainWindow.webContents.send('stitchProgress', percent),
+      )
+      return reply(
+        event,
+        'stitchClips',
+        requestId,
+        res.ok
+          ? { ok: true, output, dir: outDir }
+          : { ok: false, error: res.error },
+      )
+    } catch (err) {
+      return reply(event, 'stitchClips', requestId, {
+        ok: false,
+        error: (err as Error)?.message || 'Stitch failed',
+      })
+    }
   }
 
   stopVideo(event: IpcMainEvent, data?: RequestEnvelope<null>) {

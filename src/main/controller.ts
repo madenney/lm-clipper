@@ -1483,6 +1483,14 @@ export default class Controller {
       'cancelVideo',
       this.videoManager.cancelVideo.bind(this.videoManager),
     )
+    ipcMain.on(
+      'checkStitchable',
+      this.videoManager.checkStitchable.bind(this.videoManager),
+    )
+    ipcMain.on(
+      'stitchClips',
+      this.videoManager.stitchClips.bind(this.videoManager),
+    )
     ipcMain.on('playClips', this.videoManager.playClips.bind(this.videoManager))
     ipcMain.on('playClip', this.videoManager.playClip.bind(this.videoManager))
     ipcMain.on('stopPlayback', () => this.videoManager.stopPlayback())

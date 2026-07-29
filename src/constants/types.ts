@@ -577,6 +577,16 @@ export interface SavedCustomFilter {
   nativeType?: string
 }
 
+// A sub-output folder that holds enough finished clips to stitch. `ext` is the
+// chosen clip extension for this folder ('.mp4' or '.avi'); `clips` are the
+// clip filenames (that extension only, intermediates/`final` excluded), sorted.
+export interface StitchFolder {
+  path: string
+  name: string
+  ext: string
+  clips: string[]
+}
+
 export interface ShallowArchiveInterface {
   path: string
   name: string

@@ -1,5 +1,5 @@
 import { useState, Dispatch, SetStateAction, useEffect, useRef } from 'react'
-import { FaFolder, FaPlay, FaCircle } from 'react-icons/fa'
+import { FaFolder, FaPlay, FaCircle, FaLayerGroup } from 'react-icons/fa'
 import { FiTerminal, FiAlertTriangle } from 'react-icons/fi'
 
 import ipcBridge from 'renderer/ipcBridge'
@@ -12,10 +12,12 @@ import {
   RecentProject,
   ConsoleSnapshot,
   ConsoleLogEntry,
+  StitchFolder,
 } from '../../constants/types'
 import Filters from './Filters'
 import Top from './Top'
 import GeckoModal from './GeckoModal'
+import StitchModal from './StitchModal'
 import { GettingStarted } from './GettingStarted'
 import { Tray } from './Tray/Tray'
 import useSelection from '../hooks/useSelection'
@@ -279,6 +281,14 @@ export default function Main({
   const [consoleHasError, setConsoleHasError] = useState(false)
   const [consoleOpen, setConsoleOpen] = useState(false)
   const [geckoModalOpen, setGeckoModalOpen] = useState(false)
+  const [stitchOpen, setStitchOpen] = useState(false)
+  // Folders under the output root that hold >= 2 finished clips. The Stitch
+  // button only appears when this is non-empty. Re-checked on mount, when the
+  // output path changes, and when a recording finishes (isGenerating → false).
+  const [stitchFolders, setStitchFolders] = useState<StitchFolder[]>([])
+  useEffect(() => {
+    ipcBridge.checkStitchable((res) => setStitchFolders(res?.folders ?? []))
+  }, [config.outputPath, isGenerating])
   const [consoleHeight, setConsoleHeight] = useState(200)
   const [consoleLogEntries, setConsoleLogEntries] = useState<ConsoleLogEntry[]>(
     [],
@@ -741,6 +751,13 @@ export default function Main({
           onClose={() => setGeckoModalOpen(false)}
         />
       )}
+      {stitchOpen && (
+        <StitchModal
+          config={config}
+          folders={stitchFolders}
+          onClose={() => setStitchOpen(false)}
+        />
+      )}
       <Top
         config={config}
         setConfig={setConfig}
@@ -1011,6 +1028,20 @@ export default function Main({
                     <FaCircle className="footer-icon footer-icon--record" />{' '}
                     Record
                   </button>
+                )}
+                {stitchFolders.length > 0 && (
+                  <Tooltip
+                    text="Stitch the clips in an output folder into a single video"
+                    offsetX={-80}
+                  >
+                    <button
+                      type="button"
+                      className="footer-action-button"
+                      onClick={() => setStitchOpen(true)}
+                    >
+                      <FaLayerGroup className="footer-icon" /> Stitch
+                    </button>
+                  </Tooltip>
                 )}
               </div>
             </>

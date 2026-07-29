@@ -3,6 +3,7 @@ import {
   ClipInterface,
   FileInterface,
   LiteItem,
+  StitchFolder,
 } from 'constants/types'
 
 type ResponseHandler<T> = (_payload: T) => void
@@ -24,6 +25,7 @@ const LONG_RUNNING_CHANNELS = new Set([
   'resumeFilter',
   'generateVideo',
   'recordClip',
+  'stitchClips',
   'addFilesManual',
   'addDroppedFiles',
   // Opening a project can legitimately take a while on a large DB; never reap
@@ -331,6 +333,20 @@ export default {
   },
   cancelVideo(handler?: ResponseHandler<any>) {
     return request('cancelVideo', null, 'cancelVideo', handler)
+  },
+  checkStitchable(handler?: ResponseHandler<{ folders: StitchFolder[] }>) {
+    return request('checkStitchable', null, 'checkStitchable', handler)
+  },
+  stitchClips(
+    payload: { clips: { folder: string; name: string }[]; ext: string },
+    handler?: ResponseHandler<{
+      ok: boolean
+      output?: string
+      dir?: string
+      error?: string
+    }>,
+  ) {
+    return request('stitchClips', payload, 'stitchClips', handler)
   },
   playClips(payload: { filterId: string; selectedIds: string[] }) {
     return send('playClips', payload)
