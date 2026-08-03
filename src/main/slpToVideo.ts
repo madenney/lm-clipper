@@ -85,13 +85,142 @@ const getAppDataPath = () => {
   return process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config')
 }
 
+// --- Robustness knobs for the recording pipeline (watchdog + Stop below).
+// Tuned to kill genuine hangs quickly without false-positiving healthy work.
+//
+// The two Dolphin timers are LENGTH-INDEPENDENT on purpose: the stale timer
+// measures the gap BETWEEN frames, not total runtime, so a 3-minute game (which
+// streams [CURRENT_FRAME] continuously) keeps resetting it and never trips —
+// only genuine silence does. Boot grace is about ISO load, also length-agnostic.
+const DOLPHIN_BOOT_STALE_MS = 90_000 // no first frame within 90s of spawn = hung boot
+const DOLPHIN_FRAME_STALE_MS = 30_000 // frames stopped for 30s mid-record = frozen
+const SIGKILL_ESCALATION_MS = 5_000 // POSIX: SIGTERM, then SIGKILL after 5s
+const STOP_GRACE_MS = 45_000 // Stop: force-kill anything still alive after 45s
+
+// The ffmpeg steps (merge + mp4 convert) RE-ENCODE, so their runtime scales with
+// clip length — a fixed cap would false-kill a legit long game. Scale the timeout
+// off the clip's footage seconds instead, with a generous ~10x-realtime headroom
+// so even a slow machine never trips it; it's only a backstop against a truly
+// wedged process, not a performance budget. e.g. 7s clip → ~3 min, 3-min game →
+// ~32 min. Frames are 60fps.
+const FFMPEG_TIMEOUT_BASE_MS = 120_000 // fixed startup/overhead allowance
+const FFMPEG_TIMEOUT_PER_SEC_MS = 10_000 // + per second of footage (10x realtime)
+const ffmpegTimeoutFor = (clipFrames: number) =>
+  FFMPEG_TIMEOUT_BASE_MS +
+  Math.max(0, clipFrames / 60) * FFMPEG_TIMEOUT_PER_SEC_MS
+
+// Await a child's exit. CRITICAL: also settle on 'error' — a spawn that fails
+// (ENOENT, EAGAIN/EMFILE/ENOMEM after spawning thousands of processes across an
+// all-night run) emits 'error' and may never emit 'exit', which would otherwise
+// park the awaiting worker forever. Both paths funnel through one resolve.
 const exit = (process: ChildProcess) =>
   new Promise<number | null>((resolve) => {
-    process.on('exit', (code) => resolve(code))
+    let settled = false
+    const done = (code: number | null) => {
+      if (settled) return
+      settled = true
+      resolve(code)
+    }
+    process.on('exit', (code) => done(code))
+    process.on('error', () => done(null))
   })
 
-const killDolphinOnEndFrame = (proc: ChildProcessWithoutNullStreams) => {
+// Return true once the process has actually terminated (not merely been sent a
+// signal — proc.killed only means "a signal was delivered").
+const isDead = (proc: ChildProcess) =>
+  !proc ||
+  proc.pid == null ||
+  proc.exitCode !== null ||
+  proc.signalCode !== null
+
+// Forcefully terminate a process AND its children, cross-platform. Windows has
+// no real signals (kill() maps to TerminateProcess and won't reap children, and
+// Dolphin can spawn helpers) so we use `taskkill /T /F` to take down the whole
+// tree. On POSIX we SIGTERM, then escalate to SIGKILL if it's still alive. Used
+// by the stale watchdog, Stop's backstop, and Cancel — the force paths. The
+// normal per-clip end-frame stop still uses a plain proc.kill() (below).
+const killTree = (proc: ChildProcess) => {
+  if (isDead(proc)) return
+  const { pid } = proc
+  if (process.platform === 'win32') {
+    try {
+      spawn('taskkill', ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore' })
+    } catch {
+      try {
+        proc.kill()
+      } catch {
+        /* already gone */
+      }
+    }
+    return
+  }
+  try {
+    proc.kill('SIGTERM')
+  } catch {
+    /* already gone */
+  }
+  setTimeout(() => {
+    if (!isDead(proc)) {
+      try {
+        proc.kill('SIGKILL')
+      } catch {
+        /* already gone */
+      }
+    }
+  }, SIGKILL_ESCALATION_MS)
+}
+
+// Await a child's exit, but give up after `timeoutMs` — a wedged ffmpeg (e.g.
+// fed a truncated dump from a killed Dolphin) must never park a worker forever.
+// Returns the exit code, or null on timeout (after force-killing the process).
+const awaitExitWithTimeout = async (
+  proc: ChildProcess,
+  timeoutMs: number,
+  label: string,
+): Promise<number | null> => {
+  let timer: ReturnType<typeof setTimeout> | null = null
+  const timeout = new Promise<number | null>((resolve) => {
+    timer = setTimeout(() => {
+      logMain(`record: ${label} timed out after ${timeoutMs}ms — killing`)
+      killTree(proc)
+      resolve(null)
+    }, timeoutMs)
+  })
+  const code = await Promise.race([exit(proc), timeout])
+  if (timer) clearTimeout(timer)
+  return code
+}
+
+// Watch a recording Dolphin: kill it when it reaches the target end frame (the
+// normal per-clip stop), and — the missing safety net — kill it if it FREEZES.
+// A Dolphin that hangs on load (never emits a frame) or stalls mid-record (frames
+// stop arriving) would otherwise hold a worker slot forever, since it never
+// reaches its end frame and never exits. Mirrors the playback path's stale timer,
+// with a longer boot grace so a slow ISO load isn't mistaken for a hang. Returns
+// a cleanup fn to clear the timer once the process has exited.
+const monitorDolphinRecording = (
+  proc: ChildProcessWithoutNullStreams,
+  onStale: (_sawAnyFrame: boolean) => void,
+) => {
   let endFrame = Infinity
+  let sawAnyFrame = false
+  let staleTimer: ReturnType<typeof setTimeout> | null = null
+  const clearStale = () => {
+    if (staleTimer) {
+      clearTimeout(staleTimer)
+      staleTimer = null
+    }
+  }
+  const armStale = () => {
+    clearStale()
+    staleTimer = setTimeout(
+      () => {
+        onStale(sawAnyFrame)
+        killTree(proc)
+      },
+      sawAnyFrame ? DOLPHIN_FRAME_STALE_MS : DOLPHIN_BOOT_STALE_MS,
+    )
+  }
   const rl = readline.createInterface({ input: proc.stdout })
   rl.on('line', (line) => {
     if (line.includes('[PLAYBACK_END_FRAME]')) {
@@ -100,13 +229,22 @@ const killDolphinOnEndFrame = (proc: ChildProcessWithoutNullStreams) => {
     } else if (line.includes('[GAME_END_FRAME]')) {
       const match = /\[GAME_END_FRAME\] ([0-9]+)/.exec(line)
       if (match?.[1]) endFrame = Math.min(endFrame, parseInt(match[1], 10))
-    } else if (
-      endFrame !== Infinity &&
-      line.includes(`[CURRENT_FRAME] ${endFrame}`)
-    ) {
-      proc.kill()
+    } else if (line.includes('[CURRENT_FRAME]')) {
+      sawAnyFrame = true
+      armStale()
+      if (
+        endFrame !== Infinity &&
+        line.includes(`[CURRENT_FRAME] ${endFrame}`)
+      ) {
+        proc.kill() // reached the end normally — gentle stop is enough
+      }
     }
   })
+  armStale() // start the boot-grace clock immediately
+  return () => {
+    clearStale()
+    rl.close()
+  }
 }
 
 /**
@@ -154,6 +292,26 @@ const processOneReplay = async (
 
   const basePath = (suffix: string) =>
     path.resolve(outputDir, `${fileBasename}${suffix}`)
+
+  // Overlay PNG path, set later if an overlay is rendered. Declared here so the
+  // cleanup helper can always reach it regardless of which path we exit through.
+  let overlayPngPath: string | null = null
+
+  // Remove every non-final scratch file for this clip. Never touches the final
+  // `.mp4`/`.avi`. Called on success AND on every failure/stop exit so a long
+  // run with retries doesn't slowly litter the output folder with -unmerged/
+  // -merged debris.
+  const cleanupIntermediates = () =>
+    Promise.all([
+      fsPromises.unlink(basePath('.json')).catch(() => {}),
+      fsPromises.unlink(basePath('-unmerged.avi')).catch(() => {}),
+      fsPromises.unlink(basePath('-unmerged.wav')).catch(() => {}),
+      fsPromises.unlink(basePath('-merged.avi')).catch(() => {}),
+      fsPromises.unlink(basePath('-overlaid.avi')).catch(() => {}),
+      ...(overlayPngPath
+        ? [fsPromises.unlink(overlayPngPath).catch(() => {})]
+        : []),
+    ])
 
   // 1. Write JSON config for this replay
   // Check file exists before trying to parse
@@ -204,6 +362,11 @@ const processOneReplay = async (
   }
   await fsPromises.writeFile(basePath('.json'), JSON.stringify(dolphinConfig))
 
+  // Footage length in frames (60fps) — drives the length-scaled ffmpeg timeouts
+  // so a long game's re-encode isn't false-killed. Includes the 60-frame lead-in.
+  const clipFrames = Math.max(1, endFrame - dolphinConfig.startFrame)
+  const ffmpegTimeoutMs = ffmpegTimeoutFor(clipFrames)
+
   // 2. Record with Dolphin
   const dolphinArgs = [
     '-i',
@@ -252,17 +415,53 @@ const processOneReplay = async (
   })
 
   const dolphinExit = exit(dolphinProcess)
-  killDolphinOnEndFrame(dolphinProcess)
+  let staleKill = false
+  const stopMonitor = monitorDolphinRecording(dolphinProcess, (sawAnyFrame) => {
+    staleKill = true
+    logMain('record: Dolphin watchdog killed a frozen recording', {
+      replay: replay.path,
+      reason: sawAnyFrame
+        ? 'frames stopped mid-record'
+        : 'no frames within boot grace',
+    })
+  })
   const dolphinExitCode = await dolphinExit
+  stopMonitor()
   signal.activeProcesses.delete(dolphinProcess)
 
   logMain('record: Dolphin exited', {
     code: dolphinExitCode,
+    staleKill,
     stderr: dolphinStderr.slice(-2000),
     replay: replay.path,
   })
 
-  if (signal.stopped || signal.cancelled) return false
+  if (signal.stopped || signal.cancelled) {
+    await cleanupIntermediates()
+    return false
+  }
+
+  // Recording must have produced a non-empty video dump. If it didn't — a spawn
+  // 'error', a crash, or a watchdog kill of a frozen Dolphin — treat the clip as
+  // failed (retried/counted below) rather than feeding a missing/partial input
+  // into ffmpeg and silently emitting nothing. This is also what keeps the usage
+  // telemetry honest: only clips that actually recorded advance the counter.
+  try {
+    const dump = await fsPromises.stat(basePath('-unmerged.avi'))
+    if (dump.size === 0) throw new Error('empty dump')
+  } catch {
+    logMain('record: no video dump produced', {
+      code: dolphinExitCode,
+      staleKill,
+      replay: replay.path,
+      stderr: dolphinStderr.slice(-500),
+    })
+    onError?.(
+      `Error: recording produced no video: ${path.basename(replay.path)}`,
+    )
+    await cleanupIntermediates()
+    return false
+  }
 
   onRecorded?.()
 
@@ -296,7 +495,11 @@ const processOneReplay = async (
   mergeProcess.stderr!.on('data', (chunk: Buffer) => {
     mergeStderr += chunk.toString()
   })
-  const mergeCode = await exit(mergeProcess)
+  const mergeCode = await awaitExitWithTimeout(
+    mergeProcess,
+    ffmpegTimeoutMs,
+    'ffmpeg merge',
+  )
   signal.activeProcesses.delete(mergeProcess)
   if (mergeCode !== 0) {
     logMain(`record: ffmpeg merge failed (code ${mergeCode})`, {
@@ -304,7 +507,10 @@ const processOneReplay = async (
     })
   }
 
-  if (signal.stopped || signal.cancelled) return false
+  if (signal.stopped || signal.cancelled) {
+    await cleanupIntermediates()
+    return false
+  }
 
   // 4. Trim buffer frames
   const ffmpegTrimArgs = [
@@ -330,7 +536,11 @@ const processOneReplay = async (
   trimProcess.stderr!.on('data', (chunk: Buffer) => {
     trimStderr += chunk.toString()
   })
-  const trimCode = await exit(trimProcess)
+  const trimCode = await awaitExitWithTimeout(
+    trimProcess,
+    ffmpegTimeoutMs,
+    'ffmpeg trim',
+  )
   signal.activeProcesses.delete(trimProcess)
   if (trimCode !== 0) {
     logMain(`record: ffmpeg trim failed (code ${trimCode})`, {
@@ -338,12 +548,14 @@ const processOneReplay = async (
     })
   }
 
-  if (signal.stopped || signal.cancelled) return false
+  if (signal.stopped || signal.cancelled) {
+    await cleanupIntermediates()
+    return false
+  }
 
   // 4b. Build the overlay PNG (optional). Rendered at the clip's true
   // resolution (parsed from ffmpeg's stderr) and composited during the final
   // encode below via ffmpeg's overlay filter.
-  let overlayPngPath: string | null = null
   if (config.overlayEnabled) {
     const vars = buildReplayVars(replay, config.overlaySourceRules)
     const overlayText = applyPattern(config.overlayPattern || '', vars).trim()
@@ -374,7 +586,10 @@ const processOneReplay = async (
     '[0:v][1:v]scale2ref[base][ovr];' +
     '[base][ovr]overlay=0:0,pad=ceil(iw/2)*2:ceil(ih/2)*2[outv]'
 
-  if (signal.stopped || signal.cancelled) return false
+  if (signal.stopped || signal.cancelled) {
+    await cleanupIntermediates()
+    return false
+  }
 
   // 5. Convert to MP4 (optional)
   if (config.convertToMp4) {
@@ -428,7 +643,11 @@ const processOneReplay = async (
     mp4Process.stderr!.on('data', (chunk: Buffer) => {
       mp4Stderr += chunk.toString()
     })
-    const mp4Code = await exit(mp4Process)
+    const mp4Code = await awaitExitWithTimeout(
+      mp4Process,
+      ffmpegTimeoutMs,
+      'ffmpeg mp4 convert',
+    )
     signal.activeProcesses.delete(mp4Process)
     if (mp4Code !== 0) {
       logMain(`record: ffmpeg mp4 convert failed (code ${mp4Code})`, {
@@ -471,7 +690,11 @@ const processOneReplay = async (
     aviProcess.stderr!.on('data', (chunk: Buffer) => {
       aviStderr += chunk.toString()
     })
-    const aviCode = await exit(aviProcess)
+    const aviCode = await awaitExitWithTimeout(
+      aviProcess,
+      ffmpegTimeoutMs,
+      'ffmpeg avi overlay',
+    )
     signal.activeProcesses.delete(aviProcess)
     if (aviCode === 0) {
       await fsPromises.rename(overlaidPath, basePath('.avi')).catch((err) => {
@@ -486,15 +709,28 @@ const processOneReplay = async (
   }
 
   // 6. Delete intermediates
-  await Promise.all([
-    fsPromises.unlink(basePath('.json')).catch(() => {}),
-    fsPromises.unlink(basePath('-unmerged.avi')).catch(() => {}),
-    fsPromises.unlink(basePath('-unmerged.wav')).catch(() => {}),
-    fsPromises.unlink(basePath('-merged.avi')).catch(() => {}),
-    ...(overlayPngPath
-      ? [fsPromises.unlink(overlayPngPath).catch(() => {})]
-      : []),
-  ])
+  await cleanupIntermediates()
+
+  // 7. Validate the final output actually exists and is non-empty. An ffmpeg
+  // step can fail (or time out) yet leave a 0-byte or missing final file; without
+  // this check that clip was counted as a success, inflating the usage stats and
+  // producing the "holes" seen when forensically recounting a run. A real output
+  // is the only thing that returns true.
+  const finalOutput = config.convertToMp4 ? basePath('.mp4') : basePath('.avi')
+  try {
+    const st = await fsPromises.stat(finalOutput)
+    if (st.size === 0) throw new Error('empty output')
+  } catch {
+    logMain('record: final output missing or empty', {
+      finalOutput,
+      replay: replay.path,
+    })
+    onError?.(
+      `Error: clip produced no output file: ${path.basename(replay.path)}`,
+    )
+    await fsPromises.unlink(finalOutput).catch(() => {})
+    return false
+  }
 
   return true
 }
@@ -506,10 +742,14 @@ const processReplays = async (
   signal: VideoSignal,
   workerStatuses: VideoWorkerStatus[],
   onClipEncoded?: (_replay: ReplayInterface) => void,
+  onClipFailed?: (_replay: ReplayInterface) => void,
 ) => {
   const queue = [...replays]
   const total = replays.length
   const progress = { recorded: 0, encoded: 0 }
+  // Clips that failed every attempt (not stop/cancel) — surfaced to the user and
+  // written to failures.json so a run that silently drops clips is visible.
+  const failures: ReplayInterface[] = []
 
   const emitStatus = () => {
     if (progress.recorded < total) {
@@ -524,30 +764,55 @@ const processReplays = async (
     progress.recorded += 1
     emitStatus()
   }
+  const MAX_ATTEMPTS = 2 // one retry on a genuine failure
   const worker = async (workerIndex: number) => {
     let replay = queue.shift()
     while (replay !== undefined) {
       if (signal.stopped || signal.cancelled) break
-      workerStatuses[workerIndex] = {
-        replayPath: replay.path,
-        phase: 'recording',
-        replayIndex: replay.index,
-      }
-      const ok = await processOneReplay(
-        replay,
-        config,
-        signal,
-        () => {
-          workerStatuses[workerIndex].phase = 'encoding'
+
+      // A failed clip after recording (e.g. merge error) already bumped the
+      // recorded counter; guard so a retry that re-records doesn't count twice.
+      let recordedCounted = false
+      const onRecordedOnce = () => {
+        workerStatuses[workerIndex].phase = 'encoding'
+        if (!recordedCounted) {
+          recordedCounted = true
           onRecorded()
-        },
-        eventEmitter,
-      )
+        }
+      }
+
+      let ok = false
+      for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+        if (signal.stopped || signal.cancelled) break
+        workerStatuses[workerIndex] = {
+          replayPath: replay.path,
+          phase: 'recording',
+          replayIndex: replay.index,
+        }
+        // eslint-disable-next-line no-await-in-loop
+        ok = await processOneReplay(
+          replay,
+          config,
+          signal,
+          onRecordedOnce,
+          eventEmitter,
+        )
+        if (ok || signal.stopped || signal.cancelled) break
+        logMain('record: clip failed, retrying', {
+          replay: replay.path,
+          attempt,
+        })
+      }
+
       if (!ok && (signal.stopped || signal.cancelled)) break
       if (ok) {
         progress.encoded += 1
         emitStatus()
         onClipEncoded?.(replay)
+      } else {
+        // Exhausted retries without a Stop/Cancel — a real failure.
+        failures.push(replay)
+        onClipFailed?.(replay)
       }
       workerStatuses[workerIndex] = {
         replayPath: '',
@@ -561,6 +826,28 @@ const processReplays = async (
   const workers = []
   for (let i = 0; i < config.numProcesses; i++) workers.push(worker(i))
   await Promise.all(workers)
+
+  // Persist a manifest of failed clips so they can be inspected or re-run later.
+  if (failures.length > 0) {
+    logMain(`record: ${failures.length} clip(s) failed`, {
+      count: failures.length,
+    })
+    await fsPromises
+      .writeFile(
+        path.resolve(config.outputPath, 'failures.json'),
+        JSON.stringify(
+          failures.map((r) => ({
+            index: r.index,
+            path: r.path,
+            startFrame: r.startFrame,
+            endFrame: r.endFrame,
+          })),
+          null,
+          2,
+        ),
+      )
+      .catch(() => {})
+  }
 
   // Concatenate the finished clips into a single video. Runs on a normal finish
   // AND on Stop — Stop means "keep completed clips": it lets the in-flight clip
@@ -644,10 +931,17 @@ const processReplays = async (
     }
   }
 
-  eventEmitter('Done :)')
-  setTimeout(() => {
-    eventEmitter('')
-  }, 2000)
+  eventEmitter(
+    failures.length > 0
+      ? `Done — ${failures.length} clip(s) failed (see failures.json) :)`
+      : 'Done :)',
+  )
+  setTimeout(
+    () => {
+      eventEmitter('')
+    },
+    failures.length > 0 ? 6000 : 2000,
+  )
 }
 
 // Resolves the three Dolphin ini paths (game settings, graphics, dolphin)
@@ -1051,6 +1345,9 @@ const slpToVideo = (
   // can report progress incrementally (e.g. checkpointed usage telemetry) and
   // not lose a whole long render if the process is killed before it finishes.
   onClipEncoded?: (_replay: ReplayInterface) => void,
+  // Called once per clip that failed every attempt (not a Stop/Cancel), so the
+  // caller can surface a running "N failed" count.
+  onClipFailed?: (_replay: ReplayInterface) => void,
 ): VideoJobController => {
   const signal: VideoSignal = {
     stopped: false,
@@ -1067,68 +1364,88 @@ const slpToVideo = (
     }),
   )
 
-  const promise = (async () => {
-    await fsPromises
-      .access(config.ssbmIsoPath)
-      .catch((err) => {
-        if (err.code === 'ENOENT') {
-          throw new Error(
-            `Error: Could not read SSBM iso from path ${config.ssbmIsoPath}. `,
-          )
-        } else {
-          throw err
-        }
-      })
-      .then(() => fsPromises.access(config.dolphinPath))
-      .catch((err) => {
-        if (err.code === 'ENOENT') {
-          throw new Error(
-            `Error: Could not open Dolphin from path ${config.dolphinPath}. `,
-          )
-        } else {
-          throw err
-        }
-      })
-      .then(() => configureDolphin(config, eventEmitter))
-      .then(() =>
-        processReplays(
-          replays,
-          config,
-          eventEmitter,
-          signal,
-          workerStatuses,
-          onClipEncoded,
-        ),
-      )
-      .catch((err) => {
-        logMain('slpToVideo: error', err)
-        eventEmitter(`${err} — Check ${getLogPath()}/main.log`)
-        throw new Error(err)
-      })
+  // Backstop for Stop: it asks workers to drain gracefully (let in-flight clips
+  // finish, keep everything done), but if some process is genuinely wedged past
+  // the watchdog, this force-kills whatever is still active so the job can never
+  // hang forever. Cleared the moment the job settles.
+  let stopBackstop: ReturnType<typeof setTimeout> | null = null
+  const forceKillAll = (reason: string) => {
+    if (signal.activeProcesses.size > 0) {
+      logMain(`record: force-killing ${signal.activeProcesses.size} process(es)`, { reason }) // prettier-ignore
+    }
+    signal.activeProcesses.forEach((p) => killTree(p))
+    signal.activeProcesses.clear()
+  }
 
-    if (signal.stopped) {
-      eventEmitter('Stopped.')
-      setTimeout(() => eventEmitter(''), 2000)
-    } else if (signal.cancelled) {
-      eventEmitter('Cancelled.')
-      setTimeout(() => eventEmitter(''), 2000)
+  const promise = (async () => {
+    try {
+      await fsPromises
+        .access(config.ssbmIsoPath)
+        .catch((err) => {
+          if (err.code === 'ENOENT') {
+            throw new Error(
+              `Error: Could not read SSBM iso from path ${config.ssbmIsoPath}. `,
+            )
+          } else {
+            throw err
+          }
+        })
+        .then(() => fsPromises.access(config.dolphinPath))
+        .catch((err) => {
+          if (err.code === 'ENOENT') {
+            throw new Error(
+              `Error: Could not open Dolphin from path ${config.dolphinPath}. `,
+            )
+          } else {
+            throw err
+          }
+        })
+        .then(() => configureDolphin(config, eventEmitter))
+        .then(() =>
+          processReplays(
+            replays,
+            config,
+            eventEmitter,
+            signal,
+            workerStatuses,
+            onClipEncoded,
+            onClipFailed,
+          ),
+        )
+        .catch((err) => {
+          logMain('slpToVideo: error', err)
+          eventEmitter(`${err} — Check ${getLogPath()}/main.log`)
+          throw new Error(err)
+        })
+
+      if (signal.stopped) {
+        eventEmitter('Stopped.')
+        setTimeout(() => eventEmitter(''), 2000)
+      } else if (signal.cancelled) {
+        eventEmitter('Cancelled.')
+        setTimeout(() => eventEmitter(''), 2000)
+      }
+    } finally {
+      if (stopBackstop) clearTimeout(stopBackstop)
     }
   })()
 
   return {
     stop: () => {
       signal.stopped = true
+      // Arm the backstop once. Workers will normally drain well before this
+      // fires (short clips + the per-Dolphin stale watchdog); it only matters if
+      // something is truly stuck.
+      if (!stopBackstop) {
+        stopBackstop = setTimeout(
+          () => forceKillAll('Stop grace period elapsed'),
+          STOP_GRACE_MS,
+        )
+      }
     },
     cancel: () => {
       signal.cancelled = true
-      signal.activeProcesses.forEach((p) => {
-        try {
-          p.kill()
-        } catch (_) {
-          /* already dead */
-        }
-      })
-      signal.activeProcesses.clear()
+      forceKillAll('Cancel')
     },
     promise,
     getWorkerStatus: () => workerStatuses,

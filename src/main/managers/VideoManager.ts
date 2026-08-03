@@ -294,6 +294,13 @@ export default class VideoManager {
       if (pendingClips >= CHECKPOINT_CLIPS) flushUsage(false)
     }
 
+    // Count clips that failed every attempt so the completion modal can report
+    // them (a run can otherwise silently drop clips — the source of the "holes").
+    let failedCount = 0
+    const onClipFailed = () => {
+      failedCount += 1
+    }
+
     console.log('Replays: ', replays)
     console.log('Config: ', videoConfig)
     this.mainWindow.webContents.send(
@@ -310,6 +317,7 @@ export default class VideoManager {
         if (msg) this.consoleManager.pushConsoleLog(msg.startsWith('Error') ? 'error' : 'info', msg) // prettier-ignore
       },
       onClipEncoded,
+      onClipFailed,
     )
     let stopped = false
     try {
@@ -428,6 +436,7 @@ export default class VideoManager {
           files: allFiles,
           totalSize,
           clipCount: clips.length,
+          failedCount,
           duration,
         })
       } catch {

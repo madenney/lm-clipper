@@ -275,6 +275,7 @@ export default function Main({
     files: string[]
     totalSize: number
     clipCount: number
+    failedCount?: number
     duration: number | null
   } | null>(null)
   const [consoleLogCount, setConsoleLogCount] = useState(0)
@@ -335,6 +336,7 @@ export default function Main({
       files: string[]
       totalSize: number
       clipCount: number
+      failedCount?: number
       duration: number | null
     }) => {
       setVideoCompletedInfo(info)
@@ -1115,6 +1117,15 @@ export default function Main({
                 <span className="video-done-label">Clips</span>
                 <span>{videoCompletedInfo.clipCount}</span>
               </div>
+              {!!videoCompletedInfo.failedCount &&
+                videoCompletedInfo.failedCount > 0 && (
+                  <div className="video-done-row">
+                    <span className="video-done-label">Failed</span>
+                    <span style={{ color: '#e06c6c' }}>
+                      {videoCompletedInfo.failedCount} (see failures.json)
+                    </span>
+                  </div>
+                )}
               {videoCompletedInfo.duration != null && (
                 <div className="video-done-row">
                   <span className="video-done-label">Length</span>
