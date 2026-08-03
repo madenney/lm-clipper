@@ -227,6 +227,100 @@ function run() {
       return
     }
 
+    // Select Range: keep a contiguous chunk of the input by position — the Nth
+    // through Mth clips exactly as they appear in the tray. Single-threaded
+    // (Filter.ts forces one worker) so positions are global, not per-slice.
+    // 1-based and inclusive; blank "from" = start, blank "to" = end; a reversed
+    // range (to < from) is swapped so 3300–3050 also works. Reads in the SAME
+    // order the tray displays (COALESCE(sort_order, id), id) via SQL LIMIT/OFFSET,
+    // so "clip 3050" here is the very clip the user is looking at — and a huge
+    // input is paged, never loaded whole. A corrupt row still occupies its
+    // position (it's dropped, not shifted), so the boundary is counted on rows
+    // consumed, not rows kept.
+    if (type === 'range') {
+      const total = slice.top - slice.bottom + 1
+      const parseBound = (v: unknown): number | null => {
+        const s = v == null ? '' : String(v).trim()
+        const n = parseInt(s, 10)
+        return s === '' || Number.isNaN(n) ? null : n
+      }
+      let from = parseBound(params.from)
+      let to = parseBound(params.to)
+      if (from == null || from < 1) from = 1
+      if (to != null && to < from) {
+        const swap = from
+        from = to < 1 ? 1 : to
+        to = swap
+      }
+
+      // Match the tray's ordering; fall back to id if the table predates the
+      // sort_order column (older projects).
+      const cols = db.prepare(`PRAGMA table_info("${prevTableId}")`).all() as {
+        name: string
+      }[]
+      const orderBy = cols.some((c) => c.name === 'sort_order')
+        ? 'COALESCE(sort_order, id), id'
+        : 'id'
+
+      const insertStmt = db.prepare(
+        `INSERT INTO "${nextTableId}" (JSON) VALUES (?)`,
+      )
+      const insertBatch = db.transaction((items: Record<string, unknown>[]) => {
+        for (const it of items) insertStmt.run(JSON.stringify(it))
+      })
+
+      const want = to == null ? Infinity : to - from + 1
+      if (total === 0 || want <= 0) {
+        postMessage({ type: 'done', results: 0 })
+        return
+      }
+
+      postMessage({ type: 'progress', current: 0, total, results: 0 })
+
+      const pageStmt = db.prepare(
+        `SELECT * FROM "${prevTableId}" ORDER BY ${orderBy} LIMIT ? OFFSET ?`,
+      )
+      let inserted = 0
+      let consumed = 0
+      let offset = from - 1
+      let lastProgressTime = 0
+      while (consumed < want) {
+        const batchSize = Math.min(FILTER_CHUNK_SIZE, want - consumed)
+        const rows = pageStmt.all(batchSize, offset) as (
+          | FilesTableRow
+          | FilterTableRow
+        )[]
+        if (rows.length === 0) break // ran off the end of the input
+        const parsed = parseRows(prevTableId, rows)
+        if (parsed.length > 0) {
+          insertBatch(parsed)
+          inserted += parsed.length
+        }
+        consumed += rows.length
+        offset += rows.length
+        const now = Date.now()
+        if (now - lastProgressTime >= PROGRESS_THROTTLE_MS) {
+          postMessage({
+            type: 'progress',
+            current: Math.min(offset, total),
+            total,
+            results: inserted,
+          })
+          lastProgressTime = now
+        }
+        if (rows.length < batchSize) break // reached the end
+      }
+
+      postMessage({
+        type: 'progress',
+        current: total,
+        total,
+        results: inserted,
+      })
+      postMessage({ type: 'done', results: inserted })
+      return
+    }
+
     const method = methods[type]
     if (!method) {
       postMessage({

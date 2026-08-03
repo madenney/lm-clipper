@@ -47,14 +47,7 @@ export const FILTER_LAYOUT: {
   modalTabs: string[]
   modalNatives: Record<string, string[]>
 } = {
-  main: [
-    'slpParser',
-    'comboFilter',
-    'sort',
-    'randomSample',
-    'trim',
-    'deduplicate',
-  ],
+  main: ['slpParser', 'comboFilter', 'sort', 'trim', 'deduplicate'],
   modalTabs: ['Kills', 'Combos', 'Sampling', 'Utility', 'Advanced'],
   modalNatives: {
     Kills: [
@@ -65,7 +58,7 @@ export const FILTER_LAYOUT: {
       'koDirection',
     ],
     Combos: ['reverse', 'stageCenter'],
-    Sampling: [],
+    Sampling: ['randomSample', 'range'],
     Utility: ['afkDetection', 'removeStarKOFrames'],
     Advanced: ['custom', 'actionStateFilter'],
   },
@@ -1229,6 +1222,30 @@ export const filtersConfig = [
         default: '100',
         tooltip:
           'How many clips to keep, chosen uniformly at random. You get exactly this many (or all of them, if the input has fewer).',
+      },
+    ],
+  },
+  {
+    id: 'range',
+    label: 'Select Range',
+    tooltip:
+      'Keep only a specific chunk of clips by position — e.g. the 3050th through 3300th clip in the list. Great for recording a batch at a time without hand-counting.',
+    options: [
+      {
+        name: 'From (position)',
+        id: 'from',
+        type: 'int',
+        default: '',
+        tooltip:
+          'First clip to keep, counting from 1 at the top of the list. Blank = start from the very beginning.',
+      },
+      {
+        name: 'To (position)',
+        id: 'to',
+        type: 'int',
+        default: '',
+        tooltip:
+          'Last clip to keep, inclusive. Blank = go to the end. Example: From 3050, To 3300 keeps exactly those 251 clips, in order.',
       },
     ],
   },

@@ -123,11 +123,14 @@ export default class Filter {
     }
 
     const minThreads = Math.max(1, numFilterThreads)
-    // sort and randomSample must see the whole input on ONE worker: sort needs a
-    // true global ordering, randomSample a uniform sample of the entire set (N
-    // workers would each emit their own sample).
+    // sort, randomSample and range must see the whole input on ONE worker: sort
+    // needs a true global ordering, randomSample a uniform sample of the entire
+    // set, and range counts global positions (N workers would each count from 1
+    // within their own slice, so "clip 3050" would be meaningless).
     const threadCount =
-      this.type === 'sort' || this.type === 'randomSample'
+      this.type === 'sort' ||
+      this.type === 'randomSample' ||
+      this.type === 'range'
         ? 1
         : Math.min(minThreads, maxFiles)
     const slices = createSlices(maxFiles, threadCount)
