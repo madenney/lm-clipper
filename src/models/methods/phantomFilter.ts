@@ -30,7 +30,7 @@ function resolveMoveStates(ids: (string | number)[] | undefined): Set<number> {
   return out
 }
 
-// Refines Phantom Hits parser output by the metrics stored on each clip. Operates
+// Refines Phantom Hit Parser output by the metrics stored on each clip. Operates
 // purely on already-computed `phantomMetrics` — no .slp parsing — so it's fast and
 // can be re-run freely to dial in thresholds (e.g. "Rest = yes" for a phantom-Rest
 // compilation).

@@ -22,7 +22,7 @@ export const REQUIRED_PRODUCER: Record<string, string> = {
 export const PRODUCER_LABEL: Record<string, string> = {
   slpParser: 'combo parser',
   edgeguard: 'Edgeguards Parser',
-  phantom: 'Phantom Hits',
+  phantom: 'Phantom Hit Parser',
 }
 
 // SINGLE SOURCE OF TRUTH for where native filters appear and in what order.
@@ -732,7 +732,7 @@ export const filtersConfig = [
   },
   {
     id: 'phantom',
-    label: 'Phantom Hits',
+    label: 'Phantom Hit Parser',
     tooltip:
       'Finds true phantom hits (glancing blows): a hitbox grazes a hurtbox by <0.01 units, dealing half damage with NO knockback. Detected by the two documented signatures — the DEFENDER freezes but the ATTACKER does not (a normal hit freezes both, so crouch-cancels and teched hits are excluded), and the damage lands AFTER the freeze instead of on contact (which excludes projectiles like lasers). Genuinely rare (~1 per 8–20 games). The flagship case is a phantom Rest — Puff’s Rest grazes for no knockback and is left asleep. Each phantom becomes its own clip, tagged with metrics + a score (Rest phantoms rank highest).',
     options: [
@@ -824,7 +824,7 @@ export const filtersConfig = [
     id: 'phantomFilter',
     label: 'Phantom Filter',
     tooltip:
-      'Refines Phantom Hits output by the metrics stored on each clip — no .slp re-parse, so it’s fast and free to re-run. Pick a Move (e.g. Rest) and/or Attacker/Victim character for, say, a phantom-Rest reel; or filter by damage / hitlag / victim percent.',
+      'Refines Phantom Hit Parser output by the metrics stored on each clip — no .slp re-parse, so it’s fast and free to re-run. Pick a Move (e.g. Rest) and/or Attacker/Victim character for, say, a phantom-Rest reel; or filter by damage / hitlag / victim percent.',
     options: [
       {
         name: 'Move',
