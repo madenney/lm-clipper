@@ -89,6 +89,15 @@ Zip wizard, extraction, chained slpz wizard if zip contains .slpz. Needs a statu
 
 ---
 
+## Dependencies
+
+### Upgrade @slippi/slippi-js (6.7.0 → 9.x)
+Currently pinned to `^6.6.1` (installed 6.7.0); latest is 9.1.2 — **three major versions behind** (7.x, 8.x, 9.x). Not urgent: all fields the parsers use (`hitlagRemaining`, `selfInducedSpeeds`, `lastHitBy`, `percent`, `actionStateId`, `getFrames`/`getStats`/`computeStocks`) work on 6.7.0 and parse current (2026) replays fine. Risk of staying: missing bug fixes + eventually newer Slippi replay-format versions may not fully parse. Risk of upgrading: 6→9 = breaking API changes that could break every `.slp`-parsing filter (slpParser, edgeguard, phantom, koDirection, stageCenter, afkDetection, reverse, removeStarKOFrames, earlyQuitOut).
+
+**Do it as a deliberate task:** read the 7.0/8.0/9.0 changelogs for breaking changes, bump, then regression-test each parser against `test_replays/`. slippi-js is pure JS (bundled via webpack, not in `release/app/node_modules`), so it's an `npm`/webpack change, no native rebuild.
+
+---
+
 ## Nice-to-Have
 
 ### ~~Auto-play video after recording~~ FIXED — recording completion modal with Play, Show Folder, and auto-open toggle

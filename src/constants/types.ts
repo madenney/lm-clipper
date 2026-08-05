@@ -130,6 +130,35 @@ export type EdgeguardParams = {
   offstageBuffer?: number
 }
 
+export type PhantomParams = {
+  comboerChar?: (string | number)[]
+  comboeeChar?: (string | number)[]
+  comboerTag?: string[] | string
+  comboerCC?: string[] | string
+  comboeeTag?: string[] | string
+  comboeeCC?: string[] | string
+  stageFilter?: (string | number)[]
+  minDamage?: string
+  leadInFrames?: string
+  tailFrames?: string
+}
+
+export type PhantomFilterParams = {
+  // Moves to keep, matched by the attacker's action state (actionStates ids,
+  // e.g. Rest). Empty = any move.
+  move?: (string | number)[]
+  minDamage?: string
+  maxDamage?: string
+  minHitlag?: string
+  minVictimPercent?: string
+  comboerChar?: (string | number)[]
+  comboeeChar?: (string | number)[]
+  comboerTag?: string[] | string
+  comboerCC?: string[] | string
+  comboeeTag?: string[] | string
+  comboeeCC?: string[] | string
+}
+
 export type PressureParams = {
   comboerChar?: (string | number)[]
   comboeeChar?: (string | number)[]
@@ -237,6 +266,8 @@ export type FilterParams =
   | ActionStateFilterParams
   | EdgeguardParams
   | EdgeguardFilterParams
+  | PhantomParams
+  | PhantomFilterParams
   | PressureParams
   | ZeroToDeathsParams
   | StageCenterParams
@@ -472,6 +503,17 @@ export interface ClipInterface {
     stageTouches: number
     diedOffstage: boolean
     score: number
+  }
+  // Phantom hits: damage dealt with ~0 knockback (the victim isn't launched).
+  // Score + metrics attached so a downstream Sort can rank by it.
+  phantomMetrics?: {
+    hitFrame: number
+    damage: number
+    hitlag: number
+    attackerState: number
+    attackId: number | null
+    victimState: number
+    victimPercent: number
   }
   // Pressure: shield-pressure stretch score + metrics (attached so a downstream
   // Sort can rank by it).

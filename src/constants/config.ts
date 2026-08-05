@@ -15,12 +15,14 @@ export const REQUIRED_PRODUCER: Record<string, string> = {
   zeroToDeaths: 'slpParser',
   stageCenter: 'slpParser',
   edgeguardFilter: 'edgeguard',
+  phantomFilter: 'phantom',
 }
 
 // Friendly name for a producer type, used in warnings ("requires … first").
 export const PRODUCER_LABEL: Record<string, string> = {
   slpParser: 'combo parser',
   edgeguard: 'Edgeguards Parser',
+  phantom: 'Phantom Hits',
 }
 
 // SINGLE SOURCE OF TRUTH for where native filters appear and in what order.
@@ -53,6 +55,8 @@ export const FILTER_LAYOUT: {
     Kills: [
       'edgeguard',
       'edgeguardFilter',
+      'phantom',
+      'phantomFilter',
       'earlyQuitOut',
       'zeroToDeaths',
       'koDirection',
@@ -723,6 +727,194 @@ export const filtersConfig = [
         default: '30',
         tooltip:
           'Start the clip this many frames BEFORE the first frame of the move that knocks the opponent offstage, so it opens with a beat of lead-up. 0 = start exactly on the move.',
+      },
+    ],
+  },
+  {
+    id: 'phantom',
+    label: 'Phantom Hits',
+    tooltip:
+      'Finds true phantom hits (glancing blows): a hitbox grazes a hurtbox by <0.01 units, dealing half damage with NO knockback. Detected by the two documented signatures — the DEFENDER freezes but the ATTACKER does not (a normal hit freezes both, so crouch-cancels and teched hits are excluded), and the damage lands AFTER the freeze instead of on contact (which excludes projectiles like lasers). Genuinely rare (~1 per 8–20 games). The flagship case is a phantom Rest — Puff’s Rest grazes for no knockback and is left asleep. Each phantom becomes its own clip, tagged with metrics + a score (Rest phantoms rank highest).',
+    options: [
+      {
+        name: 'Attacker Char',
+        id: 'comboerChar',
+        type: 'multiDropdown',
+        options: sortedCharacters,
+        default: [],
+        tooltip: 'Only keep phantoms landed by these characters.',
+      },
+      {
+        name: 'Attacker Tag',
+        id: 'comboerTag',
+        type: 'textInput',
+        default: [],
+        autocomplete: 'names',
+        tooltip: 'Only keep phantoms landed by players with these tags.',
+      },
+      {
+        name: 'Attacker CC',
+        id: 'comboerCC',
+        type: 'textInput',
+        default: [],
+        autocomplete: 'connectCodes',
+        tooltip:
+          'Only keep phantoms landed by players with these connect codes.',
+      },
+      {
+        name: 'Victim Char',
+        id: 'comboeeChar',
+        type: 'multiDropdown',
+        options: sortedCharacters,
+        default: [],
+        tooltip: 'Only keep phantoms suffered by these characters.',
+      },
+      {
+        name: 'Victim Tag',
+        id: 'comboeeTag',
+        type: 'textInput',
+        default: [],
+        autocomplete: 'names',
+        tooltip: 'Only keep phantoms suffered by players with these tags.',
+      },
+      {
+        name: 'Victim CC',
+        id: 'comboeeCC',
+        type: 'textInput',
+        default: [],
+        autocomplete: 'connectCodes',
+        tooltip:
+          'Only keep phantoms suffered by players with these connect codes.',
+      },
+      {
+        name: 'Stage',
+        id: 'stageFilter',
+        type: 'multiDropdown',
+        options: legalStages,
+        default: [],
+        tooltip: 'Only parse phantoms on these stages.',
+      },
+      {
+        name: 'Min Damage',
+        id: 'minDamage',
+        type: 'int',
+        default: '1',
+        tooltip:
+          'Only keep phantoms that dealt at least this much % (a phantom deals HALF the move’s damage, so even a jab phantom is tiny — 1 keeps them). Raise it (e.g. 6–8) to isolate phantoms of big moves only.',
+      },
+      {
+        name: 'Lead-in Frames',
+        id: 'leadInFrames',
+        type: 'int',
+        default: '45',
+        tooltip:
+          'Start the clip this many frames BEFORE the phantom hit, for a beat of lead-up (45 = 0.75s).',
+      },
+      {
+        name: 'Tail Frames',
+        id: 'tailFrames',
+        type: 'int',
+        default: '90',
+        tooltip:
+          'End the clip this many frames AFTER the phantom hit, to show the non-reaction and what follows (90 = 1.5s).',
+      },
+    ],
+  },
+  {
+    id: 'phantomFilter',
+    label: 'Phantom Filter',
+    tooltip:
+      'Refines Phantom Hits output by the metrics stored on each clip — no .slp re-parse, so it’s fast and free to re-run. Pick a Move (e.g. Rest) and/or Attacker/Victim character for, say, a phantom-Rest reel; or filter by damage / hitlag / victim percent.',
+    options: [
+      {
+        name: 'Move',
+        id: 'move',
+        type: 'multiDropdown',
+        options: actionStates,
+        default: [],
+        tooltip:
+          'Only keep phantoms of these moves — matched by the ATTACKER’s animation (reliable, unlike the stored move id). E.g. Rest for phantom Rests, or Forward Air / Down Smash. Empty = any move. Pair with Attacker Char (e.g. Puff + Rest).',
+      },
+      {
+        name: 'Min Damage',
+        id: 'minDamage',
+        type: 'int',
+        default: '',
+        tooltip:
+          'Keep phantoms that dealt at least this much %. Raise to isolate phantoms of bigger moves.',
+      },
+      {
+        name: 'Max Damage',
+        id: 'maxDamage',
+        type: 'int',
+        default: '',
+        tooltip: 'Keep phantoms that dealt at most this much %.',
+      },
+      {
+        name: 'Min Hitlag',
+        id: 'minHitlag',
+        type: 'int',
+        default: '',
+        tooltip:
+          'Keep phantoms whose freeze lasted at least this many frames (bigger freeze = bigger move phantomed).',
+      },
+      {
+        name: 'Min Victim %',
+        id: 'minVictimPercent',
+        type: 'int',
+        default: '',
+        tooltip:
+          'Keep phantoms where the victim was at least this %  — the funniest phantoms are the ones that should have killed.',
+      },
+      {
+        name: 'Attacker Char',
+        id: 'comboerChar',
+        type: 'multiDropdown',
+        options: sortedCharacters,
+        default: [],
+        tooltip: 'Only keep phantoms landed by these characters.',
+      },
+      {
+        name: 'Attacker Tag',
+        id: 'comboerTag',
+        type: 'textInput',
+        default: [],
+        autocomplete: 'names',
+        tooltip: 'Only keep phantoms landed by players with these tags.',
+      },
+      {
+        name: 'Attacker CC',
+        id: 'comboerCC',
+        type: 'textInput',
+        default: [],
+        autocomplete: 'connectCodes',
+        tooltip:
+          'Only keep phantoms landed by players with these connect codes.',
+      },
+      {
+        name: 'Victim Char',
+        id: 'comboeeChar',
+        type: 'multiDropdown',
+        options: sortedCharacters,
+        default: [],
+        tooltip: 'Only keep phantoms suffered by these characters.',
+      },
+      {
+        name: 'Victim Tag',
+        id: 'comboeeTag',
+        type: 'textInput',
+        default: [],
+        autocomplete: 'names',
+        tooltip: 'Only keep phantoms suffered by players with these tags.',
+      },
+      {
+        name: 'Victim CC',
+        id: 'comboeeCC',
+        type: 'textInput',
+        default: [],
+        autocomplete: 'connectCodes',
+        tooltip:
+          'Only keep phantoms suffered by players with these connect codes.',
       },
     ],
   },

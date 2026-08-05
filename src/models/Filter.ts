@@ -186,6 +186,7 @@ export default class Filter {
           'earlyQuitOut',
           'actionStateFilter',
           'edgeguard',
+          'phantom',
           'reverse',
           'removeStarKOFrames',
           'koDirection',

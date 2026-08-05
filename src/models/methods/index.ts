@@ -10,6 +10,8 @@ import koDirection from './koDirection'
 import custom from './custom'
 import edgeguard from './edgeguard'
 import edgeguardFilter from './edgeguardFilter'
+import phantom from './phantom'
+import phantomFilter from './phantomFilter'
 import deduplicate from './deduplicate'
 import zeroToDeaths from './zerotoDeaths'
 import afkDetection from './afkDetection'
@@ -39,6 +41,8 @@ const methods: Record<string, FilterMethod> = {
   custom,
   edgeguard,
   edgeguardFilter,
+  phantom,
+  phantomFilter,
   deduplicate,
   zeroToDeaths,
   afkDetection,
