@@ -57,6 +57,7 @@ const SEND_CHANNELS = new Set([
   'cancelVideo',
   'checkStitchable',
   'stitchClips',
+  'probeStitchDuration',
   'playClips',
   'playClip',
   'stopPlayback',

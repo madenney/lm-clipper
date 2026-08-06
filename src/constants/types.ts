@@ -627,6 +627,9 @@ export interface StitchFolder {
   name: string
   ext: string
   clips: string[]
+  // Byte size per clip, keyed by clip filename. Drives the output-size estimate
+  // and lets the modal detect on-disk changes (files added/removed/resized).
+  sizes: Record<string, number>
 }
 
 export interface ShallowArchiveInterface {

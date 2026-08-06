@@ -30,12 +30,43 @@
   word-break: break-all;
 }
 
+/* Select-all / clear toolbar above the tree */
+.stitch-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 0 4px 10px;
+}
+
+.stitch-toolbar-count {
+  margin-left: auto;
+  font-size: 12px;
+  color: #8b929c;
+  font-variant-numeric: tabular-nums;
+}
+
 /* Tree card */
 .stitch-tree {
   background: #202024;
   border: 1px solid #2a2a2a;
   border-radius: 10px;
   padding: 6px;
+}
+
+/* The whole folder block dims while it's being dragged to a new position. */
+.stitch-folder--dragging {
+  opacity: 0.4;
+}
+
+.stitch-folder-handle {
+  color: #4a4f57;
+  font-size: 14px;
+  cursor: grab;
+  margin-right: -2px;
+}
+
+.stitch-folder-handle:hover {
+  color: #6d737c;
 }
 
 .stitch-folder + .stitch-folder {
@@ -234,10 +265,180 @@
   display: inline-flex;
   align-items: center;
   gap: 10px;
+  min-width: 0;
+}
+
+.stitch-result-icon {
+  flex-shrink: 0;
+  color: #5cb874;
+  font-size: 15px;
+}
+
+.stitch-result-msg {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.stitch-result-msg strong {
+  color: #e6f2e8;
+  font-weight: 600;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+
+.stitch-show-btn {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 12px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #cfeed7;
+  background: rgba(92, 184, 116, 0.14);
+  border: 1px solid rgba(92, 184, 116, 0.4);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 120ms ease;
+}
+
+.stitch-show-btn svg {
+  font-size: 13px;
+}
+
+.stitch-show-btn:hover {
+  color: #fff;
+  background: rgba(92, 184, 116, 0.26);
+  border-color: #5cb874;
+}
+
+.stitch-show-btn:active {
+  transform: translateY(1px);
 }
 
 .stitch-result--err {
   color: #e06c6c;
+}
+
+/* Options bar (quality + estimate), pinned above the footer */
+.stitch-options {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 28px;
+  border-top: 1px solid #222;
+  background: #1c1c1c;
+}
+
+.stitch-quality {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+}
+
+.stitch-quality-label {
+  align-self: center;
+  font-size: 12px;
+  color: #8b929c;
+  margin-right: 4px;
+}
+
+.stitch-quality-opt {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  padding: 5px 12px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #b8bec8;
+  background: #26262a;
+  border: 1px solid #33333a;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 120ms ease;
+}
+
+.stitch-quality-opt:hover:not(:disabled):not(.stitch-quality-opt--on) {
+  background: #2e2e34;
+  color: #e0e4ea;
+}
+
+.stitch-quality-opt--on {
+  color: #fff;
+  background: rgba(61, 138, 78, 0.28);
+  border-color: #4a9d5b;
+}
+
+.stitch-quality-opt:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.stitch-quality-sub {
+  font-size: 9.5px;
+  font-weight: 500;
+  letter-spacing: 0.3px;
+  color: #7f858e;
+}
+
+.stitch-quality-opt--on .stitch-quality-sub {
+  color: #a0d0a8;
+}
+
+.stitch-estimate {
+  flex-shrink: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.stitch-estimate-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: #7f858e;
+}
+
+.stitch-estimate-val {
+  font-size: 14px;
+  font-weight: 600;
+  color: #cbd0d8;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Header: folder + close buttons grouped on the right */
+.stitch-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.stitch-open-folder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  font-size: 15px;
+  color: #8fbf9a;
+  background: transparent;
+  border: 1px solid #33333a;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 120ms ease;
+}
+
+.stitch-open-folder:hover {
+  color: #b7e0c0;
+  background: rgba(92, 184, 116, 0.12);
+  border-color: #4a9d5b;
 }
 
 /* Pinned footer: status on the left, actions on the right */

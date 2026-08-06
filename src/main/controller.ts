@@ -1491,6 +1491,10 @@ export default class Controller {
       'stitchClips',
       this.videoManager.stitchClips.bind(this.videoManager),
     )
+    ipcMain.on(
+      'probeStitchDuration',
+      this.videoManager.probeStitchDuration.bind(this.videoManager),
+    )
     ipcMain.on('playClips', this.videoManager.playClips.bind(this.videoManager))
     ipcMain.on('playClip', this.videoManager.playClip.bind(this.videoManager))
     ipcMain.on('stopPlayback', () => this.videoManager.stopPlayback())

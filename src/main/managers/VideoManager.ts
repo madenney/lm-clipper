@@ -20,6 +20,7 @@ import slpToVideo, {
   VideoJobController,
   writeGeckoCodes,
   concatClips,
+  probeFilesInfo,
 } from '../slpToVideo'
 import {
   detectPlaybackDolphin,
@@ -462,6 +463,7 @@ export default class VideoManager {
       name: string
       ext: string
       clips: string[]
+      sizes: Record<string, number>
     }[] = []
     try {
       const entries = await fsPromises.readdir(root, { withFileTypes: true })
@@ -483,11 +485,25 @@ export default class VideoManager {
           const useMp4 = mp4.length > 0
           const clips = (useMp4 ? mp4 : avi).slice().sort()
           if (clips.length >= 2) {
+            // Size each clip so the modal can show an output-size estimate and
+            // spot on-disk changes. Best-effort — a failed stat just reads 0.
+            const sizes: Record<string, number> = {}
+            await Promise.all(
+              clips.map(async (c) => {
+                try {
+                  const st = await fsPromises.stat(path.resolve(dir, c))
+                  sizes[c] = st.size
+                } catch {
+                  sizes[c] = 0
+                }
+              }),
+            )
             folders.push({
               path: dir,
               name: entry.name,
               ext: useMp4 ? '.mp4' : '.avi',
               clips,
+              sizes,
             })
           }
         } catch {
@@ -507,24 +523,13 @@ export default class VideoManager {
   // selection is one folder the result is `final<ext>` in it; a cross-folder
   // selection writes `stitched<ext>` in the output root. Either is versioned
   // (`_2…`) rather than overwriting an existing file.
-  async stitchClips(
-    event: IpcMainEvent,
-    data?: RequestEnvelope<{
-      clips: { folder: string; name: string }[]
-      ext: string
-    }>,
-  ) {
-    const { requestId, payload } = unpackRequest<{
-      clips: { folder: string; name: string }[]
-      ext: string
-    }>(data)
-    const clips = payload?.clips ?? []
-    if (clips.length < 2) {
-      return reply(event, 'stitchClips', requestId, {
-        ok: false,
-        error: 'Select at least 2 clips.',
-      })
-    }
+  // Resolve a renderer-supplied clip selection to absolute paths, dropping any
+  // that escape the configured output root (a renderer can't point ffmpeg at
+  // arbitrary files). Shared by stitchClips and probeStitchDuration.
+  private resolveStitchFiles(clips: { folder: string; name: string }[]): {
+    files: string[]
+    usedFolders: Set<string>
+  } {
     const root = path.resolve(this.getConfig().outputPath)
     const rootPrefix = root + path.sep
     const files: string[] = []
@@ -536,6 +541,54 @@ export default class VideoManager {
       files.push(abs)
       usedFolders.add(folder)
     }
+    return { files, usedFolders }
+  }
+
+  // Header info for the current selection, for the modal's live size/duration
+  // estimate. A fast ffmpeg header-read — no encoding. `seconds` is usually 0
+  // (the concat demuxer reports Duration: N/A); `bitrateKbps` lets the renderer
+  // derive duration from the total byte size.
+  async probeStitchDuration(
+    event: IpcMainEvent,
+    data?: RequestEnvelope<{ clips: { folder: string; name: string }[] }>,
+  ) {
+    const { requestId, payload } = unpackRequest<{
+      clips: { folder: string; name: string }[]
+    }>(data)
+    const { files } = this.resolveStitchFiles(payload?.clips ?? [])
+    let info = { seconds: 0, bitrateKbps: 0 }
+    try {
+      info = await probeFilesInfo(files)
+    } catch {
+      info = { seconds: 0, bitrateKbps: 0 }
+    }
+    return reply(event, 'probeStitchDuration', requestId, info)
+  }
+
+  async stitchClips(
+    event: IpcMainEvent,
+    data?: RequestEnvelope<{
+      clips: { folder: string; name: string }[]
+      ext: string
+      compress?: boolean
+      videoKbps?: number
+    }>,
+  ) {
+    const { requestId, payload } = unpackRequest<{
+      clips: { folder: string; name: string }[]
+      ext: string
+      compress?: boolean
+      videoKbps?: number
+    }>(data)
+    const clips = payload?.clips ?? []
+    if (clips.length < 2) {
+      return reply(event, 'stitchClips', requestId, {
+        ok: false,
+        error: 'Select at least 2 clips.',
+      })
+    }
+    const root = path.resolve(this.getConfig().outputPath)
+    const { files, usedFolders } = this.resolveStitchFiles(clips)
     if (files.length < 2) {
       return reply(event, 'stitchClips', requestId, {
         ok: false,
@@ -559,6 +612,8 @@ export default class VideoManager {
         {
           convertToMp4: ext === '.mp4',
           bitrateKbps: this.getConfig().bitrateKbps,
+          compress: payload?.compress === true,
+          videoKbps: payload?.videoKbps,
         },
         (percent) =>
           this.mainWindow.webContents.send('stitchProgress', percent),

@@ -26,6 +26,7 @@ const LONG_RUNNING_CHANNELS = new Set([
   'generateVideo',
   'recordClip',
   'stitchClips',
+  'probeStitchDuration',
   'addFilesManual',
   'addDroppedFiles',
   // Opening a project can legitimately take a while on a large DB; never reap
@@ -338,7 +339,12 @@ export default {
     return request('checkStitchable', null, 'checkStitchable', handler)
   },
   stitchClips(
-    payload: { clips: { folder: string; name: string }[]; ext: string },
+    payload: {
+      clips: { folder: string; name: string }[]
+      ext: string
+      compress?: boolean
+      videoKbps?: number
+    },
     handler?: ResponseHandler<{
       ok: boolean
       output?: string
@@ -347,6 +353,17 @@ export default {
     }>,
   ) {
     return request('stitchClips', payload, 'stitchClips', handler)
+  },
+  probeStitchDuration(
+    payload: { clips: { folder: string; name: string }[] },
+    handler?: ResponseHandler<{ seconds: number; bitrateKbps: number }>,
+  ) {
+    return request(
+      'probeStitchDuration',
+      payload,
+      'probeStitchDuration',
+      handler,
+    )
   },
   playClips(payload: { filterId: string; selectedIds: string[] }) {
     return send('playClips', payload)

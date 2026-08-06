@@ -1114,13 +1114,19 @@ const parseFfmpegTime = (m: RegExpMatchArray): number =>
   parseInt(m[1], 10) * 3600 + parseInt(m[2], 10) * 60 + parseFloat(m[3])
 
 /**
- * Total duration (seconds) of a concat list, for driving the stitch progress
- * bar. A metadata-only pass — `ffmpeg -i <concat>` with no output prints the
- * container header (the concat demuxer reports the summed Duration) to stderr
- * then exits non-zero. We bundle ffmpeg but not ffprobe, so this is the way in.
- * Best-effort: 0 means "unknown" and the caller shows an indeterminate bar.
+ * Header info for a concat list. A metadata-only pass — `ffmpeg -i <concat>`
+ * with no output prints the container header to stderr then exits non-zero. We
+ * bundle ffmpeg but not ffprobe, so this is the way in.
+ *
+ * NOTE: the concat demuxer reports `Duration: N/A` (it doesn't sum segment
+ * lengths without reading them all), so `seconds` is usually 0. It DOES report
+ * `bitrate` (from the first segment), which callers pair with the total byte
+ * size to derive a duration — the clips are near-constant-bitrate dumps, so
+ * size ÷ bitrate is a good estimate and stays O(1) regardless of clip count.
  */
-const probeConcatDurationSec = (listPath: string): Promise<number> =>
+const probeConcatInfo = (
+  listPath: string,
+): Promise<{ seconds: number; bitrateKbps: number }> =>
   new Promise((resolve) => {
     const p = spawn(
       ffmpegPath,
@@ -1133,12 +1139,41 @@ const probeConcatDurationSec = (listPath: string): Promise<number> =>
     p.stderr?.on('data', (c: Buffer) => {
       err += c.toString()
     })
-    p.on('error', () => resolve(0))
+    p.on('error', () => resolve({ seconds: 0, bitrateKbps: 0 }))
     p.on('exit', () => {
-      const m = /Duration:\s*(\d+):(\d\d):(\d\d(?:\.\d+)?)/.exec(err)
-      resolve(m ? parseFfmpegTime(m) : 0)
+      const dm = /Duration:\s*(\d+):(\d\d):(\d\d(?:\.\d+)?)/.exec(err)
+      const bm = /bitrate:\s*(\d+)\s*kb\/s/.exec(err)
+      resolve({
+        seconds: dm ? parseFfmpegTime(dm) : 0,
+        bitrateKbps: bm ? parseInt(bm[1], 10) : 0,
+      })
     })
   })
+
+/**
+ * Header info for an ordered list of clip files — the Stitch modal's live
+ * estimate. Writes a throwaway concat list next to the first clip (guaranteed
+ * writable), header-probes it, and cleans up. Returns the reported duration
+ * (usually 0 — see probeConcatInfo) and the source bitrate.
+ */
+export async function probeFilesInfo(
+  files: string[],
+): Promise<{ seconds: number; bitrateKbps: number }> {
+  if (!files || files.length === 0) return { seconds: 0, bitrateKbps: 0 }
+  const listPath = path.resolve(
+    path.dirname(files[0]),
+    `probe_list_${crypto.randomBytes(6).toString('hex')}.txt`,
+  )
+  const lines = files.map((f) => `file '${f.replace(/'/g, "'\\''")}'`)
+  try {
+    await fsPromises.writeFile(listPath, lines.join('\n'))
+    return await probeConcatInfo(listPath)
+  } catch {
+    return { seconds: 0, bitrateKbps: 0 }
+  } finally {
+    await fsPromises.unlink(listPath).catch(() => {})
+  }
+}
 
 /**
  * Stitch already-rendered clips into one video, in the given order. The
@@ -1153,7 +1188,15 @@ const probeConcatDurationSec = (listPath: string): Promise<number> =>
 export async function concatClips(
   files: string[],
   output: string,
-  opts: { convertToMp4: boolean; bitrateKbps: number },
+  opts: {
+    convertToMp4: boolean
+    bitrateKbps: number
+    // When set, re-encode the joined video to H.264 at ~`videoKbps` (instead of
+    // stream-copying) so the result is a small, upload-friendly file. The
+    // near-lossless recording dumps shrink dramatically with no visible loss.
+    compress?: boolean
+    videoKbps?: number
+  },
   onProgress?: (_percent: number) => void,
 ): Promise<{ ok: boolean; error?: string }> {
   if (!files || files.length < 2) {
@@ -1174,31 +1217,74 @@ export async function concatClips(
     '0',
     '-i',
     listPath,
-    '-c:v',
-    'copy',
     '-fflags',
     '+genpts',
   ]
-  if (opts.convertToMp4) {
-    args.push('-c:a', 'copy')
-  } else {
+  if (opts.compress) {
+    // Re-encode to a target bitrate so the output size is predictable (what the
+    // modal estimates from) and small enough to upload. Always writes AAC audio.
     args.push(
+      '-c:v',
+      'libx264',
       '-b:v',
-      `${opts.bitrateKbps}k`,
+      `${opts.videoKbps ?? 4000}k`,
+      '-preset',
+      'medium',
+      '-pix_fmt',
+      'yuv420p',
       '-af',
       'aresample=async=1:first_pts=0',
       '-c:a',
       'aac',
       '-b:a',
-      '128k',
+      '160k',
     )
+  } else {
+    args.push('-c:v', 'copy')
+    if (opts.convertToMp4) {
+      args.push('-c:a', 'copy')
+    } else {
+      args.push(
+        '-b:v',
+        `${opts.bitrateKbps}k`,
+        '-af',
+        'aresample=async=1:first_pts=0',
+        '-c:a',
+        'aac',
+        '-b:a',
+        '128k',
+      )
+    }
   }
   args.push('-y', output)
 
   logMain('stitch: spawning ffmpeg concat', { args })
   try {
-    // Total up front (best-effort) so stderr `time=` can be turned into %.
-    const totalSec = onProgress ? await probeConcatDurationSec(listPath) : 0
+    // Total footage seconds up front, so ffmpeg's stderr `time=` can be turned
+    // into a real %. The concat demuxer usually reports `Duration: N/A`, so when
+    // it does we derive the total from the summed file sizes ÷ the (reported)
+    // bitrate — the same estimate the Stitch modal shows, and accurate for these
+    // near-constant-bitrate clips. 0 → the caller keeps its indeterminate bar.
+    let totalSec = 0
+    if (onProgress) {
+      const info = await probeConcatInfo(listPath)
+      totalSec = info.seconds
+      if (totalSec <= 0 && info.bitrateKbps > 0) {
+        const sizes = await Promise.all(
+          files.map((f) =>
+            fsPromises
+              .stat(f)
+              .then((s) => s.size)
+              .catch(() => 0),
+          ),
+        )
+        const bytes = sizes.reduce((a, b) => a + b, 0)
+        totalSec = (bytes * 8) / (info.bitrateKbps * 1000)
+      }
+      logMain('stitch: estimated total footage', {
+        totalSec: Math.round(totalSec),
+      })
+    }
     onProgress?.(0)
 
     const proc = spawn(ffmpegPath, args, {
