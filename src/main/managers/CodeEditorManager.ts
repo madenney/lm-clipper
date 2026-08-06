@@ -12,6 +12,7 @@ import {
   buildShallowArchive,
 } from '../ipcUtils'
 import { resolveHtmlPath } from '../util'
+import { track } from '../telemetry'
 
 export default class CodeEditorManager {
   private mainWindow: BrowserWindow
@@ -439,12 +440,20 @@ export default class CodeEditorManager {
     }
     ipcMain.on('code-editor-close', onClose)
 
+    // "Copy AI Prompt" button — track who reaches for AI help writing custom
+    // code. Anonymous (installId only), fire-and-forget like all telemetry.
+    const onAiPromptCopied = (_e: IpcMainEvent, data: { mode?: string }) => {
+      track('ai_prompt_copied', { mode: data?.mode ?? 'filter' })
+    }
+    ipcMain.on('code-editor-ai-prompt-copied', onAiPromptCopied)
+
     const cleanupListeners = () => {
       ipcMain.removeListener('code-editor-save', onSave)
       ipcMain.removeListener('code-editor-save-template', onSaveTemplate)
       ipcMain.removeListener('code-editor-delete-template', onDeleteTemplate)
       ipcMain.removeListener('code-editor-test-run', onTestRun)
       ipcMain.removeListener('code-editor-close', onClose)
+      ipcMain.removeListener('code-editor-ai-prompt-copied', onAiPromptCopied)
     }
     this._cleanupListeners = cleanupListeners
 

@@ -85,6 +85,7 @@ const SEND_CHANNELS = new Set([
   'code-editor-test-run',
   'code-editor-close',
   'code-editor-ready',
+  'code-editor-ai-prompt-copied',
   'download-update',
   'install-update',
   'check-for-updates',

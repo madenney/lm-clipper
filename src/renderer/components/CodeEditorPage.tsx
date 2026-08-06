@@ -1781,7 +1781,7 @@ export default function CodeEditorPage() {
               })()}
             <button
               type="button"
-              onClick={() =>
+              onClick={() => {
                 copyRefCode(
                   'ai',
                   buildAiPrompt(
@@ -1789,7 +1789,11 @@ export default function CodeEditorPage() {
                     initData?.upstreamFields,
                   ),
                 )
-              }
+                window.electron.ipcRenderer.sendMessage(
+                  'code-editor-ai-prompt-copied',
+                  { mode: initData?.mode ?? 'filter' },
+                )
+              }}
               title="Copy an AI-ready prompt explaining this project and the custom code API — paste into ChatGPT/Claude and describe what you want"
               style={{
                 ...btnStyle,

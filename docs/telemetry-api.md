@@ -93,6 +93,7 @@ Field notes for the server:
 | `video_created`    | Clips finished rendering (checkpointed — see below) | None                   |
 | `import_completed` | An `.slp` import finished (not cancelled)     | None                         |
 | `filter_run`       | A filter finished running (not cancelled)     | None                         |
+| `ai_prompt_copied` | "Copy AI Prompt" clicked in the code editor   | None                         |
 | `usage_opt_out`    | The user switched usage data **off**          | Last event the install sends |
 | `usage_opt_in`     | The user switched usage data back **on**      | None                         |
 
@@ -143,7 +144,13 @@ these events are represented at all.
 // filter_run
 "data": {
   "filterType": "comboFilter",          // filter method id (see note)
-  "durationMs": 84213                   // wall-clock runtime of the filter
+  "durationMs": 84213,                  // wall-clock runtime of the filter
+  "resultCount": 1042                   // rows the filter produced (null if unreadable)
+}
+
+// ai_prompt_copied
+"data": {
+  "mode": "filter"                      // "filter" (a real filter card) or "template" (a saved template)
 }
 
 // usage_opt_out / usage_opt_in
@@ -251,5 +258,7 @@ daily rollup table keyed on `(day, event)` keeps the dashboard cheap.
 - **`video_created`:** `src/main/managers/VideoManager.ts`.
 - **`import_completed`:** `src/main/managers/ImportManager.ts`.
 - **`filter_run`:** `src/main/managers/FilterExecutor.ts`.
+- **`ai_prompt_copied`:** `src/main/managers/CodeEditorManager.ts` (listens for
+  `code-editor-ai-prompt-copied` from `src/renderer/components/CodeEditorPage.tsx`).
 - **Opt-out flag:** `sendAnonymousUsage` (config); first-run banner:
   `src/renderer/components/ConsentNotice.tsx` + `consentNoticeSeen` flag.

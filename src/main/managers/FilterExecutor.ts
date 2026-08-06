@@ -227,9 +227,16 @@ export default class FilterExecutor {
     )
     this.consoleManager.stopConsole()
     if (!terminated) {
+      let resultCount: number | null = null
+      try {
+        resultCount = await getTableCountAsync(archive.path, filterJSON.id)
+      } catch {
+        resultCount = null
+      }
       track('filter_run', {
         filterType: filterJSON.type,
         durationMs: durationMs ?? 0,
+        resultCount,
       })
     }
 
@@ -517,9 +524,16 @@ export default class FilterExecutor {
         // Run All executes the same work as a single run, so it reports the
         // same event — otherwise every filter run started from "Run All" (the
         // common path) is invisible to telemetry.
+        let resultCount: number | null = null
+        try {
+          resultCount = await getTableCountAsync(archive.path, filterJSON.id)
+        } catch {
+          resultCount = null
+        }
         track('filter_run', {
           filterType: filterJSON.type,
           durationMs: durationMs ?? 0,
+          resultCount,
         })
       }
 
