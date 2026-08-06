@@ -268,6 +268,9 @@ export default function Main({
 
   // Video generation state
   const [isGenerating, setIsGenerating] = useState(false)
+  // True from when Stop is pressed until the job actually ends — drives the
+  // "Stopping…" button state so the graceful stop doesn't look frozen.
+  const [stopping, setStopping] = useState(false)
   const [videoMsg, setVideoMsg] = useState('')
   const [videoOutputPaths, setVideoOutputPaths] = useState<string[]>([])
   const [videoCompletedInfo, setVideoCompletedInfo] = useState<{
@@ -319,6 +322,12 @@ export default function Main({
   useIpcListener('videoMsg', (msg: string) => {
     setVideoMsg(msg)
   })
+
+  // Clear the "Stopping…" state whenever a job isn't running (it ended, or a
+  // fresh one started).
+  useEffect(() => {
+    if (!isGenerating) setStopping(false)
+  }, [isGenerating])
 
   useIpcListener('videoOutputPath', (p: string) => {
     if (p) {
@@ -696,6 +705,10 @@ export default function Main({
   }
 
   function stopVideo() {
+    // Reflect immediately that the request landed — the graceful stop only
+    // takes effect after the current clip finishes, which can be many seconds,
+    // and without feedback the button reads as frozen.
+    setStopping(true)
     ipcBridge.stopVideo()
   }
 
@@ -952,8 +965,9 @@ export default function Main({
                     type="button"
                     className="stop-button"
                     onClick={stopVideo}
+                    disabled={stopping}
                   >
-                    Stop
+                    {stopping ? 'Stopping…' : 'Stop'}
                   </button>
                 </Tooltip>
                 <Tooltip
