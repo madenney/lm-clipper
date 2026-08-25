@@ -1423,6 +1423,39 @@ const configureDolphin = async (
   await fsPromises.writeFile(dolphinSettingsPath, newSettings.join('\n'))
 }
 
+// Force Dolphin's frame/audio dump flags on or off in Dolphin.ini.
+//
+// Recording enables them (configureDolphin) and nothing ever turned them back
+// off, so after any recording EVERY subsequent playback also dumped audio to
+// User/Dump/Audio/dtkdump.wav — which on Windows throws a blocking "overwrite
+// this file?" dialog when a stale dump is already there. Playback calls this
+// with `false` so it never dumps in the first place. Only existing lines are
+// rewritten (mirrors configureDolphin); a missing Dolphin.ini is a no-op.
+export const setDolphinDumping = async (
+  config: ConfigInterface,
+  enabled: boolean,
+): Promise<void> => {
+  const { dolphinSettingsPath } = resolveDolphinIniPaths(config)
+  let contents: string
+  try {
+    contents = await fsPromises.readFile(dolphinSettingsPath, 'utf8')
+  } catch {
+    return // never recorded yet — no flags to turn off
+  }
+  const value = enabled ? 'True' : 'False'
+  const keys = [
+    'DumpFrames',
+    'DumpFramesSilent',
+    'DumpAudio',
+    'DumpAudioSilent',
+  ]
+  const lines = contents.split(/\r?\n/).map((line) => {
+    const key = keys.find((k) => line.startsWith(`${k} `))
+    return key ? `${key} = ${value}` : line
+  })
+  await fsPromises.writeFile(dolphinSettingsPath, lines.join('\n'))
+}
+
 const slpToVideo = (
   replays: ReplayInterface[],
   config: ConfigInterface & { numProcesses: number; gameMusicOn: boolean },

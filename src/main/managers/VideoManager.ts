@@ -19,6 +19,7 @@ import Archive from '../../models/Archive'
 import slpToVideo, {
   VideoJobController,
   writeGeckoCodes,
+  setDolphinDumping,
   concatClips,
   probeFilesInfo,
 } from '../slpToVideo'
@@ -893,6 +894,16 @@ export default class VideoManager {
       path.resolve(ssbmIsoPath),
       '--cout',
     ]
+
+    // Playback must never dump. Recording leaves DumpFrames/DumpAudio = True in
+    // Dolphin.ini and nothing resets them, so without this every playback after
+    // a recording dumps audio to User/Dump/Audio/dtkdump.wav (a blocking
+    // overwrite dialog on Windows). Force the flags off before launching.
+    try {
+      await setDolphinDumping(config, false)
+    } catch (err) {
+      logMain('playClipAsync: failed to disable Dolphin dumping', err)
+    }
 
     // Clean up leftover audio dump files so Dolphin doesn't prompt the user
     const dolphinDirname = path.dirname(dolphinPath)
