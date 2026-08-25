@@ -977,6 +977,12 @@ export default function Filters({
           const hasParser = archive.filters
             .slice(0, index)
             .some((f) => f.type === 'slpParser')
+          // The Edgeguards Parser also tags comboer/comboee onto its clips, so
+          // sorts that only need that (character matchup) work off an edgeguard
+          // branch too — not just a combo parser.
+          const hasEdgeguardParser = archive.filters
+            .slice(0, index)
+            .some((f) => f.type === 'edgeguard')
 
           // Branching: this filter may read from Files (raw) or any filter above
           // it. Default = the filter directly above (or Files for index 0).
@@ -1037,6 +1043,7 @@ export default function Filters({
               namesLoading={namesLoading}
               codesLoading={codesLoading}
               hasParser={hasParser}
+              hasEdgeguardParser={hasEdgeguardParser}
               inputOptions={inputOptions}
               defaultInputId={defaultInputId}
               indentLevel={indentLevel}

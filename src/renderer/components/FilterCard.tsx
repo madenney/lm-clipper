@@ -35,6 +35,7 @@ type FilterCardProps = {
   namesLoading: boolean
   codesLoading: boolean
   hasParser: boolean
+  hasEdgeguardParser: boolean
   // Branching: valid input sources for this filter (Files + filters above it)
   // and the positional default (the card directly above). `indentLevel` is the
   // filter's depth in the input tree (linear continuations inherit their source's
@@ -87,6 +88,7 @@ export default function FilterCard({
   namesLoading,
   codesLoading,
   hasParser,
+  hasEdgeguardParser,
   inputOptions,
   defaultInputId,
   indentLevel,
@@ -292,6 +294,7 @@ export default function FilterCard({
           namesLoading={namesLoading}
           codesLoading={codesLoading}
           hasParser={hasParser}
+          hasEdgeguardParser={hasEdgeguardParser}
           onUpdate={onUpdate}
         />
       </div>

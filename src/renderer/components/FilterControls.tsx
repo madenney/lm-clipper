@@ -190,6 +190,7 @@ type FilterControlsProps = {
   namesLoading: boolean
   codesLoading: boolean
   hasParser: boolean
+  hasEdgeguardParser: boolean
   onUpdate: (
     _newFilter: ShallowFilterInterface,
     _previousFilter: ShallowFilterInterface,
@@ -203,6 +204,7 @@ export default function FilterControls({
   namesLoading,
   codesLoading,
   hasParser,
+  hasEdgeguardParser,
   onUpdate,
 }: FilterControlsProps) {
   const [multiOpen, setMultiOpen] = useState<string | null>(null)
@@ -1237,7 +1239,17 @@ export default function FilterControls({
                       <option value="">Any</option>
                     )}
                     {option.options?.map((entry: any) => {
-                      const needsParser = entry.requiresParser && !hasParser
+                      // An edgeguard parser also satisfies sorts that only read
+                      // comboer/comboee (character matchup) — see satisfiedByEdgeguard.
+                      const edgeguardSatisfies =
+                        entry.satisfiedByEdgeguard && hasEdgeguardParser
+                      const needsParser =
+                        entry.requiresParser &&
+                        !hasParser &&
+                        !edgeguardSatisfies
+                      const reqLabel = entry.satisfiedByEdgeguard
+                        ? ' (requires combo or edgeguard parser)'
+                        : ' (requires combo parser)'
                       return (
                         <option
                           key={entry.id}
@@ -1246,7 +1258,7 @@ export default function FilterControls({
                           title={entry.tooltip || ''}
                         >
                           {entry.shortName || entry.name}
-                          {needsParser ? ' (requires combo parser)' : ''}
+                          {needsParser ? reqLabel : ''}
                         </option>
                       )
                     })}

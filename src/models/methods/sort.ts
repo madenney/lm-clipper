@@ -54,6 +54,10 @@ export const sortOptions = [
     shortName: 'character matchup',
     tooltip: 'Group clips by comboer and comboee character pair',
     requiresParser: true,
+    // Matchup only reads comboer/comboee.characterId, which the Edgeguards
+    // Parser tags onto every clip too — so it's valid off an edgeguard branch,
+    // not just a combo parser (unlike dps/damage/moves/%, which need combo.moves).
+    satisfiedByEdgeguard: true,
   },
   {
     id: 'random',
