@@ -1664,6 +1664,15 @@ export const videoConfig = [
     tooltip:
       'Convert the raw AVI output from Dolphin to MP4 for smaller file size and wider compatibility.',
   },
+  {
+    label: 'Write manifest.json',
+    default: false,
+    id: 'writeManifest',
+    type: 'checkbox',
+    category: 'video',
+    tooltip:
+      'Write a manifest.json in the output folder mapping each clip file to its full metadata (source replay, frames, players, characters, combo/edgeguard stats, overlay tokens) — for building overlays or post-processing on another machine. Written up front and updated as each clip finishes, so an interrupted recording still leaves a valid manifest.',
+  },
   // Rendering
   {
     label: 'Widescreen 16:9',

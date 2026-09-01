@@ -387,6 +387,7 @@ export interface ConfigInterface {
   dolphinPath: string
   concatenate: boolean
   convertToMp4: boolean
+  writeManifest: boolean
   autoOpenOutputFolder: boolean
   sendAnonymousUsage: boolean
   // Anonymous-telemetry bookkeeping (internal — not user-facing settings).

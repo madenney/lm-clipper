@@ -20,9 +20,12 @@ import slpToVideo, {
   VideoJobController,
   writeGeckoCodes,
   setDolphinDumping,
+  resolveFilenamePattern,
   concatClips,
   probeFilesInfo,
 } from '../slpToVideo'
+import ManifestWriter, { ManifestData, ManifestClip } from '../manifestWriter'
+import { buildReplayVars } from '../../lib/overlayTokens'
 import {
   detectPlaybackDolphin,
   detectMeleeIso,
@@ -278,6 +281,12 @@ export default class VideoManager {
     // totals. Footage per clip is derived from its frame span (Melee is locked
     // to 60fps; the 60-frame lead-in slpToVideo adds is trimmed straight back
     // off), which is deterministic and free — no probe that can silently zero.
+    // Optional per-clip manifest.json (opt-in). Declared here so the per-clip
+    // callbacks below can update it; built + written up front just before the
+    // job starts (see below).
+    let manifest: ManifestWriter | null = null
+    const outputFileByIndex = new Map<number, string>()
+
     const CHECKPOINT_CLIPS = 50
     const renderId = crypto.randomBytes(8).toString('hex')
     let pendingClips = 0
@@ -294,13 +303,31 @@ export default class VideoManager {
       pendingClips += 1
       pendingFootageSec += Math.max(0, replay.endFrame - replay.startFrame) / 60
       if (pendingClips >= CHECKPOINT_CLIPS) flushUsage(false)
+      if (manifest) {
+        const durationFrames = Math.max(0, replay.endFrame - replay.startFrame)
+        // Flip status immediately (crash-resistant); fill file size lazily.
+        manifest.markDone(replay.index, { durationFrames })
+        const rel = outputFileByIndex.get(replay.index)
+        if (rel) {
+          fsPromises
+            .stat(path.join(videoConfig.outputPath, rel))
+            .then((s) =>
+              manifest?.markDone(replay.index, {
+                durationFrames,
+                fileSize: s.size,
+              }),
+            )
+            .catch(() => {})
+        }
+      }
     }
 
     // Count clips that failed every attempt so the completion modal can report
     // them (a run can otherwise silently drop clips — the source of the "holes").
     let failedCount = 0
-    const onClipFailed = () => {
+    const onClipFailed = (replay: ReplayInterface) => {
       failedCount += 1
+      manifest?.markFailed(replay.index)
     }
 
     console.log('Replays: ', replays)
@@ -311,6 +338,25 @@ export default class VideoManager {
     )
     this.consoleManager.startConsole('recording', 'Recording')
     this.videoStopRequested = false
+
+    // Opt-in manifest: write the full skeleton up front so an interrupted
+    // recording still leaves a valid, complete-metadata manifest on disk.
+    if (videoConfig.writeManifest) {
+      try {
+        manifest = this.buildManifestWriter(
+          finalResults,
+          replays,
+          videoConfig,
+          (metadata as { name?: string } | undefined)?.name,
+          outputFileByIndex,
+        )
+        await manifest.init()
+      } catch (err) {
+        logMain('generateVideo: manifest init failed', err)
+        manifest = null
+      }
+    }
+
     this.activeVideoJob = slpToVideo(
       replays,
       videoConfig,
@@ -346,6 +392,19 @@ export default class VideoManager {
       // path — clean finish, Stop/Cancel, or ffmpeg error — so a partial render
       // still reports what it produced. Only a hard process kill loses this.
       flushUsage(true)
+      // Final manifest flush — record the concatenated file if one was produced,
+      // then force the last write so on-disk state is accurate at completion.
+      if (manifest) {
+        if (videoConfig.concatenate) {
+          const finalName = `final${videoConfig.convertToMp4 ? '.mp4' : '.avi'}`
+          const exists = await fsPromises
+            .stat(path.join(videoConfig.outputPath, finalName))
+            .then(() => true)
+            .catch(() => false)
+          if (exists) manifest.setConcatenatedInto(finalName)
+        }
+        await manifest.flush().catch(() => {})
+      }
     }
     // Send completion details to renderer for the "recording complete" modal
     if (!stopped && videoConfig.outputPath) {
@@ -449,6 +508,122 @@ export default class VideoManager {
       }
     }
     return reply(event, 'generateVideo', requestId)
+  }
+
+  // Build the up-front manifest.json skeleton: every clip with its full
+  // metadata and status 'pending', keyed by its predicted output filename.
+  // Populates outputFileByIndex so per-clip completions can locate each file.
+  // The heavy metadata is written once here; completions only flip a status.
+  // eslint-disable-next-line class-methods-use-this
+  private buildManifestWriter(
+    finalResults: any[],
+    replays: ReplayInterface[],
+    videoConfig: any,
+    projectName: string | undefined,
+    outputFileByIndex: Map<number, string>,
+  ): ManifestWriter {
+    const ext = videoConfig.convertToMp4 ? '.mp4' : '.avi'
+    const pattern = videoConfig.outputFilenamePattern || '{index}'
+    const rules = videoConfig.overlaySourceRules
+
+    const mapPlayer = (p: any) =>
+      p
+        ? {
+            playerIndex: p.playerIndex,
+            port: p.port,
+            characterId: p.characterId,
+            characterName:
+              characters[p.characterId]?.name ??
+              characters[p.characterId]?.shortName ??
+              null,
+            characterColor: p.characterColor,
+            displayName: p.displayName || null,
+            connectCode: p.connectCode || null,
+            nametag: p.nametag || null,
+          }
+        : null
+
+    const clips: ManifestClip[] = finalResults.map(
+      (result: any, index: number) => {
+        const replay = replays[index]
+        const relName = resolveFilenamePattern(pattern, replay, rules)
+        const outputFile = `${relName}${ext}`
+        outputFileByIndex.set(index, outputFile)
+
+        const { combo } = result
+        return {
+          outputFile,
+          index,
+          status: 'pending',
+          source: {
+            slpPath: result.path,
+            startFrame: result.startFrame ?? null,
+            endFrame: result.endFrame ?? null,
+            recordedStartFrame: replay.startFrame,
+            recordedEndFrame: replay.endFrame,
+          },
+          startedAt: result.startedAt ?? null,
+          stage: {
+            id: result.stage ?? null,
+            name: (stages as any)[result.stage]?.name ?? null,
+          },
+          players: Array.isArray(result.players)
+            ? result.players.map(mapPlayer)
+            : [],
+          attacker: mapPlayer(result.comboer),
+          victim: mapPlayer(result.comboee),
+          combo: combo
+            ? {
+                startPercent: combo.startPercent ?? null,
+                endPercent: combo.endPercent ?? null,
+                damage:
+                  typeof combo.startPercent === 'number' &&
+                  typeof combo.endPercent === 'number'
+                    ? Math.round(combo.endPercent - combo.startPercent)
+                    : null,
+                moves: combo.moves?.length ?? null,
+                didKill: combo.didKill ?? null,
+              }
+            : null,
+          edgeguard: result.edgeguardMetrics
+            ? {
+                ...result.edgeguardMetrics,
+                score: result.edgeguardScore ?? null,
+              }
+            : null,
+          overlayTokens: buildReplayVars(replay, rules),
+        }
+      },
+    )
+
+    const data: ManifestData = {
+      manifestVersion: 1,
+      project: projectName,
+      createdAt: new Date().toISOString(),
+      outputDir: videoConfig.outputPath,
+      recording: {
+        resolution: videoConfig.resolution,
+        bitrateKbps: videoConfig.bitrateKbps,
+        widescreen: videoConfig.widescreen,
+        convertToMp4: videoConfig.convertToMp4,
+        addStartFrames: videoConfig.addStartFrames,
+        addEndFrames: videoConfig.addEndFrames,
+        outputFilenamePattern: pattern,
+        numProcesses: videoConfig.numProcesses,
+      },
+      counts: {
+        total: clips.length,
+        done: 0,
+        failed: 0,
+        pending: clips.length,
+      },
+      clips,
+    }
+
+    return new ManifestWriter(
+      path.join(videoConfig.outputPath, 'manifest.json'),
+      data,
+    )
   }
 
   // Report which sub-output folders under the configured output root hold

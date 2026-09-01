@@ -103,6 +103,8 @@ Request-response with requestId tracking. Renderer calls `ipcBridge.someMethod(c
 
 **Video:** Clip selected → `ipcBridge.generateVideo()` → `VideoManager` → `slpToVideo.ts` spawns Dolphin + ffmpeg → `.mp4`
 
+**Clip manifest (opt-in):** Settings → Video → "Write manifest.json". When on, `VideoManager.buildManifestWriter` writes a `manifest.json` into the run's output folder mapping every clip file to its full metadata (source replay, frames, players, combo/edgeguard stats, overlay tokens). Written up front + updated per clip via atomic, coalesced writes (`src/main/manifestWriter.ts`), so an interrupted run still leaves a valid, complete-metadata manifest — built for driving overlays/post-processing on another machine. Schema + guarantees: `docs/manifest.md`.
+
 ## Key Directories
 
 - `.erb/configs/` - Webpack configs (main, renderer, preload)

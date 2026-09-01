@@ -61,6 +61,7 @@ export const config = {
   outputPath: '',
   concatenate: true,
   convertToMp4: true,
+  writeManifest: false,
   autoOpenOutputFolder: false,
   sendAnonymousUsage: true,
   installId: '',

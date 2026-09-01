@@ -253,7 +253,7 @@ const monitorDolphinRecording = (
  * {date}, {time}, {index}, {kills}, {damage}, {moves}.
  * Slashes in the pattern create subdirectories.
  */
-const resolveFilenamePattern = (
+export const resolveFilenamePattern = (
   pattern: string,
   replay: ReplayInterface,
   sourceRules?: OverlaySourceRule[],
