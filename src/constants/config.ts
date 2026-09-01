@@ -1657,7 +1657,7 @@ export const videoConfig = [
   },
   {
     label: 'Convert to MP4',
-    default: false,
+    default: true,
     id: 'convertToMp4',
     type: 'checkbox',
     category: 'video',
