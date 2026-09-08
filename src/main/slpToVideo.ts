@@ -273,6 +273,10 @@ export const resolveFilenamePattern = (
 const processOneReplay = async (
   replay: ReplayInterface,
   config: ConfigInterface & { numProcesses: number; gameMusicOn: boolean },
+  // Throwaway per-worker Dolphin profile (`--user`), built once per worker in
+  // processReplays. Every Dolphin spawn in this run is isolated to it, so the
+  // user's real Slippi profile is never read or written during recording.
+  userDir: string,
   signal: VideoSignal,
   onRecorded?: () => void,
   onError?: (_msg: string) => void,
@@ -367,7 +371,10 @@ const processOneReplay = async (
   const clipFrames = Math.max(1, endFrame - dolphinConfig.startFrame)
   const ffmpegTimeoutMs = ffmpegTimeoutFor(clipFrames)
 
-  // 2. Record with Dolphin
+  // 2. Record with Dolphin, isolated to this worker's throwaway --user profile.
+  // (No more leftover-dump-file cleanup: dumps land under `userDir` and that
+  // whole dir is deleted when the run ends, so a stale dtkdump.wav can never
+  // prompt on a later playback — the bug that cleanup existed to paper over.)
   const dolphinArgs = [
     '-i',
     basePath('.json'),
@@ -377,22 +384,10 @@ const processOneReplay = async (
     ...(config.fullscreen !== false ? ['-b'] : []),
     '-e',
     config.ssbmIsoPath,
+    '--user',
+    userDir,
     '--cout',
   ]
-
-  // Clean up leftover audio dump files so Dolphin doesn't prompt the user
-  const dolphinDirname = path.dirname(config.dolphinPath)
-  const dumpAudioDirs = [
-    // Windows: User/Dump/Audio relative to dolphin dir
-    path.join(dolphinDirname, 'User', 'Dump', 'Audio'),
-    // Linux: SlippiPlayback/Dump/Audio
-    path.join(getAppDataPath(), 'SlippiPlayback', 'Dump', 'Audio'),
-  ]
-  for (const dumpDir of dumpAudioDirs) {
-    for (const file of ['dtkdump.wav', 'dspdump.wav']) {
-      await fsPromises.unlink(path.join(dumpDir, file)).catch(() => {})
-    }
-  }
 
   logMain('record: spawning Dolphin', {
     dolphinPath: config.dolphinPath,
@@ -764,6 +759,11 @@ const processReplays = async (
     progress.recorded += 1
     emitStatus()
   }
+  // One throwaway Dolphin `--user` profile per worker (see buildWorkerProfile),
+  // indexed by workerIndex. Populated before the workers start, deleted in the
+  // finally below — recording never touches the user's real Slippi profile.
+  const workerProfiles: string[] = []
+
   const MAX_ATTEMPTS = 2 // one retry on a genuine failure
   const worker = async (workerIndex: number) => {
     let replay = queue.shift()
@@ -793,6 +793,7 @@ const processReplays = async (
         ok = await processOneReplay(
           replay,
           config,
+          workerProfiles[workerIndex],
           signal,
           onRecordedOnce,
           eventEmitter,
@@ -823,9 +824,30 @@ const processReplays = async (
     }
   }
 
-  const workers = []
-  for (let i = 0; i < config.numProcesses; i++) workers.push(worker(i))
-  await Promise.all(workers)
+  // Build the per-worker profiles up front, run, then delete them in the
+  // finally so an error/stop can never leave temp profiles behind.
+  try {
+    eventEmitter('Preparing Dolphin...')
+    for (let i = 0; i < config.numProcesses; i++) {
+      // eslint-disable-next-line no-await-in-loop
+      const dir = await fsPromises.mkdtemp(
+        path.join(os.tmpdir(), 'lmclip-dolphin-'),
+      )
+      // eslint-disable-next-line no-await-in-loop
+      await buildWorkerProfile(config, dir)
+      workerProfiles.push(dir)
+    }
+
+    const workers = []
+    for (let i = 0; i < config.numProcesses; i++) workers.push(worker(i))
+    await Promise.all(workers)
+  } finally {
+    await Promise.all(
+      workerProfiles.map((d) =>
+        fsPromises.rm(d, { recursive: true, force: true }).catch(() => {}),
+      ),
+    )
+  }
 
   // Persist a manifest of failed clips so they can be inspected or re-run later.
   if (failures.length > 0) {
@@ -1343,46 +1365,42 @@ export const writeGeckoCodes = async (config: ConfigInterface) => {
   )
 }
 
-const configureDolphin = async (
+// Build a throwaway `--user` profile for one recording worker at `userDir`.
+//
+// Recording used to mutate the user's REAL Slippi profile (dump flags on,
+// aspect ratio, EFB scale, gecko) and never restore it — so afterwards opening
+// Dolphin just to watch a replay inherited our recording rig (framedump +
+// fullscreen), and N concurrent workers raced on that one shared profile.
+// Instead every worker now gets its own temp profile built here: we read the
+// real profile's inis as a base and write the recording-tweaked COPIES under
+// `userDir`, then pass `--user userDir` to Dolphin (processOneReplay). Nothing
+// global is touched and the dir is deleted when the run ends. `Sys/` is NOT
+// copied — Dolphin finds it relative to its own binary (verified on Linux;
+// spike: scratchpad/dolphin-user-spike.js).
+const buildWorkerProfile = async (
   config: ConfigInterface,
-  eventEmitter: (_msg: string) => void,
-) => {
-  logMain('configureDolphin: starting', {
-    dolphinPath: config.dolphinPath,
-    ssbmIsoPath: config.ssbmIsoPath,
-    platform: os.type(),
-  })
-  eventEmitter('Configuring Dolphin...')
-  const { gameSettingsPath, graphicsSettingsPath, dolphinSettingsPath } =
+  userDir: string,
+): Promise<void> => {
+  const { graphicsSettingsPath, dolphinSettingsPath } =
     resolveDolphinIniPaths(config)
 
-  // Windows: ensure the game settings file exists before reading it
-  if (os.type() !== 'Linux') {
-    try {
-      await fsPromises.access(gameSettingsPath)
-    } catch {
-      eventEmitter('Creating game settings file')
-      await fsPromises.writeFile(gameSettingsPath, '')
-    }
-  }
+  const destConfigDir = path.join(userDir, 'Config')
+  const destGameSettingsDir = path.join(userDir, 'GameSettings')
+  await fsPromises.mkdir(destConfigDir, { recursive: true })
+  await fsPromises.mkdir(destGameSettingsDir, { recursive: true })
 
-  try {
-    await fsPromises.access(gameSettingsPath)
-  } catch {
-    eventEmitter('Error: could not find game settings file')
-    throw new Error('Error: could not find game settings file')
-  }
+  // Game settings (gecko codes) — generated fresh from config
+  await fsPromises.writeFile(
+    path.join(destGameSettingsDir, 'GALE01.ini'),
+    buildGeckoSettings(config).join('\n'),
+  )
 
-  // Game settings (gecko codes)
-  let newSettings: string[] = buildGeckoSettings(config)
-  await fsPromises.writeFile(gameSettingsPath, newSettings.join('\n'))
-
-  // Graphics settings
+  // Graphics settings — transform the real GFX.ini into the temp copy
   let rl = readline.createInterface({
     input: fs.createReadStream(graphicsSettingsPath),
     crlfDelay: Infinity,
   })
-  newSettings = []
+  let newSettings: string[] = []
   const aspectRatioSetting = config.widescreen !== false ? 6 : 5
   // eslint-disable-next-line no-restricted-syntax
   for await (const line of rl) {
@@ -1398,9 +1416,13 @@ const configureDolphin = async (
       newSettings.push(line)
     }
   }
-  await fsPromises.writeFile(graphicsSettingsPath, newSettings.join('\n'))
+  await fsPromises.writeFile(
+    path.join(destConfigDir, 'GFX.ini'),
+    newSettings.join('\n'),
+  )
 
-  // Dolphin settings
+  // Dolphin settings — transform the real Dolphin.ini into the temp copy,
+  // forcing the frame/audio dump flags on (in the isolated profile only)
   rl = readline.createInterface({
     input: fs.createReadStream(dolphinSettingsPath),
     crlfDelay: Infinity,
@@ -1420,17 +1442,29 @@ const configureDolphin = async (
       newSettings.push(line)
     }
   }
-  await fsPromises.writeFile(dolphinSettingsPath, newSettings.join('\n'))
+  await fsPromises.writeFile(
+    path.join(destConfigDir, 'Dolphin.ini'),
+    newSettings.join('\n'),
+  )
+
+  // Isolate input: a headless recording worker must not grab the user's real
+  // controllers/hotkeys (mirrors slp2mp4's throwaway profile).
+  await fsPromises.writeFile(
+    path.join(destConfigDir, 'Hotkeys.ini'),
+    '[Hotkeys1]\nDevice = /0/\n',
+  )
 }
 
-// Force Dolphin's frame/audio dump flags on or off in Dolphin.ini.
-//
-// Recording enables them (configureDolphin) and nothing ever turned them back
-// off, so after any recording EVERY subsequent playback also dumped audio to
-// User/Dump/Audio/dtkdump.wav — which on Windows throws a blocking "overwrite
-// this file?" dialog when a stale dump is already there. Playback calls this
-// with `false` so it never dumps in the first place. Only existing lines are
-// rewritten (mirrors configureDolphin); a missing Dolphin.ini is a no-op.
+// Force Dolphin's frame/audio dump flags on or off in the REAL profile's
+// Dolphin.ini. Recording no longer writes there (it uses isolated per-worker
+// `--user` profiles, see buildWorkerProfile), so this is now only ever called
+// with `false`, to HEAL the real profile:
+//   - at the start of a recording run, undoing dump flags left on by an older
+//     app version that recorded in-place, and
+//   - before playback, so watching a replay never framedumps to
+//     User/Dump/Audio/dtkdump.wav (a stale dump throws a blocking "overwrite?"
+//     dialog on Windows).
+// Only existing lines are rewritten; a missing Dolphin.ini is a no-op.
 export const setDolphinDumping = async (
   config: ConfigInterface,
   enabled: boolean,
@@ -1519,7 +1553,13 @@ const slpToVideo = (
             throw err
           }
         })
-        .then(() => configureDolphin(config, eventEmitter))
+        // Recording renders in isolated per-worker profiles (built in
+        // processReplays), so nothing here touches the real Slippi profile.
+        // We proactively turn the dump flags OFF in the REAL profile to HEAL
+        // installs poisoned by older app versions that recorded in-place —
+        // after this, opening Dolphin to watch a replay never inherits a
+        // recording rig. No-op on a clean profile.
+        .then(() => setDolphinDumping(config, false))
         .then(() =>
           processReplays(
             replays,
