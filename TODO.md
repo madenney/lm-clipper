@@ -33,6 +33,48 @@ Zip wizard, extraction, chained slpz wizard if zip contains .slpz. Needs a statu
 
 ## Structural / Refactoring
 
+### Per-worker throwaway Dolphin profile (`--user`) — RECORDING + PLAYBACK DONE (2026-09-07); Windows verify + minor cleanup remain
+**STATUS:** Both the recording and playback paths are isolated. The real Slippi profile is no longer mutated by either.
+
+Recording (commit `31aec14`): `configureDolphin()` (in-place mutation) → `buildWorkerProfile(config, userDir)`, one throwaway `--user` temp profile per worker (copy-transform real GFX.ini/Dolphin.ini so `UseFFV1`/quality is preserved + fresh GALE01/Hotkeys), created once-per-worker in `processReplays` and `rm -rf`'d in a `finally`. `processOneReplay` passes `--user`. Per-record `dtkdump.wav` cleanup DELETED. Old configureDolphin call → `setDolphinDumping(config,false)` at run start, which now HEALS the real profile (undoes dump flags left on by older in-place versions).
+
+Playback (commit `b850e5c`): `playClipAsync` builds an isolated `--user` profile (`buildPlaybackProfile`) by copying the real profile's inis and applying only the playback overrides to the copies (EFBScale=playbackResolution, gecko toggles, dump flags OFF), then launches with `--user`. Removed now-dead `writeGeckoCodes` (slpToVideo), `updateEfbScale` + `getGfxIniPath` (util), and the play-path dtkdump cleanup. `setDolphinDumping` stays as the record-start healer only.
+
+Verified on Linux (all): tsc 0 / eslint clean / jest 186 / webpack build. Recording spike (`scratchpad/dolphin-user-spike2.js`) → lossless FFV1 4K + wav, real profile byte-identical. Real-pipeline smoke (`scratchpad/smoke-harness.ts`, drives the actual `slpToVideo` with 2 clips / 2 workers) → valid per-clip mp4s + final concat, no temp profiles leaked, heal is idempotent (1st run heals a poisoned profile, 2nd run leaves it byte-identical). Playback spike (`scratchpad/play-spike.ts`, real `buildPlaybackProfile`) → boots + plays from the isolated profile, no framedump, real profile byte-identical.
+
+Permanent jest coverage now exists: `src/__tests__/dolphinProfile.test.ts` (Linux layout: dump flags, aspect/res/bitrate, UseFFV1 preserved, dumps-off for playback, real profile never mutated) and `dolphinProfile.windows.test.ts` (forces `os.type()` Windows + a portable `User/Config` fixture to prove the Windows SOURCE-path resolution + build logic are correct off-Windows). Suite: 200 tests.
+
+**STILL TODO:**
+- **Verify `--user` on Windows at RUNTIME** (recording AND playback). The path-resolution/build half is now unit-tested; what remains is confirming Windows Dolphin itself honours `--user` and finds `Sys/` relative to its binary (spikes were Linux-only). Blocks shipping this in a Windows release. To check: build the app on Windows, record a couple of clips + preview one, confirm output is correct AND `%APPDATA%/SlippiPlayback` (or the portable `User/`) is unchanged after.
+- **Human smoke test through the real app UI** — record a small batch + preview a clip, confirm output + play window look right (spikes proved the plumbing, not the interactive UX / overlay compositing end to end).
+- **Minor consistency:** the "Launch Dolphin test" setup diagnostic (`VideoManager` ~`:1263`) still spawns against the real profile with a now-unnecessary dtkdump cleanup (harmless — flags are healed). Left as-is deliberately (it's meant to test the user's real setup); could get its own `--user` profile for consistency, low priority.
+
+<details><summary>Original proposal (kept for context)</summary>
+
+**Problem:** recording mutates the USER'S REAL Slippi Dolphin profile and runs N workers against it. `configureDolphin()` (`slpToVideo.ts:1346`) writes `GALE01.ini`/`GFX.ini`/`Dolphin.ini` in the real install (paths from `resolveDolphinIniPaths()` ~`:949`), called once at ~`:1522` before `processReplays()` spawns `numProcesses` workers (~`:827`). Consequences, worst-first:
+1. **User's Dolphin left broken.** `DumpFrames`/`DumpAudio` set True + fullscreen, never restored (verified: no `DumpFrames = False` anywhere in the repo). Open Dolphin to watch replays after a render → gets our recording rig. **The real user-facing bug.**
+2. **N concurrent Dolphins share one mutable profile** Dolphin writes back on exit → races; two jobs can't run different settings.
+3. **Forces defensive code that only exists because the profile is shared** — the `dtkdump.wav`/`dspdump.wav` cleanup (`slpToVideo.ts:384-395`) AND the beta.9 `setDolphinDumping(config,false)` playback fix. Both become dead code under isolation.
+
+**Fix:** give each worker a throwaway `--user <tempdir>` profile, delete on job end. Nothing global mutated, no collisions, per-job settings possible, defensive code deleted. Reference impl that already does this: `~/Projects/sandbox/slp2mp4` (Python) — `dolphin/runner.py` (TemporaryDirectory), `dolphin/ini.py` (context-manager ini generators), `dolphin/comm.py`.
+
+**STEP 0 — SPIKE FIRST (gates everything). ✅ PASSED 2026-09-07.** Proved Slippi *playback* Dolphin boots + framedumps from a **minimal generated** profile with **our short-form flags** (`-i -o --output-directory= -b -e --cout`, NOT slp2mp4's long-form) + `--user`, on Linux, one clip end-to-end. Spike script: `scratchpad/dolphin-user-spike.js` (dependency-free Node; re-runnable). Findings:
+- **Boots + framedumps cleanly** from a temp `--user` dir containing ONLY `Config/Dolphin.ini` + `Config/GFX.ini` + `Config/Hotkeys.ini` + `GameSettings/GALE01.ini`. Output = valid 4K mpeg4 `.avi` (3755×2112, 600 frames / 10s at target bitrate) + `.wav`, verified real gameplay (not black; YAVG mean-luma ~30, min0/max255).
+- **`Sys/` is NOT needed in the profile.** On this install Sys lives next to the AppImage (`…/playback/Sys`) and Dolphin finds it relative to its own binary — so the copy-real-profile fallback is NOT required on Linux. (Windows still to be verified separately.)
+- **Real `~/.config/SlippiPlayback` byte-identical before/after** (sha256 of Dolphin.ini/GFX.ini/GALE01.ini unchanged) — full isolation confirmed.
+- Dump flags belong in `[Movie]` (DumpFrames/DumpFramesSilent/DumpAudio/DumpAudioSilent) and `[DSP]` (DumpAudio/DumpAudioSilent/Backend=ALSA); GFX dump keys (`InternalResolutionFrameDumps`, `BitrateKbps`, `EFBScale`, `AspectRatio`) in `[Settings]`. `Hotkeys1.Device=/0/` avoids grabbing real input devices.
+- NOTE: recording currently leaves the real profile with `DumpFrames = True` still set in [Movie]/[DSP] (observed live) — bug #1 confirmed present, not hypothetical.
+
+**If spike passes:** (1) profile builder → temp user dir with Dolphin/GFX/GALE01(gecko)/Hotkeys ini, reuse `buildGeckoSettings()`; (2) move profile creation once-per-run → once-per-WORKER in `processReplays`, pass `--user`; (3) delete the dump-cleanup + `setDolphinDumping` defensive code; (4) DECIDE deliberately whether the playback/"play this clip" path (`playClipAsync`, also mutates the real profile) moves to its own `--user` profile too (probably yes → fully isolates + deletes my beta.9 fix).
+
+**DO NOT BREAK:** overlay compositing, libx264 re-encode, concat, output naming; the hardening (`DOLPHIN_BOOT_STALE_MS`, stall detection, length-scaled ffmpeg timeouts, `taskkill /T /F`, ENOENT/EAGAIN/EMFILE/ENOMEM handling — real scar tissue); Windows path handling (builder must work on both; spike Linux-only; verify `--user` on Windows separately).
+
+**VERIFY:** one-clip + multi-clip concat byte-comparable before/after; confirm real `~/.config/SlippiPlayback` UNCHANGED after a render.
+
+_Note: this is the most battle-hardened code in the app and it currently works — worth the risk ONLY because #1 is a real bug and the fix is architecturally correct. Its own focused effort; do NOT bundle with other work._
+
+</details>
+
 ### ~~Split controller.ts~~ DONE — extracted ConsoleManager, ImportManager, FilterExecutor, VideoManager into `src/main/managers/`
 
 ### ~~Split Filters.tsx~~ DONE — extracted FilterCard, FilterControls, FilterModals
@@ -99,6 +141,9 @@ Currently pinned to `^6.6.1` (installed 6.7.0); latest is 9.1.2 — **three majo
 ---
 
 ## Nice-to-Have
+
+### "Find Slippi Playback" tutorial
+A proper guided walkthrough for locating the **Playback build** of Slippi Dolphin — the #1 new-user stumbling block (it's a separate download from the online-play Dolphin, must be fetched via the Slippi Launcher first, and its path differs per OS). Today there's only a small collapsible "How to find the Playback build" in `SetupWizard.tsx` (~line 277) with per-OS default paths. Expand it into a step-by-step tutorial (Launcher → download Playback → where the folder lands per OS → point Lunar Clipper at the executable), ideally with screenshots. Tie into the welcome-screen / onboarding work. Preview it live via the dev screen switcher (`setup-play` / `setup-record`).
 
 ### ~~Auto-play video after recording~~ FIXED — recording completion modal with Play, Show Folder, and auto-open toggle
 
