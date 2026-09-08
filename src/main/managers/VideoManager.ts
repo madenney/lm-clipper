@@ -18,8 +18,7 @@ import {
 import Archive from '../../models/Archive'
 import slpToVideo, {
   VideoJobController,
-  writeGeckoCodes,
-  setDolphinDumping,
+  buildPlaybackProfile,
   resolveFilenamePattern,
   concatClips,
   probeFilesInfo,
@@ -31,7 +30,7 @@ import {
   detectMeleeIso,
   detectSlippiReplayDir,
 } from '../slippiDetect'
-import { updateEfbScale, createOutputDirectory, getFFMPEGPath } from '../util'
+import { createOutputDirectory, getFFMPEGPath } from '../util'
 import { getMetaData } from '../db'
 import { logMain, getLogPath } from '../logger'
 import { RequestEnvelope, unpackRequest, reply } from '../ipcUtils'
@@ -1031,7 +1030,7 @@ export default class VideoManager {
     }
 
     const { startFrame, endFrame } = resolveClipFrames(payload)
-    const { addStartFrames, addEndFrames, playbackResolution } = config
+    const { addStartFrames, addEndFrames } = config
     const adjustedStart = startFrame - addStartFrames
     const adjustedEnd = endFrame + addEndFrames
     const dolphinConfig = {
@@ -1043,17 +1042,6 @@ export default class VideoManager {
       commandId: crypto.randomBytes(12).toString('hex'),
     }
 
-    await updateEfbScale(dolphinPath, playbackResolution ?? 2)
-
-    // Apply current gecko/rendering toggles (Hide HUD, widescreen, etc.) so the
-    // play window reflects the latest settings instead of whatever a prior
-    // recording last wrote to GALE01.ini.
-    try {
-      await writeGeckoCodes(config)
-    } catch (err) {
-      logMain('playClipAsync: failed to write gecko codes', err)
-    }
-
     const tmpDir = await fsPromises.mkdtemp(
       path.join(os.tmpdir(), 'lm-clipper-'),
     )
@@ -1061,35 +1049,29 @@ export default class VideoManager {
     const filePath = path.resolve(tmpDir, 'dolphinConfig.json')
     await fsPromises.writeFile(filePath, JSON.stringify(dolphinConfig))
 
+    // Isolated `--user` profile for this playback: copies the real profile's
+    // settings and applies the playback overrides (EFBScale, gecko toggles,
+    // dump flags OFF) to the COPIES — so previewing a clip never mutates the
+    // user's real Dolphin profile and never framedumps. Replaces the old
+    // updateEfbScale / writeGeckoCodes / setDolphinDumping + dtkdump cleanup,
+    // all of which wrote the real profile. See buildPlaybackProfile.
+    const profileDir = path.resolve(tmpDir, 'profile')
+    try {
+      await buildPlaybackProfile(config, profileDir)
+    } catch (err) {
+      logMain('playClipAsync: failed to build playback profile', err)
+    }
+
     const args = [
       '-i',
       filePath,
       ...(config.fullscreen !== false ? ['-b'] : []),
       '-e',
       path.resolve(ssbmIsoPath),
+      '--user',
+      profileDir,
       '--cout',
     ]
-
-    // Playback must never dump. Recording leaves DumpFrames/DumpAudio = True in
-    // Dolphin.ini and nothing resets them, so without this every playback after
-    // a recording dumps audio to User/Dump/Audio/dtkdump.wav (a blocking
-    // overwrite dialog on Windows). Force the flags off before launching.
-    try {
-      await setDolphinDumping(config, false)
-    } catch (err) {
-      logMain('playClipAsync: failed to disable Dolphin dumping', err)
-    }
-
-    // Clean up leftover audio dump files so Dolphin doesn't prompt the user
-    const dolphinDirname = path.dirname(dolphinPath)
-    for (const dumpDir of [
-      path.join(dolphinDirname, 'User', 'Dump', 'Audio'),
-      path.join(app.getPath('appData'), 'SlippiPlayback', 'Dump', 'Audio'),
-    ]) {
-      for (const file of ['dtkdump.wav', 'dspdump.wav']) {
-        await fsPromises.unlink(path.join(dumpDir, file)).catch(() => {})
-      }
-    }
 
     logMain('playClipAsync: spawning Dolphin', {
       dolphinPath: path.resolve(dolphinPath),

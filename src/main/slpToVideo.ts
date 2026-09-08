@@ -1349,22 +1349,6 @@ export async function concatClips(
   }
 }
 
-// Writes only the GALE01.ini gecko codes from the current config. Used by the
-// play window so toggling rendering options (Hide HUD, etc.) takes effect on
-// playback without needing to run a recording first.
-export const writeGeckoCodes = async (config: ConfigInterface) => {
-  const { gameSettingsPath } = resolveDolphinIniPaths(config)
-  try {
-    await fsPromises.mkdir(path.dirname(gameSettingsPath), { recursive: true })
-  } catch {
-    // directory likely already exists
-  }
-  await fsPromises.writeFile(
-    gameSettingsPath,
-    buildGeckoSettings(config).join('\n'),
-  )
-}
-
 // Build a throwaway `--user` profile for one recording worker at `userDir`.
 //
 // Recording used to mutate the user's REAL Slippi profile (dump flags on,
@@ -1455,15 +1439,93 @@ const buildWorkerProfile = async (
   )
 }
 
+// Rewrite an ini file in place, mapping each line through `fn`. Used by the
+// playback profile builder to apply a couple of targeted overrides to copied
+// ini files. A missing file is a no-op.
+const rewriteIniLines = async (
+  file: string,
+  fn: (_line: string) => string,
+): Promise<void> => {
+  let contents: string
+  try {
+    contents = await fsPromises.readFile(file, 'utf8')
+  } catch {
+    return
+  }
+  await fsPromises.writeFile(file, contents.split(/\r?\n/).map(fn).join('\n'))
+}
+
+// Build a throwaway `--user` profile for interactive clip PLAYBACK at `userDir`.
+//
+// Playback used to mutate the user's REAL profile every time a clip was
+// previewed — EFBScale (updateEfbScale), gecko/rendering toggles
+// (writeGeckoCodes) and dump flags (setDolphinDumping) — so watching a clip
+// silently changed their own Dolphin's settings. Instead we COPY the real
+// profile's inis into `userDir` (preserving window/interface/audio settings so
+// the play window looks the same) and apply only the playback overrides to the
+// copies, then launch Dolphin with `--user userDir`. Nothing real is touched;
+// `Sys/` is found relative to the binary. Unlike recording this leaves dump
+// flags OFF — playback must never framedump.
+export const buildPlaybackProfile = async (
+  config: ConfigInterface,
+  userDir: string,
+): Promise<void> => {
+  const { graphicsSettingsPath } = resolveDolphinIniPaths(config)
+  const srcConfigDir = path.dirname(graphicsSettingsPath)
+  const destConfigDir = path.join(userDir, 'Config')
+  const destGameSettingsDir = path.join(userDir, 'GameSettings')
+  await fsPromises.mkdir(destConfigDir, { recursive: true })
+  await fsPromises.mkdir(destGameSettingsDir, { recursive: true })
+
+  // Copy every real Config/*.ini as a base (window/interface/DSP/etc.), then
+  // override just the playback-specific settings below.
+  const entries = await fsPromises
+    .readdir(srcConfigDir)
+    .catch(() => [] as string[])
+  await Promise.all(
+    entries
+      .filter((n) => n.endsWith('.ini'))
+      .map((n) =>
+        fsPromises
+          .copyFile(path.join(srcConfigDir, n), path.join(destConfigDir, n))
+          .catch(() => {}),
+      ),
+  )
+
+  // Gecko / rendering toggles (Hide HUD, widescreen, etc.) from current config
+  await fsPromises.writeFile(
+    path.join(destGameSettingsDir, 'GALE01.ini'),
+    buildGeckoSettings(config).join('\n'),
+  )
+
+  // GFX.ini: playback resolution only (matches the old updateEfbScale)
+  const playbackResolution =
+    (config as { playbackResolution?: number }).playbackResolution ?? 2
+  await rewriteIniLines(path.join(destConfigDir, 'GFX.ini'), (line) =>
+    line.startsWith('EFBScale') ? `EFBScale = ${playbackResolution}` : line,
+  )
+
+  // Dolphin.ini: playback must never framedump
+  const dumpKeys = [
+    'DumpFrames',
+    'DumpFramesSilent',
+    'DumpAudio',
+    'DumpAudioSilent',
+  ]
+  await rewriteIniLines(path.join(destConfigDir, 'Dolphin.ini'), (line) => {
+    const key = dumpKeys.find((k) => line.startsWith(`${k} `))
+    return key ? `${key} = False` : line
+  })
+}
+
 // Force Dolphin's frame/audio dump flags on or off in the REAL profile's
-// Dolphin.ini. Recording no longer writes there (it uses isolated per-worker
-// `--user` profiles, see buildWorkerProfile), so this is now only ever called
-// with `false`, to HEAL the real profile:
-//   - at the start of a recording run, undoing dump flags left on by an older
-//     app version that recorded in-place, and
-//   - before playback, so watching a replay never framedumps to
-//     User/Dump/Audio/dtkdump.wav (a stale dump throws a blocking "overwrite?"
-//     dialog on Windows).
+// Dolphin.ini. Neither recording nor playback writes the real profile anymore
+// (both use isolated `--user` profiles — buildWorkerProfile / buildPlaybackProfile),
+// so this is now only ever called with `false`, once at the start of a
+// recording run, to HEAL the real profile: it undoes dump flags left on by an
+// older app version that recorded in-place, so a user who opens Dolphin
+// directly to watch a replay never inherits a framedump rig (which on Windows
+// also throws a blocking "overwrite dtkdump.wav?" dialog).
 // Only existing lines are rewritten; a missing Dolphin.ini is a no-op.
 export const setDolphinDumping = async (
   config: ConfigInterface,
