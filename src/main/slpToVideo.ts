@@ -1361,7 +1361,7 @@ export async function concatClips(
 // global is touched and the dir is deleted when the run ends. `Sys/` is NOT
 // copied — Dolphin finds it relative to its own binary (verified on Linux;
 // spike: scratchpad/dolphin-user-spike.js).
-const buildWorkerProfile = async (
+export const buildWorkerProfile = async (
   config: ConfigInterface,
   userDir: string,
 ): Promise<void> => {
