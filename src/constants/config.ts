@@ -49,7 +49,14 @@ export const FILTER_LAYOUT: {
   modalTabs: string[]
   modalNatives: Record<string, string[]>
 } = {
-  main: ['slpParser', 'comboFilter', 'sort', 'trim', 'deduplicate'],
+  main: [
+    'slpParser',
+    'highlight',
+    'comboFilter',
+    'sort',
+    'trim',
+    'deduplicate',
+  ],
   modalTabs: ['Kills', 'Combos', 'Sampling', 'Utility', 'Advanced'],
   modalNatives: {
     Kills: [
@@ -727,6 +734,118 @@ export const filtersConfig = [
         default: '30',
         tooltip:
           'Start the clip this many frames BEFORE the first frame of the move that knocks the opponent offstage, so it opens with a beat of lead-up. 0 = start exactly on the move.',
+      },
+    ],
+  },
+  {
+    id: 'highlight',
+    label: 'Highlight Finder',
+    tooltip:
+      'Tournament Highlight Finder — scores every moment (anchored on each KO) on a blend of signals and ranks the interesting ones: win-probability swings & comebacks, last-stock / close-game stakes, sick combos & gimps, and chaos (SDs, trades, disrespect). Each clip is tagged with a highlightScore, its metric breakdown, and flavor tags (comeback / clutch / skill / chaos). Reads each replay fully, so it is thorough — built for smaller piles of tournament sets. Follow it with a Sort → highlight: score.',
+    options: [
+      {
+        name: 'Min Score',
+        id: 'minScore',
+        type: 'int',
+        default: '',
+        placeholder: '0',
+        tooltip:
+          'Only keep moments scoring at least this. Blank = keep everything, then rank with a Sort → highlight: score.',
+      },
+      {
+        name: 'Max Per Game',
+        id: 'maxPerGame',
+        type: 'int',
+        default: '3',
+        placeholder: 'all',
+        tooltip:
+          'Keep only the top N highest-scoring moments from each game. Blank / 0 = keep every moment above Min Score.',
+      },
+      {
+        name: 'Lead-in Frames',
+        id: 'leadInFrames',
+        type: 'int',
+        default: '60',
+        tooltip:
+          'Start each clip this many frames before the killing exchange begins (60 = 1 second of lead-up).',
+      },
+      {
+        name: 'Tail Frames',
+        id: 'tailFrames',
+        type: 'int',
+        default: '45',
+        tooltip:
+          'Extra frames to keep after the KO so the moment lands (45 = 0.75 seconds).',
+      },
+      {
+        name: 'Max Clip Frames',
+        id: 'maxClipFrames',
+        type: 'int',
+        default: '900',
+        tooltip:
+          'Cap on clip length (900 = 15 seconds), trimmed from the FRONT so the moment still ends on the KO. Keeps a monster combo from producing a 25-second clip. 0 = no cap.',
+      },
+      {
+        name: 'Include Survivals',
+        id: 'includeSurvivals',
+        type: 'checkbox',
+        default: true,
+        tooltip:
+          'Also find near-death SURVIVALS — a player eats a lethal-percent combo (100%+) and lives (great DI/tech/recovery), instead of only the kills. The other half of hype.',
+      },
+      {
+        name: 'Killer Char',
+        id: 'comboerChar',
+        type: 'multiDropdown',
+        options: sortedCharacters,
+        default: [],
+        tooltip:
+          'Only keep highlights where the player who got the KO is one of these characters.',
+      },
+      {
+        name: 'Killer Tag',
+        id: 'comboerTag',
+        type: 'textInput',
+        default: [],
+        autocomplete: 'names',
+        tooltip:
+          'Only keep highlights where the killing player has one of these tags.',
+      },
+      {
+        name: 'Killer CC',
+        id: 'comboerCC',
+        type: 'textInput',
+        default: [],
+        autocomplete: 'connectCodes',
+        tooltip:
+          'Only keep highlights where the killing player has one of these connect codes.',
+      },
+      {
+        name: 'Victim Char',
+        id: 'comboeeChar',
+        type: 'multiDropdown',
+        options: sortedCharacters,
+        default: [],
+        tooltip:
+          'Only keep highlights where the player who died is one of these characters.',
+      },
+      {
+        name: 'Victim Tag',
+        id: 'comboeeTag',
+        type: 'textInput',
+        default: [],
+        autocomplete: 'names',
+        tooltip:
+          'Only keep highlights where the dying player has one of these tags.',
+      },
+      {
+        name: 'Victim CC',
+        id: 'comboeeCC',
+        type: 'textInput',
+        default: [],
+        autocomplete: 'connectCodes',
+        tooltip:
+          'Only keep highlights where the dying player has one of these connect codes.',
       },
     ],
   },

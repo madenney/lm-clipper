@@ -79,6 +79,13 @@ export const sortOptions = [
       "Edgeguards: sort by the edgeguard score, highest first — the SAME number the Edgeguards Filter's 'Min Score' uses.",
     requiresParser: false,
   },
+  {
+    id: 'highlightScore',
+    shortName: 'highlight: score',
+    tooltip:
+      'Highlights: sort by the Tournament Highlight Finder score, highest first — the best moments up top.',
+    requiresParser: false,
+  },
   // Pressure filter parked — re-enable this option together with the
   // 'pressureScore' case below and the pressure wiring in index.ts/config.ts.
   // {
@@ -176,6 +183,11 @@ export function getSortOrderExpr(
       // Default: highest stored edgeguard score first (DESC), reverse: lowest (ASC)
       const dir = reverse ? 'ASC' : 'DESC'
       return `COALESCE(CAST(json_extract(JSON, '$.edgeguardScore') AS REAL), -1) ${dir}`
+    }
+    case 'highlightScore': {
+      // Stored once by the Highlight Finder; the sort just reads it back.
+      const dir = reverse ? 'ASC' : 'DESC'
+      return `COALESCE(CAST(json_extract(JSON, '$.highlightScore') AS REAL), -1) ${dir}`
     }
     // Pressure filter parked — re-enable with the option above + the wiring.
     // case 'pressureScore': {

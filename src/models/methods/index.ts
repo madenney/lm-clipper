@@ -10,6 +10,7 @@ import koDirection from './koDirection'
 import custom from './custom'
 import edgeguard from './edgeguard'
 import edgeguardFilter from './edgeguardFilter'
+import highlight from './highlight'
 import phantom from './phantom'
 import phantomFilter from './phantomFilter'
 import deduplicate from './deduplicate'
@@ -41,6 +42,7 @@ const methods: Record<string, FilterMethod> = {
   custom,
   edgeguard,
   edgeguardFilter,
+  highlight,
   phantom,
   phantomFilter,
   deduplicate,

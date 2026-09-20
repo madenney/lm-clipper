@@ -505,6 +505,36 @@ export interface ClipInterface {
     diedOffstage: boolean
     score: number
   }
+  // Tournament Highlight Finder: composite "reaction" score, its breakdown, and
+  // the flavor tags (comeback / clutch / skill / chaos) that fired.
+  highlightScore?: number
+  highlightMetrics?: {
+    score: number
+    flavors: string[]
+    winProbSwing: number
+    comebackMagnitude: number
+    killerWinProbAfter: number
+    lastStock: boolean
+    killerStocks: number
+    victimStocksAfter: number
+    comboDamage: number
+    comboMoves: number
+    isZeroToDeath: boolean
+    isGimp: boolean
+    isSD: boolean
+    isTrade: boolean
+    disrespect: boolean
+    damageRate: number
+    victimPercentAtDeath: number
+    isSurvival: boolean
+    perilPercent: number
+    distinctMoves: number
+    spikeKill: boolean
+    killMove: string
+    bothLastStock: boolean
+    tensionSecs: number
+    reason: string
+  }
   // Phantom hits: damage dealt with ~0 knockback (the victim isn't launched).
   // Score + metrics attached so a downstream Sort can rank by it.
   phantomMetrics?: {
