@@ -318,6 +318,16 @@ export interface CustomGeckoCode {
   enabled: boolean
 }
 
+// A user-imported custom-texture pack. `path` is a folder of Dolphin hires
+// textures (Dolphin scans it recursively, so the internal structure is free).
+// Enabled packs are symlinked into the render profile's Load/Textures/GALE01.
+export interface TexturePack {
+  id: string
+  name: string
+  path: string
+  enabled: boolean
+}
+
 export type OverlayPosition =
   | 'bottom-left'
   | 'bottom-right'
@@ -376,6 +386,17 @@ export interface ConfigInterface {
   resolution: number
   playbackResolution: number
   bitrateKbps: number
+  // Advanced encoding (final re-encode of the lossless FFV1 dump).
+  videoCodec?: 'h264' | 'h265' // libx264 (default) or libx265/HEVC
+  videoQualityMode?: 'bitrate' | 'crf' // constant-quality (CRF) vs target bitrate
+  crf?: number // 0 (lossless) – 51 (worst); ~18 is visually transparent
+  videoPreset?: string // x264/x265 preset: ultrafast … veryslow
+  keepLosslessMaster?: boolean // keep the FFV1 intermediate .avi next to the output
+  // Custom/HD textures. The bundled "Definitive Melee HD" pack is toggled by
+  // hdTexturesEnabled; user-imported packs live in texturePacks. Enabled packs
+  // are symlinked into the recording/playback Dolphin profile's Load/Textures.
+  hdTexturesEnabled?: boolean
+  texturePacks?: TexturePack[]
   addStartFrames: number
   addEndFrames: number
   lastClipOffset: number

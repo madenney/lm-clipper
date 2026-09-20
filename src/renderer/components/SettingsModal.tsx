@@ -27,20 +27,90 @@ const hiddenFromSettings = new Set([
   'testMode',
   'testDolphin',
   'outputFilenamePattern', // rendered custom in Output section
+  // The three reset-warning tiers are collapsed into one dropdown in the
+  // Filters section, so hide their raw checkboxes.
+  'warnOnReset60s',
+  'warnOnReset10m',
+  'warnOnReset1h',
 ])
 
 // Sidebar sections for settings modal
 const settingsSections = [
-  { key: 'general', label: 'General' },
   { key: 'paths', label: 'Paths' },
-  { key: 'output', label: 'Output' },
-  { key: 'overlay', label: 'Overlay' },
-  { key: 'video', label: 'Video' },
+  { key: 'project', label: 'Project' },
+  { key: 'recording', label: 'Recording' },
+  { key: 'encoding', label: 'Encoding' },
   { key: 'rendering', label: 'Gecko Codes' },
+  { key: 'textures', label: 'Textures' },
+  { key: 'overlay', label: 'Overlay' },
   { key: 'performance', label: 'Performance' },
   { key: 'diagnostics', label: 'Diagnostics' },
   { key: 'about', label: 'About' },
 ] as const
+
+// One-click quality bundles applied over the individual Video controls. Each
+// applies its `settings` to the config; tweaking any of those controls after
+// makes the preset selector read "Custom". Resolution values are EFBScale codes
+// (2=1x … 7=4x … 11=8x). All presets use CRF (constant quality).
+const VIDEO_QUALITY_PRESETS: {
+  id: string
+  label: string
+  hint: string
+  settings: Record<string, number | string | boolean>
+}[] = [
+  {
+    id: 'test',
+    label: 'Test — 1x, fast',
+    hint: 'Low resolution, fast encode. For quickly checking a filter or output.',
+    settings: {
+      resolution: 2,
+      videoCodec: 'h264',
+      videoQualityMode: 'crf',
+      crf: 23,
+      videoPreset: 'veryfast',
+      keepLosslessMaster: false,
+    },
+  },
+  {
+    id: 'medium',
+    label: 'Medium — 2x, balanced',
+    hint: 'Good quality at a sensible size and speed. Great for sharing.',
+    settings: {
+      resolution: 4,
+      videoCodec: 'h264',
+      videoQualityMode: 'crf',
+      crf: 21,
+      videoPreset: 'medium',
+      keepLosslessMaster: false,
+    },
+  },
+  {
+    id: 'high',
+    label: 'High — 4x, great quality',
+    hint: '4K-class internal resolution, slower encode. Excellent quality.',
+    settings: {
+      resolution: 7,
+      videoCodec: 'h264',
+      videoQualityMode: 'crf',
+      crf: 18,
+      videoPreset: 'slow',
+      keepLosslessMaster: false,
+    },
+  },
+  {
+    id: 'max',
+    label: 'Maximum — 8x, everything cranked',
+    hint: 'Highest practical quality: 8x internal res, near-transparent CRF, slowest encode. Very large files, very slow. Switch codec to H.265 to roughly halve size, or enable Keep Lossless Master for a pristine editing source.',
+    settings: {
+      resolution: 11,
+      videoCodec: 'h264',
+      videoQualityMode: 'crf',
+      crf: 16,
+      videoPreset: 'veryslow',
+      keepLosslessMaster: false,
+    },
+  },
+]
 
 type SettingsSection = (typeof settingsSections)[number]['key']
 
@@ -103,7 +173,7 @@ export default function SettingsModal({
   onOpenGeckoModal: _onOpenGeckoModal,
   onRunSetupWizard,
 }: SettingsModalProps) {
-  const [activeSection, setActiveSection] = useState<SettingsSection>('general')
+  const [activeSection, setActiveSection] = useState<SettingsSection>('paths')
   const [overlaySamplePath, setOverlaySamplePath] = useState(
     '/replays/netplay/DaShizWiz/2023/Game_20230202T075353.slp',
   )
@@ -181,6 +251,100 @@ export default function SettingsModal({
     })
     ipcBridge.updateConfig({ key, value })
   }
+
+  // Apply several config keys at once (one setConfig so none clobber each other,
+  // plus a persist per key). Used by the Quality Preset selector.
+  function handleChangeMany(patch: Record<string, number | string | boolean>) {
+    setConfig({ ...config, ...patch })
+    Object.entries(patch).forEach(([key, value]) =>
+      ipcBridge.updateConfig({ key, value }),
+    )
+  }
+
+  // The preset whose bundle currently matches every relevant setting, else
+  // 'custom' — so tweaking any individual control below reads as Custom.
+  const currentPreset =
+    VIDEO_QUALITY_PRESETS.find((p) =>
+      Object.entries(p.settings).every(
+        ([k, v]) => (config as Record<string, unknown>)[k] === v,
+      ),
+    )?.id || 'custom'
+  const applyPreset = (id: string) => {
+    const preset = VIDEO_QUALITY_PRESETS.find((p) => p.id === id)
+    if (preset) handleChangeMany(preset.settings)
+  }
+
+  // Single source of truth for toggling a checkbox setting — used by the
+  // whole-row click. Replicates the branching-disable confirmation that the
+  // checkbox's own onChange has (its input is click-inert in a clickable row).
+  const toggleCheckbox = (c: { id: string }) => {
+    const next = !config[c.id]
+    if (c.id === 'branchingEnabled' && !next && projectHasBranches) {
+      setBranchDisableConfirm(true)
+      return
+    }
+    handleChange(c.id, next)
+  }
+
+  // The three reset-warning tiers (warnOnReset60s/10m/1h) presented as one
+  // "warn if the last run took at least X" threshold. Setting it flips the
+  // booleans monotonically; the value shown is the lowest still-enabled tier.
+  const resetWarnValue =
+    config.warnOnReset60s !== false
+      ? '1min'
+      : config.warnOnReset10m !== false
+        ? '10min'
+        : config.warnOnReset1h !== false
+          ? '1hour'
+          : 'never'
+  const setResetWarn = (v: string) => {
+    const flags: Record<string, Record<string, boolean>> = {
+      never: {
+        warnOnReset60s: false,
+        warnOnReset10m: false,
+        warnOnReset1h: false,
+      },
+      '1min': {
+        warnOnReset60s: true,
+        warnOnReset10m: true,
+        warnOnReset1h: true,
+      },
+      '10min': {
+        warnOnReset60s: false,
+        warnOnReset10m: true,
+        warnOnReset1h: true,
+      },
+      '1hour': {
+        warnOnReset60s: false,
+        warnOnReset10m: false,
+        warnOnReset1h: true,
+      },
+    }
+    handleChangeMany(flags[v])
+  }
+
+  // --- Custom/HD texture packs ---
+  const texturePacks = config.texturePacks || []
+  const importTexturePack = () => {
+    ipcBridge.getPath('openDirectory', (p) => {
+      if (!p) return
+      const name = p.split(/[\\/]/).filter(Boolean).pop() || 'Texture pack'
+      handleChange('texturePacks', [
+        ...texturePacks,
+        { id: `pack-${Date.now().toString(36)}`, name, path: p, enabled: true },
+      ])
+    })
+  }
+  const toggleTexturePack = (id: string, enabled: boolean) =>
+    handleChange(
+      'texturePacks',
+      texturePacks.map((pk) => (pk.id === id ? { ...pk, enabled } : pk)),
+    )
+  const removeTexturePack = (id: string) =>
+    handleChange(
+      'texturePacks',
+      texturePacks.filter((pk) => pk.id !== id),
+    )
 
   function handleGetPath(key: string, type: string) {
     ipcBridge.getPath(type as 'openFile' | 'openDirectory', (p) => {
@@ -323,9 +487,19 @@ export default function SettingsModal({
             id={c.id}
             value={config[c.id]}
             className="settings-select"
-            onChange={(e) => handleChange(c.id, parseInt(e.target.value, 10))}
+            onChange={(e) => {
+              // Options may carry numeric values (resolutions, etc.) or string
+              // values (codec, preset). Coerce to a number only when the string
+              // round-trips cleanly; otherwise keep it a string.
+              const raw = e.target.value
+              const asNum = Number(raw)
+              handleChange(
+                c.id,
+                raw !== '' && String(asNum) === raw ? asNum : raw,
+              )
+            }}
           >
-            {c.options?.map((o: { value: number; label: string }) => (
+            {c.options?.map((o: { value: number | string; label: string }) => (
               <option key={o.value} value={o.value}>
                 {o.label}
               </option>
@@ -744,8 +918,91 @@ export default function SettingsModal({
 
   function renderSectionContent(section: SettingsSection) {
     switch (section) {
-      case 'output':
-        return renderOutputSection()
+      case 'textures':
+        return (
+          <div className="settings-list">
+            <div
+              className="settings-item-desc"
+              style={{ padding: '2px 2px 10px', lineHeight: 1.5 }}
+            >
+              HD/custom textures replace Melee’s built-in art with
+              higher-resolution versions — real added detail, unlike resolution
+              (which just supersamples). Enabled packs apply to every recording
+              and clip preview. Heavy at high resolutions.
+            </div>
+            <div
+              className="settings-item settings-item--clickable"
+              onClick={() =>
+                handleChange('hdTexturesEnabled', !config.hdTexturesEnabled)
+              }
+            >
+              <div className="settings-item-info">
+                <span className="settings-item-label">
+                  Definitive Melee HD (bundled)
+                </span>
+                <span className="settings-item-desc">
+                  The community “Definitive Melee HD” pack, shipped with the
+                  app.
+                </span>
+              </div>
+              <div className="settings-item-control">
+                <label className="settings-toggle">
+                  <input
+                    type="checkbox"
+                    checked={!!config.hdTexturesEnabled}
+                    readOnly
+                  />
+                  <span className="settings-toggle-slider" />
+                </label>
+              </div>
+            </div>
+            {texturePacks.map((pk) => (
+              <div className="settings-item" key={pk.id}>
+                <div className="settings-item-info">
+                  <label className="settings-item-label">{pk.name}</label>
+                  <span
+                    className="settings-item-desc"
+                    style={{
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                      maxWidth: 360,
+                    }}
+                  >
+                    {pk.path}
+                  </span>
+                </div>
+                <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                  <label className="settings-toggle">
+                    <input
+                      type="checkbox"
+                      checked={pk.enabled}
+                      onChange={(e) =>
+                        toggleTexturePack(pk.id, e.target.checked)
+                      }
+                    />
+                    <span className="settings-toggle-slider" />
+                  </label>
+                  <button
+                    type="button"
+                    className="settings-action-btn"
+                    onClick={() => removeTexturePack(pk.id)}
+                  >
+                    Remove
+                  </button>
+                </div>
+              </div>
+            ))}
+            <button
+              type="button"
+              className="settings-action-btn"
+              onClick={importTexturePack}
+              style={{ alignSelf: 'flex-start', marginTop: 4 }}
+            >
+              Import texture pack…
+            </button>
+          </div>
+        )
 
       case 'overlay':
         return renderOverlaySection()
@@ -760,11 +1017,13 @@ export default function SettingsModal({
           <>
             <div className="settings-list settings-list--grid">
               {renderingItems.map((c: any) => (
-                <div className="settings-item" key={c.id}>
+                <div
+                  className="settings-item settings-item--clickable"
+                  key={c.id}
+                  onClick={() => toggleCheckbox(c)}
+                >
                   <div className="settings-item-info">
-                    <label className="settings-item-label" htmlFor={c.id}>
-                      {c.label}
-                    </label>
+                    <span className="settings-item-label">{c.label}</span>
                   </div>
                   <div className="settings-item-control">{renderInput(c)}</div>
                 </div>
@@ -787,9 +1046,10 @@ export default function SettingsModal({
       }
 
       case 'paths':
-      case 'video':
-      case 'performance':
-      case 'general': {
+      case 'project':
+      case 'recording':
+      case 'encoding':
+      case 'performance': {
         const categoryKey = section
         const items = videoConfig.filter(
           (c: any) =>
@@ -802,34 +1062,41 @@ export default function SettingsModal({
         }
         return (
           <div className="settings-list">
-            {items.map((c: any) => {
-              const isWide =
-                c.type === 'openFile' ||
-                c.type === 'openDirectory' ||
-                c.type === 'textInput'
-              return (
-                <div
-                  className={`settings-item${isWide ? ' settings-item--path' : ''}`}
-                  key={c.id}
-                  title={c.tooltip || ''}
-                >
-                  <div className="settings-item-info">
-                    <label className="settings-item-label" htmlFor={c.id}>
-                      {c.label}
-                    </label>
-                    {c.description && (
-                      <span className="settings-item-desc">
-                        {c.description}
-                      </span>
-                    )}
-                    {c.warning && config[c.id] && (
-                      <span className="settings-item-warning">{c.warning}</span>
-                    )}
-                  </div>
-                  <div className="settings-item-control">{renderInput(c)}</div>
+            {categoryKey === 'encoding' && (
+              <div
+                className="settings-item"
+                title="Apply a bundle of quality settings. Changing any control below switches this to Custom."
+              >
+                <div className="settings-item-info">
+                  <label
+                    className="settings-item-label"
+                    htmlFor="qualityPreset"
+                  >
+                    Quality Preset
+                  </label>
+                  <span className="settings-item-desc">
+                    {VIDEO_QUALITY_PRESETS.find((p) => p.id === currentPreset)
+                      ?.hint ||
+                      'Custom — individual settings below don’t match a preset.'}
+                  </span>
                 </div>
-              )
-            })}
+                <select
+                  id="qualityPreset"
+                  className="settings-select"
+                  value={currentPreset}
+                  onChange={(e) => applyPreset(e.target.value)}
+                >
+                  {VIDEO_QUALITY_PRESETS.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.label}
+                    </option>
+                  ))}
+                  <option value="custom" disabled>
+                    Custom
+                  </option>
+                </select>
+              </div>
+            )}
             {categoryKey === 'paths' && onRunSetupWizard && (
               <div className="settings-item">
                 <div className="settings-item-info">
@@ -873,6 +1140,76 @@ export default function SettingsModal({
                 </div>
               </div>
             )}
+            {items.map((c: any) => {
+              const isWide =
+                c.type === 'openFile' ||
+                c.type === 'openDirectory' ||
+                c.type === 'textInput'
+              const isCheck = c.type === 'checkbox'
+              return (
+                <div
+                  className={`settings-item${isWide ? ' settings-item--path' : ''}${isCheck ? ' settings-item--clickable' : ''}`}
+                  key={c.id}
+                  title={c.tooltip || ''}
+                  // The whole row toggles a checkbox setting. The toggle switch
+                  // is click-inert (pointer-events:none in CSS) so every click in
+                  // the row lands here — one handler, no double-fire.
+                  onClick={isCheck ? () => toggleCheckbox(c) : undefined}
+                >
+                  <div className="settings-item-info">
+                    {isCheck ? (
+                      <span className="settings-item-label">{c.label}</span>
+                    ) : (
+                      <label className="settings-item-label" htmlFor={c.id}>
+                        {c.label}
+                      </label>
+                    )}
+                    {c.description && (
+                      <span className="settings-item-desc">
+                        {c.description}
+                      </span>
+                    )}
+                    {/* Always shown (not gated on the toggle) so enabling the
+                        setting doesn't change the row's height. */}
+                    {c.warning && (
+                      <span className="settings-item-warning">{c.warning}</span>
+                    )}
+                  </div>
+                  <div className="settings-item-control">{renderInput(c)}</div>
+                </div>
+              )
+            })}
+            {categoryKey === 'project' && (
+              <div
+                className="settings-item"
+                title="Re-running a filter that already processed a lot of files can take a long time; this asks you to confirm first, based on how long its last run took."
+              >
+                <div className="settings-item-info">
+                  <label
+                    className="settings-item-label"
+                    htmlFor="resetWarnThreshold"
+                  >
+                    Warn before re-running a slow filter
+                  </label>
+                  <span className="settings-item-desc">
+                    Confirm before re-running a filter whose last run took at
+                    least this long.
+                  </span>
+                </div>
+                <select
+                  id="resetWarnThreshold"
+                  className="settings-select"
+                  value={resetWarnValue}
+                  onChange={(e) => setResetWarn(e.target.value)}
+                >
+                  <option value="never">Never</option>
+                  <option value="1min">If over 1 minute</option>
+                  <option value="10min">If over 10 minutes</option>
+                  <option value="1hour">If over 1 hour</option>
+                </select>
+              </div>
+            )}
+            {categoryKey === 'recording' && renderOutputSection()}
           </div>
         )
       }
@@ -880,6 +1217,38 @@ export default function SettingsModal({
       case 'diagnostics':
         return (
           <div className="settings-list">
+            <div className="settings-item">
+              <div className="settings-item-info">
+                <span className="settings-item-label">Check for Updates</span>
+                <span className="settings-item-desc">
+                  {updateCheckStatus === 'checking'
+                    ? 'Checking...'
+                    : updateCheckStatus === 'up-to-date'
+                      ? 'You’re on the latest version.'
+                      : updateCheckStatus === 'available'
+                        ? 'Update available! Close settings to download.'
+                        : updateCheckStatus === 'error'
+                          ? 'Could not check for updates.'
+                          : 'Check GitHub for a newer version.'}
+                </span>
+              </div>
+              <div className="settings-item-control">
+                <button
+                  type="button"
+                  className="settings-action-btn"
+                  disabled={updateCheckStatus === 'checking'}
+                  onClick={() => {
+                    setUpdateCheckStatus('checking')
+                    window.electron.ipcRenderer.sendMessage(
+                      'check-for-updates',
+                      null,
+                    )
+                  }}
+                >
+                  Check Now
+                </button>
+              </div>
+            </div>
             <div className="settings-item">
               <div className="settings-item-info">
                 <span className="settings-item-label">Test Dolphin</span>
@@ -956,38 +1325,29 @@ export default function SettingsModal({
                 </button>
               </div>
             </div>
-            <div className="settings-item">
-              <div className="settings-item-info">
-                <span className="settings-item-label">Check for Updates</span>
-                <span className="settings-item-desc">
-                  {updateCheckStatus === 'checking'
-                    ? 'Checking...'
-                    : updateCheckStatus === 'up-to-date'
-                      ? 'You\u2019re on the latest version.'
-                      : updateCheckStatus === 'available'
-                        ? 'Update available! Close settings to download.'
-                        : updateCheckStatus === 'error'
-                          ? 'Could not check for updates.'
-                          : 'Check GitHub for a newer version.'}
-                </span>
-              </div>
-              <div className="settings-item-control">
-                <button
-                  type="button"
-                  className="settings-action-btn"
-                  disabled={updateCheckStatus === 'checking'}
-                  onClick={() => {
-                    setUpdateCheckStatus('checking')
-                    window.electron.ipcRenderer.sendMessage(
-                      'check-for-updates',
-                      null,
-                    )
-                  }}
+            {videoConfig
+              .filter(
+                (c: any) =>
+                  c.category === 'diagnostics' && !hiddenFromSettings.has(c.id),
+              )
+              .map((c: any) => (
+                <div
+                  className="settings-item settings-item--clickable"
+                  key={c.id}
+                  title={c.tooltip || ''}
+                  onClick={() => toggleCheckbox(c)}
                 >
-                  Check Now
-                </button>
-              </div>
-            </div>
+                  <div className="settings-item-info">
+                    <span className="settings-item-label">{c.label}</span>
+                    {c.description && (
+                      <span className="settings-item-desc">
+                        {c.description}
+                      </span>
+                    )}
+                  </div>
+                  <div className="settings-item-control">{renderInput(c)}</div>
+                </div>
+              ))}
             <div className="settings-item settings-item--danger">
               <div className="settings-item-info">
                 <span className="settings-item-label">Reset Settings</span>

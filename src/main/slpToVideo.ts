@@ -23,7 +23,7 @@ import os from 'os'
 import { GAME_START_FRAME } from '../constants/frames'
 
 import { buildReplayVars, applyPattern } from '../lib/overlayTokens'
-import { getFFMPEGPath } from './util'
+import { getFFMPEGPath, getAssetPath } from './util'
 import { renderOverlayPng } from './overlayRenderer'
 import { logMain, getLogPath } from './logger'
 import {
@@ -108,6 +108,83 @@ const FFMPEG_TIMEOUT_PER_SEC_MS = 10_000 // + per second of footage (10x realtim
 const ffmpegTimeoutFor = (clipFrames: number) =>
   FFMPEG_TIMEOUT_BASE_MS +
   Math.max(0, clipFrames / 60) * FFMPEG_TIMEOUT_PER_SEC_MS
+
+// Video-encoder args for the SINGLE final re-encode of Dolphin's lossless FFV1
+// dump. Recording used to re-encode twice (FFV1 → mpeg4 at merge → H.264), so
+// the mpeg4 middle hop threw away quality the final encode couldn't recover.
+// Now the merge is a lossless stream-copy and this is the only lossy step.
+// Defaults preserve the classic libx264 + target-bitrate behavior.
+const buildVideoEncodeArgs = (config: ConfigInterface): string[] => {
+  const codec = config.videoCodec === 'h265' ? 'libx265' : 'libx264'
+  const args = ['-c:v', codec, '-preset', config.videoPreset || 'medium']
+  // hvc1 tag so HEVC .mp4s play in QuickTime / Apple ecosystems.
+  if (codec === 'libx265') args.push('-tag:v', 'hvc1')
+  if (config.videoQualityMode === 'crf') {
+    const crf = Number.isFinite(config.crf as number) ? config.crf : 18
+    args.push('-crf', String(crf))
+  } else {
+    args.push('-b:v', `${config.bitrateKbps}k`)
+  }
+  return args
+}
+
+// The scale filter for the final encode. 2x-widescreen normalizes to 1080p (the
+// legacy behavior that used to live in the merge step); everything else keeps
+// the native internal-resolution dims, rounded to even numbers so H.264/H.265
+// accept them.
+const wantsWidescreen1080 = (config: ConfigInterface): boolean =>
+  config.resolution === 4 && config.widescreen !== false
+const buildScaleExpr = (config: ConfigInterface): string =>
+  wantsWidescreen1080(config)
+    ? 'scale=1920:1080'
+    : 'scale=trunc(iw/2)*2:trunc(ih/2)*2'
+
+// Custom/HD texture packs to install into a render profile. The bundled
+// "Definitive Melee HD" pack (assets/Melee_HD_Textures/GALE01) is included when
+// hdTexturesEnabled; user-imported packs are included when their toggle is on.
+type ResolvedTexturePack = { id: string; path: string }
+const resolveEnabledTexturePacks = (
+  config: ConfigInterface,
+): ResolvedTexturePack[] => {
+  const packs: ResolvedTexturePack[] = []
+  if (config.hdTexturesEnabled) {
+    packs.push({
+      id: 'melee-hd',
+      path: getAssetPath('Melee_HD_Textures', 'GALE01'),
+    })
+  }
+  for (const p of config.texturePacks || []) {
+    if (p.enabled && p.path) packs.push({ id: p.id, path: p.path })
+  }
+  return packs
+}
+
+// Symlink each enabled texture pack into <profile>/Load/Textures/GALE01/<id>.
+// Dolphin scans that folder recursively, so a pack's internal nesting doesn't
+// matter. Symlinks (junctions on Windows — no admin needed) avoid copying
+// hundreds of MB per worker; deleting the temp profile removes only the links,
+// never the real packs.
+const installTexturePacks = async (
+  userDir: string,
+  packs: ResolvedTexturePack[],
+): Promise<void> => {
+  if (packs.length === 0) return
+  const dest = path.join(userDir, 'Load', 'Textures', 'GALE01')
+  await fsPromises.mkdir(dest, { recursive: true })
+  const linkType = process.platform === 'win32' ? 'junction' : 'dir'
+  await Promise.all(
+    packs.map((pack) =>
+      fsPromises
+        .symlink(pack.path, path.join(dest, pack.id), linkType)
+        .catch((err) =>
+          logMain('record: texture pack symlink failed', {
+            pack: pack.id,
+            err: String(err),
+          }),
+        ),
+    ),
+  )
+}
 
 // Await a child's exit. CRITICAL: also settle on 'error' — a spawn that fails
 // (ENOENT, EAGAIN/EMFILE/ENOMEM after spawning thousands of processes across an
@@ -311,7 +388,10 @@ const processOneReplay = async (
       fsPromises.unlink(basePath('-unmerged.avi')).catch(() => {}),
       fsPromises.unlink(basePath('-unmerged.wav')).catch(() => {}),
       fsPromises.unlink(basePath('-merged.avi')).catch(() => {}),
-      fsPromises.unlink(basePath('-overlaid.avi')).catch(() => {}),
+      // Lossless FFV1 intermediate — unless kept as a `.master.avi` (already
+      // renamed away by then, so this unlink is a no-op in that case).
+      fsPromises.unlink(basePath('-lossless.avi')).catch(() => {}),
+      fsPromises.unlink(basePath('-final.avi')).catch(() => {}),
       ...(overlayPngPath
         ? [fsPromises.unlink(overlayPngPath).catch(() => {})]
         : []),
@@ -460,19 +540,21 @@ const processOneReplay = async (
 
   onRecorded?.()
 
-  // 3. Merge video and audio with ffmpeg
+  // 3. Merge video and audio with ffmpeg — LOSSLESS stream-copy (mux only).
+  // No re-encode here: the FFV1 dump is copied straight through, so quality is
+  // preserved for the single final encode below. (Any scaling / bitrate now
+  // happens once, at the final encode.)
   const ffmpegMergeArgs = [
     '-i',
     basePath('-unmerged.avi'),
     '-i',
     basePath('-unmerged.wav'),
-    '-b:v',
-    `${config.bitrateKbps}k`,
+    '-c:v',
+    'copy',
+    '-c:a',
+    'copy',
+    basePath('-merged.avi'),
   ]
-  if (config.resolution === 4 && config.widescreen !== false) {
-    ffmpegMergeArgs.push('-vf', 'scale=1920:1080')
-  }
-  ffmpegMergeArgs.push(basePath('-merged.avi'))
 
   logMain('record: spawning ffmpeg merge', {
     ffmpegPath,
@@ -507,7 +589,8 @@ const processOneReplay = async (
     return false
   }
 
-  // 4. Trim buffer frames
+  // 4. Trim buffer frames — still a lossless stream-copy of the FFV1, into the
+  // lossless intermediate that the single final encode (below) reads from.
   const ffmpegTrimArgs = [
     '-ss',
     '1',
@@ -515,7 +598,7 @@ const processOneReplay = async (
     basePath('-merged.avi'),
     '-c',
     'copy',
-    basePath('.avi'),
+    basePath('-lossless.avi'),
   ]
 
   logMain('record: spawning ffmpeg trim', { args: ffmpegTrimArgs })
@@ -548,13 +631,16 @@ const processOneReplay = async (
     return false
   }
 
-  // 4b. Build the overlay PNG (optional). Rendered at the clip's true
-  // resolution (parsed from ffmpeg's stderr) and composited during the final
-  // encode below via ffmpeg's overlay filter.
+  // 4b. Build the overlay PNG (optional). Rendered at the FINAL output resolution
+  // — 1080p for the 2x-widescreen preset, else the native internal-res dims from
+  // ffmpeg's stderr — so composited text stays crisp after the single final encode.
+  const normalizeTo1080 = wantsWidescreen1080(config)
   if (config.overlayEnabled) {
     const vars = buildReplayVars(replay, config.overlaySourceRules)
     const overlayText = applyPattern(config.overlayPattern || '', vars).trim()
-    const dims = parseVideoDimensions(trimStderr)
+    const dims = normalizeTo1080
+      ? { width: 1920, height: 1080 }
+      : parseVideoDimensions(trimStderr)
     if (overlayText && dims) {
       const pngPath = basePath('-overlay.png')
       try {
@@ -577,21 +663,30 @@ const processOneReplay = async (
     }
   }
 
-  const overlayFilter =
-    '[0:v][1:v]scale2ref[base][ovr];' +
-    '[base][ovr]overlay=0:0,pad=ceil(iw/2)*2:ceil(ih/2)*2[outv]'
+  // Overlay compositing filter. When normalizing to 1080p, scale the base there
+  // first so the (1080p) overlay lines up 1:1; otherwise scale the overlay to the
+  // base. Always pad to even dims for H.264/H.265.
+  const overlayFilter = normalizeTo1080
+    ? '[0:v]scale=1920:1080[b];[b][1:v]scale2ref[base][ovr];' +
+      '[base][ovr]overlay=0:0,pad=ceil(iw/2)*2:ceil(ih/2)*2[outv]'
+    : '[0:v][1:v]scale2ref[base][ovr];' +
+      '[base][ovr]overlay=0:0,pad=ceil(iw/2)*2:ceil(ih/2)*2[outv]'
 
   if (signal.stopped || signal.cancelled) {
     await cleanupIntermediates()
     return false
   }
 
-  // 5. Convert to MP4 (optional)
+  // 5. Final encode — the SINGLE lossy step, from the lossless FFV1 intermediate,
+  // using the configured codec / quality (buildVideoEncodeArgs). Overlay is
+  // composited here in the same pass; scaling happens here too (buildScaleExpr).
+  const encodeArgs = buildVideoEncodeArgs(config)
+  const losslessInput = basePath('-lossless.avi')
   if (config.convertToMp4) {
     const mp4Args = overlayPngPath
       ? [
           '-i',
-          basePath('.avi'),
+          losslessInput,
           '-i',
           overlayPngPath,
           '-filter_complex',
@@ -600,10 +695,7 @@ const processOneReplay = async (
           '[outv]',
           '-map',
           '0:a?',
-          '-c:v',
-          'libx264',
-          '-b:v',
-          `${config.bitrateKbps}k`,
+          ...encodeArgs,
           '-c:a',
           'aac',
           '-b:a',
@@ -612,27 +704,24 @@ const processOneReplay = async (
         ]
       : [
           '-i',
-          basePath('.avi'),
+          losslessInput,
           '-vf',
-          'scale=trunc(iw/2)*2:trunc(ih/2)*2',
-          '-c:v',
-          'libx264',
-          '-b:v',
-          `${config.bitrateKbps}k`,
+          buildScaleExpr(config),
+          ...encodeArgs,
           '-c:a',
           'aac',
           '-b:a',
           '128k',
           basePath('.mp4'),
         ]
-    logMain('record: spawning ffmpeg mp4 convert', { args: mp4Args })
+    logMain('record: spawning ffmpeg mp4 encode', { args: mp4Args })
 
     const mp4Process = spawn(ffmpegPath, mp4Args, {
       stdio: ['ignore', 'ignore', 'pipe'],
     })
     signal.activeProcesses.add(mp4Process)
     mp4Process.on('error', (err) => {
-      logMain('record: ffmpeg mp4 convert spawn error', err)
+      logMain('record: ffmpeg mp4 encode spawn error', err)
     })
     let mp4Stderr = ''
     mp4Process.stderr!.on('data', (chunk: Buffer) => {
@@ -641,45 +730,53 @@ const processOneReplay = async (
     const mp4Code = await awaitExitWithTimeout(
       mp4Process,
       ffmpegTimeoutMs,
-      'ffmpeg mp4 convert',
+      'ffmpeg mp4 encode',
     )
     signal.activeProcesses.delete(mp4Process)
     if (mp4Code !== 0) {
-      logMain(`record: ffmpeg mp4 convert failed (code ${mp4Code})`, {
+      logMain(`record: ffmpeg mp4 encode failed (code ${mp4Code})`, {
         stderr: mp4Stderr.slice(-2000),
       })
     }
+  } else {
+    // AVI output: re-encode the lossless intermediate to the chosen codec (with
+    // the overlay composited if present) into the final .avi.
+    const aviOut = basePath('-final.avi')
+    const aviArgs = overlayPngPath
+      ? [
+          '-i',
+          losslessInput,
+          '-i',
+          overlayPngPath,
+          '-filter_complex',
+          overlayFilter,
+          '-map',
+          '[outv]',
+          '-map',
+          '0:a?',
+          ...encodeArgs,
+          '-c:a',
+          'copy',
+          aviOut,
+        ]
+      : [
+          '-i',
+          losslessInput,
+          '-vf',
+          buildScaleExpr(config),
+          ...encodeArgs,
+          '-c:a',
+          'copy',
+          aviOut,
+        ]
+    logMain('record: spawning ffmpeg avi encode', { args: aviArgs })
 
-    // Delete the .avi now that we have the .mp4
-    await fsPromises.unlink(basePath('.avi')).catch(() => {})
-  } else if (overlayPngPath) {
-    // No MP4 conversion: burn the overlay into the .avi itself.
-    const overlaidPath = basePath('-overlaid.avi')
-    const aviOverlayArgs = [
-      '-i',
-      basePath('.avi'),
-      '-i',
-      overlayPngPath,
-      '-filter_complex',
-      overlayFilter,
-      '-map',
-      '[outv]',
-      '-map',
-      '0:a?',
-      '-c:v',
-      'libx264',
-      '-b:v',
-      `${config.bitrateKbps}k`,
-      '-c:a',
-      'copy',
-      overlaidPath,
-    ]
-    const aviProcess = spawn(ffmpegPath, aviOverlayArgs, {
+    const aviProcess = spawn(ffmpegPath, aviArgs, {
       stdio: ['ignore', 'ignore', 'pipe'],
     })
     signal.activeProcesses.add(aviProcess)
     aviProcess.on('error', (err) => {
-      logMain('record: ffmpeg avi overlay spawn error', err)
+      logMain('record: ffmpeg avi encode spawn error', err)
     })
     let aviStderr = ''
     aviProcess.stderr!.on('data', (chunk: Buffer) => {
@@ -688,19 +785,29 @@ const processOneReplay = async (
     const aviCode = await awaitExitWithTimeout(
       aviProcess,
       ffmpegTimeoutMs,
-      'ffmpeg avi overlay',
+      'ffmpeg avi encode',
     )
     signal.activeProcesses.delete(aviProcess)
     if (aviCode === 0) {
-      await fsPromises.rename(overlaidPath, basePath('.avi')).catch((err) => {
-        logMain('record: avi overlay rename failed', err)
+      await fsPromises.rename(aviOut, basePath('.avi')).catch((err) => {
+        logMain('record: avi encode rename failed', err)
       })
     } else {
-      logMain(`record: ffmpeg avi overlay failed (code ${aviCode})`, {
+      logMain(`record: ffmpeg avi encode failed (code ${aviCode})`, {
         stderr: aviStderr.slice(-2000),
       })
-      await fsPromises.unlink(overlaidPath).catch(() => {})
+      await fsPromises.unlink(aviOut).catch(() => {})
     }
+  }
+
+  // Keep the lossless FFV1 master next to the output if requested (pristine
+  // source for editing/archival); otherwise cleanupIntermediates deletes it.
+  if (config.keepLosslessMaster) {
+    await fsPromises
+      .rename(losslessInput, basePath('.master.avi'))
+      .catch((err) =>
+        logMain('record: keep-lossless-master rename failed', err),
+      )
   }
 
   // 6. Delete intermediates
@@ -1379,6 +1486,10 @@ export const buildWorkerProfile = async (
     buildGeckoSettings(config).join('\n'),
   )
 
+  // Custom/HD texture packs to symlink in (and whether to flip HiresTextures on).
+  const texturePacks = resolveEnabledTexturePacks(config)
+  const texturesEnabled = texturePacks.length > 0
+
   // Graphics settings — transform the real GFX.ini into the temp copy
   let rl = readline.createInterface({
     input: fs.createReadStream(graphicsSettingsPath),
@@ -1396,6 +1507,13 @@ export const buildWorkerProfile = async (
       newSettings.push(`BitrateKbps = ${config.bitrateKbps}`)
     } else if (line.startsWith('EFBScale')) {
       newSettings.push(`EFBScale = ${config.resolution}`)
+    } else if (line.startsWith('HiresTextures')) {
+      newSettings.push(`HiresTextures = ${texturesEnabled ? 'True' : 'False'}`)
+    } else if (line.startsWith('CacheHiresTextures')) {
+      // Never prefetch: this is offline per-clip framedump, so lazy-loading only
+      // the textures each short clip actually shows is far faster than loading
+      // the whole (multi-hundred-MB) pack up front on every clip's Dolphin boot.
+      newSettings.push(`CacheHiresTextures = False`)
     } else {
       newSettings.push(line)
     }
@@ -1437,6 +1555,9 @@ export const buildWorkerProfile = async (
     path.join(destConfigDir, 'Hotkeys.ini'),
     '[Hotkeys1]\nDevice = /0/\n',
   )
+
+  // Symlink any enabled HD/custom texture packs into this profile's Load dir.
+  await installTexturePacks(userDir, texturePacks)
 }
 
 // Rewrite an ini file in place, mapping each line through `fn`. Used by the
@@ -1498,12 +1619,20 @@ export const buildPlaybackProfile = async (
     buildGeckoSettings(config).join('\n'),
   )
 
-  // GFX.ini: playback resolution only (matches the old updateEfbScale)
+  // GFX.ini: playback resolution + HD/custom textures.
   const playbackResolution =
     (config as { playbackResolution?: number }).playbackResolution ?? 2
-  await rewriteIniLines(path.join(destConfigDir, 'GFX.ini'), (line) =>
-    line.startsWith('EFBScale') ? `EFBScale = ${playbackResolution}` : line,
-  )
+  const texturePacks = resolveEnabledTexturePacks(config)
+  const texturesEnabled = texturePacks.length > 0
+  const hires = texturesEnabled ? 'True' : 'False'
+  await rewriteIniLines(path.join(destConfigDir, 'GFX.ini'), (line) => {
+    if (line.startsWith('EFBScale')) return `EFBScale = ${playbackResolution}`
+    if (line.startsWith('HiresTextures')) return `HiresTextures = ${hires}`
+    // No prefetch — lazy-load only what's shown (see buildWorkerProfile).
+    if (line.startsWith('CacheHiresTextures'))
+      return 'CacheHiresTextures = False'
+    return line
+  })
 
   // Dolphin.ini: playback must never framedump
   const dumpKeys = [
@@ -1516,6 +1645,9 @@ export const buildPlaybackProfile = async (
     const key = dumpKeys.find((k) => line.startsWith(`${k} `))
     return key ? `${key} = False` : line
   })
+
+  // Symlink any enabled HD/custom texture packs into this profile's Load dir.
+  await installTexturePacks(userDir, texturePacks)
 }
 
 // Force Dolphin's frame/audio dump flags on or off in the REAL profile's

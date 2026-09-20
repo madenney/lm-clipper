@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, ReactNode } from 'react'
+import { useState, useRef, useEffect, useLayoutEffect, ReactNode } from 'react'
 
 interface TooltipProps {
   text: string
@@ -6,10 +6,17 @@ interface TooltipProps {
   children: ReactNode
 }
 
+// Keep the bubble at least this far from the viewport edges.
+const EDGE = 10
+// Narrower than before (was 300) so long text wraps to more, shorter lines
+// instead of two very wide ones.
+const MAX_WIDTH = 220
+
 export default function Tooltip({ text, offsetX = 0, children }: TooltipProps) {
   const [visible, setVisible] = useState(false)
-  const [pos, setPos] = useState({ x: 0, y: 0 })
+  const [anchor, setAnchor] = useState({ cx: 0, top: 0, bottom: 0 })
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const tipRef = useRef<HTMLSpanElement>(null)
 
   useEffect(() => {
     return () => {
@@ -19,7 +26,11 @@ export default function Tooltip({ text, offsetX = 0, children }: TooltipProps) {
 
   function onEnter(e: React.MouseEvent) {
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
-    setPos({ x: rect.left + rect.width / 2 + offsetX, y: rect.top })
+    setAnchor({
+      cx: rect.left + rect.width / 2 + offsetX,
+      top: rect.top,
+      bottom: rect.bottom,
+    })
     timer.current = setTimeout(() => setVisible(true), 300)
   }
 
@@ -27,6 +38,29 @@ export default function Tooltip({ text, offsetX = 0, children }: TooltipProps) {
     if (timer.current) clearTimeout(timer.current)
     setVisible(false)
   }
+
+  // Once shown, measure the bubble and nudge it so it never touches a screen
+  // edge: clamp horizontally within EDGE, and flip below the anchor if it would
+  // clip the top. Runs before paint (useLayoutEffect) so there's no flicker.
+  useLayoutEffect(() => {
+    const el = tipRef.current
+    if (!visible || !el) return
+    const half = el.offsetWidth / 2
+    const minCx = EDGE + half
+    const maxCx = window.innerWidth - EDGE - half
+    // If the viewport is narrower than the bubble, just pin to the left margin.
+    const cx =
+      minCx > maxCx ? minCx : Math.max(minCx, Math.min(anchor.cx, maxCx))
+    el.style.left = `${cx}px`
+
+    if (anchor.top - 4 - el.offsetHeight < EDGE) {
+      el.style.top = `${anchor.bottom + 4}px`
+      el.style.transform = 'translate(-50%, 0)'
+    } else {
+      el.style.top = `${anchor.top - 4}px`
+      el.style.transform = 'translate(-50%, -100%)'
+    }
+  }, [visible, anchor])
 
   return (
     <span
@@ -38,10 +72,11 @@ export default function Tooltip({ text, offsetX = 0, children }: TooltipProps) {
       {children}
       {visible && (
         <span
+          ref={tipRef}
           style={{
             position: 'fixed',
-            left: pos.x,
-            top: pos.y - 4,
+            left: anchor.cx,
+            top: anchor.top - 4,
             transform: 'translate(-50%, -100%)',
             background: '#222',
             color: '#ddd',
@@ -50,7 +85,7 @@ export default function Tooltip({ text, offsetX = 0, children }: TooltipProps) {
             padding: '5px 8px',
             borderRadius: 4,
             border: '1px solid #444',
-            maxWidth: 300,
+            maxWidth: MAX_WIDTH,
             whiteSpace: 'pre-wrap',
             wordWrap: 'break-word',
             zIndex: 100000,

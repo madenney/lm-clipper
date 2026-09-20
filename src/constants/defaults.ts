@@ -49,6 +49,19 @@ export const config = {
   resolution: 2,
   playbackResolution: 2,
   bitrateKbps: 50000,
+  // Advanced encoding — defaults preserve the classic H.264 + bitrate behavior.
+  videoCodec: 'h264' as 'h264' | 'h265',
+  videoQualityMode: 'bitrate' as 'bitrate' | 'crf',
+  crf: 18,
+  videoPreset: 'medium',
+  keepLosslessMaster: false,
+  hdTexturesEnabled: false,
+  texturePacks: [] as {
+    id: string
+    name: string
+    path: string
+    enabled: boolean
+  }[],
   addStartFrames: 0,
   addEndFrames: 0,
   lastClipOffset: 1,

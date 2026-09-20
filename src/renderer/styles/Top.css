@@ -455,6 +455,20 @@
     background: #262626;
 }
 
+/* Checkbox/toggle rows: the whole row is a single click target (see
+   SettingsModal). The toggle switch is presentational only — clicks pass
+   through to the row's handler, so there's exactly one toggler and no dead
+   zones. */
+.settings-item--clickable {
+    cursor: pointer;
+}
+.settings-item--clickable:hover {
+    background: #2b2b2b;
+}
+.settings-item--clickable .settings-item-control {
+    pointer-events: none;
+}
+
 .settings-item--path {
     grid-column: 1 / -1;
     flex-direction: column;

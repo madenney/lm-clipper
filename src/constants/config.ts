@@ -1630,7 +1630,8 @@ export const videoConfig = [
     id: 'outputPath',
     type: 'openDirectory',
     category: 'paths',
-    tooltip: 'Where recorded video files are saved.',
+    tooltip:
+      'Where recorded clips are written. Each recording run creates a numbered subfolder here (output, output_1, …). Pick a drive with plenty of free space — high-resolution clips and lossless masters get large fast.',
   },
   {
     label: 'Melee .iso Path',
@@ -1685,7 +1686,7 @@ export const videoConfig = [
     default: 2,
     id: 'resolution',
     type: 'dropdown',
-    category: 'video',
+    category: 'recording',
     tooltip:
       'Internal rendering resolution multiplier for recorded videos. Higher = sharper but slower.',
     options: [
@@ -1706,7 +1707,7 @@ export const videoConfig = [
     default: 2,
     id: 'playbackResolution',
     type: 'dropdown',
-    category: 'video',
+    category: 'recording',
     tooltip: 'Internal rendering resolution multiplier for the preview player.',
     options: [
       { label: '1x - Low Quality (fast)', value: 2 },
@@ -1722,20 +1723,81 @@ export const videoConfig = [
     ],
   },
   {
+    label: 'Video Codec',
+    default: 'h264',
+    id: 'videoCodec',
+    type: 'dropdown',
+    category: 'encoding',
+    tooltip:
+      'H.264 is the compatible default. H.265 (HEVC) gives noticeably smaller files at the same quality, but encodes slower and some players/editors need HEVC support.',
+    options: [
+      { label: 'H.264 (compatible)', value: 'h264' },
+      { label: 'H.265 / HEVC (smaller)', value: 'h265' },
+    ],
+  },
+  {
+    label: 'Quality Mode',
+    default: 'bitrate',
+    id: 'videoQualityMode',
+    type: 'dropdown',
+    category: 'encoding',
+    tooltip:
+      'Bitrate targets a fixed data rate. CRF (constant quality) lets the encoder spend exactly the bits each clip needs — usually better quality for the size. CRF ignores the Bitrate field.',
+    options: [
+      { label: 'Bitrate (target data rate)', value: 'bitrate' },
+      { label: 'CRF (constant quality)', value: 'crf' },
+    ],
+  },
+  {
     label: 'Bitrate (kbps)',
     default: 15000,
     id: 'bitrateKbps',
     type: 'int',
-    category: 'video',
+    category: 'encoding',
     tooltip:
-      'Video bitrate in kilobits per second. Higher = better quality, larger files.',
+      'Used when Quality Mode is Bitrate. Video bitrate in kilobits per second. Higher = better quality, larger files.',
+  },
+  {
+    label: 'CRF (quality)',
+    default: 18,
+    id: 'crf',
+    type: 'int',
+    category: 'encoding',
+    tooltip:
+      'Used when Quality Mode is CRF. 0 = lossless (huge), ~18 = visually transparent, 23 = default, higher = smaller/worse. Lower is better quality. Try 16–20 for high quality.',
+  },
+  {
+    label: 'Encoder Preset',
+    default: 'medium',
+    id: 'videoPreset',
+    type: 'dropdown',
+    category: 'encoding',
+    tooltip:
+      'Speed vs compression tradeoff. Slower presets pack the same quality into a smaller file (or better quality at the same size), but take longer to encode. Does not affect a bitrate target’s size, only its quality.',
+    options: [
+      { label: 'ultrafast', value: 'ultrafast' },
+      { label: 'veryfast', value: 'veryfast' },
+      { label: 'fast', value: 'fast' },
+      { label: 'medium (default)', value: 'medium' },
+      { label: 'slow', value: 'slow' },
+      { label: 'veryslow (best)', value: 'veryslow' },
+    ],
+  },
+  {
+    label: 'Keep Lossless Master',
+    default: false,
+    id: 'keepLosslessMaster',
+    type: 'checkbox',
+    category: 'encoding',
+    tooltip:
+      'Also keep the lossless FFV1 intermediate (a large .master.avi) alongside each clip — the pristine source straight from Dolphin, for editing/archival. Warning: these are very large (multiple GB per clip at high resolutions).',
   },
   {
     label: 'Add Start Frames',
     default: 0,
     id: 'addStartFrames',
     type: 'int',
-    category: 'video',
+    category: 'recording',
     tooltip:
       'Extra frames to add before every clip during recording. Applies globally on top of any Trim filter.',
   },
@@ -1744,7 +1806,7 @@ export const videoConfig = [
     default: 0,
     id: 'addEndFrames',
     type: 'int',
-    category: 'video',
+    category: 'recording',
     tooltip:
       'Extra frames to add after every clip during recording. Applies globally on top of any Trim filter.',
   },
@@ -1753,7 +1815,7 @@ export const videoConfig = [
     default: 0,
     id: 'lastClipOffset',
     type: 'int',
-    category: 'video',
+    category: 'recording',
     tooltip:
       'Extra frames to add after the very last clip in a batch. Useful to avoid abrupt cuts at the end.',
   },
@@ -1762,7 +1824,7 @@ export const videoConfig = [
     default: true,
     id: 'fullscreen',
     type: 'checkbox',
-    category: 'video',
+    category: 'recording',
     tooltip:
       'Run Dolphin in fullscreen mode during recording. Recommended for clean output.',
   },
@@ -1771,7 +1833,7 @@ export const videoConfig = [
     default: false,
     id: 'concatenate',
     type: 'checkbox',
-    category: 'video',
+    category: 'recording',
     tooltip: 'Merge all recorded clips into a single video file using ffmpeg.',
   },
   {
@@ -1779,7 +1841,7 @@ export const videoConfig = [
     default: true,
     id: 'convertToMp4',
     type: 'checkbox',
-    category: 'video',
+    category: 'recording',
     tooltip:
       'Convert the raw AVI output from Dolphin to MP4 for smaller file size and wider compatibility.',
   },
@@ -1788,7 +1850,7 @@ export const videoConfig = [
     default: false,
     id: 'writeManifest',
     type: 'checkbox',
-    category: 'video',
+    category: 'recording',
     tooltip:
       'Write a manifest.json in the output folder mapping each clip file to its full metadata (source replay, frames, players, characters, combo/edgeguard stats, overlay tokens) — for building overlays or post-processing on another machine. Written up front and updated as each clip finishes, so an interrupted recording still leaves a valid manifest.',
   },
@@ -1962,7 +2024,7 @@ export const videoConfig = [
     default: false,
     id: 'detectDuplicatesOnImport',
     type: 'checkbox',
-    category: 'general',
+    category: 'project',
     warning: 'Can significantly slow down imports with large file counts',
     tooltip:
       'Skip files that are already in the project during import. Compares by file path.',
@@ -1972,7 +2034,7 @@ export const videoConfig = [
     default: true,
     id: 'includeDefaultFilters',
     type: 'checkbox',
-    category: 'general',
+    category: 'project',
     tooltip:
       'Automatically add a Combo Parser and Combo Filter when creating new projects.',
   },
@@ -1981,7 +2043,7 @@ export const videoConfig = [
     default: false,
     id: 'branchingEnabled',
     type: 'checkbox',
-    category: 'general',
+    category: 'project',
     tooltip:
       'Advanced: let each filter choose its input (raw Files or any filter above it) instead of always reading from the filter directly above. Turns the filter chain into a tree. When off, existing branch links are kept but the chain runs linearly.',
   },
@@ -1990,7 +2052,7 @@ export const videoConfig = [
     default: true,
     id: 'warnOnParserDelete',
     type: 'checkbox',
-    category: 'general',
+    category: 'project',
     tooltip:
       'Show a confirmation dialog before deleting a combo parser that was run on many files.',
   },
@@ -2026,7 +2088,7 @@ export const videoConfig = [
     default: true,
     id: 'sendAnonymousUsage',
     type: 'checkbox',
-    category: 'general',
+    category: 'diagnostics',
     description:
       'Sends anonymous stats to help improve Lunar Clipper. No personal data is collected.',
     tooltip:
