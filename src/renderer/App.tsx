@@ -14,7 +14,9 @@ import LoadingScreen from './components/LoadingScreen'
 import UpdateBanner from './components/UpdateBanner'
 import ConsentNotice from './components/ConsentNotice'
 import SetupWizard from './components/SetupWizard'
+import DevScreenSwitcher from './components/DevScreenSwitcher'
 import { WelcomeModal } from './components/GettingStarted'
+import ProjectIdeas from './components/ProjectIdeas'
 import SlpzWizard from './components/SlpzWizard'
 import ZipWizard from './components/ZipWizard'
 import {
@@ -382,6 +384,24 @@ export default function App() {
     null,
   )
   const [welcomeOpen, setWelcomeOpen] = useState(false)
+  const [projectIdeasOpen, setProjectIdeasOpen] = useState(false)
+  // Guards the first-project welcome to fire at most once per session.
+  const projectIdeasFiredRef = useRef(false)
+
+  // Show the "what do you want to make?" welcome the first time the user reaches
+  // the main screen (a project is open) — not on the empty start screen, not on
+  // the loading/consent steps. Fires once ever (config.projectIdeasSeen) and
+  // waits for the consent banner to be handled first. Skipped while a dev screen
+  // is being force-previewed (that path drives its own visibility below).
+  useEffect(() => {
+    if (projectIdeasFiredRef.current) return
+    if (!config || !archive) return
+    if (config.devForceScreen) return
+    if (config.projectIdeasSeen) return
+    if (!config.consentNoticeSeen) return
+    projectIdeasFiredRef.current = true
+    setProjectIdeasOpen(true)
+  }, [archive, config])
 
   const triggerSetupWizard = (mode: 'play' | 'record') => setWizardMode(mode)
 
@@ -445,6 +465,48 @@ export default function App() {
     return <LoadingScreen />
   }
 
+  // Dev-only screen forcer: pin one onboarding screen exclusively while
+  // iterating on it. Honored only in a dev build or with Test Mode on; ignored
+  // for normal users. See DevScreenSwitcher / config.devForceScreen.
+  const devScreensEnabled =
+    process.env.NODE_ENV === 'development' || !!config.testMode
+  const forced = devScreensEnabled ? config.devForceScreen || '' : ''
+  const forcing = forced !== ''
+  const setForced = (value: string) => {
+    setConfig((prev) => (prev ? { ...prev, devForceScreen: value } : prev))
+    ipcBridge.updateConfig({ key: 'devForceScreen', value })
+  }
+  const devSwitcher = devScreensEnabled ? (
+    <DevScreenSwitcher value={forced} onChange={setForced} />
+  ) : null
+
+  // Forcing 'loading' short-circuits to just the loading screen (+ switcher).
+  if (forced === 'loading') {
+    return (
+      <>
+        <LoadingScreen />
+        {devSwitcher}
+      </>
+    )
+  }
+
+  // Overlay visibility. When forcing, show ONLY the forced overlay; otherwise
+  // normal first-run behavior. Dismissing a forced overlay clears the force.
+  const showConsent = forcing ? forced === 'consent' : !config.consentNoticeSeen
+  const showWelcome = forcing ? forced === 'welcome' : welcomeOpen
+  const showProjectIdeas = forcing
+    ? forced === 'project-ideas'
+    : projectIdeasOpen
+  const effectiveWizardMode = forcing
+    ? forced === 'setup-play'
+      ? 'play'
+      : forced === 'setup-record'
+        ? 'record'
+        : null
+    : wizardMode
+  const showSlpz = !forcing && slpzDefaultOutputDir !== null
+  const showZip = !forcing && zipWizardData !== null
+
   return (
     <>
       {updateStatus && (
@@ -453,53 +515,85 @@ export default function App() {
           onDismiss={() => setUpdateStatus(null)}
         />
       )}
-      {config && !config.consentNoticeSeen && (
-        <ConsentNotice
-          onDismiss={() => {
-            setConfig((prev) =>
-              prev ? { ...prev, consentNoticeSeen: true } : prev,
-            )
-            ipcBridge.updateConfig({ key: 'consentNoticeSeen', value: true })
-          }}
-        />
+      {showConsent && (
+        // The consent notice is an in-flow top banner; `.main` (absolute,
+        // full-viewport) paints over it. When forcing it for preview, lift it
+        // into a fixed top-bar layer above `.main` so it's actually visible
+        // over the empty-state background.
+        <div
+          style={
+            forcing
+              ? { position: 'fixed', top: 0, left: 0, right: 0, zIndex: 5000 }
+              : undefined
+          }
+        >
+          <ConsentNotice
+            onDismiss={() => {
+              if (forcing) {
+                setForced('')
+                return
+              }
+              setConfig((prev) =>
+                prev ? { ...prev, consentNoticeSeen: true } : prev,
+              )
+              ipcBridge.updateConfig({ key: 'consentNoticeSeen', value: true })
+            }}
+          />
+        </div>
       )}
-      {slpzDefaultOutputDir !== null && (
+      {showSlpz && slpzDefaultOutputDir !== null && (
         <SlpzWizard
           defaultOutputDir={slpzDefaultOutputDir}
           onDismiss={() => setSlpzDefaultOutputDir(null)}
         />
       )}
-      {zipWizardData && (
+      {showZip && zipWizardData && (
         <ZipWizard
           zipFiles={zipWizardData.zipFiles}
           defaultOutputDir={zipWizardData.defaultOutputDir}
           onDismiss={() => setZipWizardData(null)}
         />
       )}
-      {wizardMode && (
+      {effectiveWizardMode && (
         <SetupWizard
           config={config}
           setConfig={setConfig}
-          mode={wizardMode}
+          mode={effectiveWizardMode}
           onDismiss={(completed) => {
-            if (completed) setPendingAction(wizardMode)
+            if (forcing) {
+              setForced('')
+              return
+            }
+            if (completed) setPendingAction(effectiveWizardMode)
             setWizardMode(null)
           }}
         />
       )}
-      {welcomeOpen && (
+      {showWelcome && (
         <WelcomeModal
           config={config}
           setConfig={setConfig}
           triggerSetupWizard={triggerSetupWizard}
-          onClose={() => setWelcomeOpen(false)}
+          onClose={() => (forcing ? setForced('') : setWelcomeOpen(false))}
         />
       )}
+      {showProjectIdeas && (
+        <ProjectIdeas
+          config={config}
+          setConfig={setConfig}
+          preview={forcing}
+          onClose={() => (forcing ? setForced('') : setProjectIdeasOpen(false))}
+        />
+      )}
+      {devSwitcher}
       <ArchiveContext.Provider value={archiveCtx}>
         <ConfigContext.Provider value={configCtx}>
           <ErrorBoundary>
             <Main
-              archive={archive}
+              // When forcing an onboarding screen, render Main against the
+              // fresh no-project empty state so previews match a new user (and
+              // 'empty' works even with a project open). Real archive untouched.
+              archive={forcing ? null : archive}
               setArchive={setArchive}
               config={config}
               setConfig={setConfig}

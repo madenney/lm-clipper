@@ -80,6 +80,7 @@ export const config = {
   installId: '',
   lastUsagePing: '',
   consentNoticeSeen: false,
+  projectIdeasSeen: false,
   approvedCustomCodeHashes: [] as string[],
   outputFilenamePattern: '{index}',
   defaultProjectDirectory: '',
@@ -773,6 +774,7 @@ return clips.filter(clip => {
     },
   ] as SavedCustomFilter[],
   testMode: false,
+  devForceScreen: '',
 }
 
 export const archive = {

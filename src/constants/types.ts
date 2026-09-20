@@ -415,6 +415,7 @@ export interface ConfigInterface {
   installId?: string // random UUID, generated once on first run
   lastUsagePing?: string // YYYY-MM-DD of the last app_open ping (daily dedupe)
   consentNoticeSeen?: boolean // first-run usage-stats disclosure dismissed
+  projectIdeasSeen?: boolean // first-project "what to make" welcome dismissed
   // SHA-256 hashes of custom-filter code the user has approved to run (the
   // custom-code consent gate). Running unapproved custom code prompts first.
   approvedCustomCodeHashes?: string[]
@@ -429,6 +430,10 @@ export interface ConfigInterface {
   includeDefaultFilters: boolean
   savedCustomFilters: SavedCustomFilter[]
   testMode?: boolean
+  // Dev only: pin a specific onboarding screen so it renders exclusively while
+  // iterating on it. Honored only when testMode is on or in a development build;
+  // ignored (and hidden) for normal users. '' / undefined = normal app flow.
+  devForceScreen?: string
   // Advanced: lets a filter read from any earlier filter (or raw Files) instead
   // of just the one above it, turning the chain into a tree. Default off; when
   // off, saved branch links are preserved but ignored (chain runs linearly).
