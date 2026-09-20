@@ -312,30 +312,39 @@ const createWindow = async () => {
       ipcMain.on('install-update', () => {
         autoUpdater.quitAndInstall()
       })
-      ipcMain.on('check-for-updates', () => {
-        mainWindow?.webContents.send('update-checking')
-        autoUpdater
-          .checkForUpdates()
-          .then((result: { updateInfo?: { version?: string } } | null) => {
-            if (
-              !result ||
-              !result.updateInfo ||
-              result.updateInfo.version === app.getVersion()
-            ) {
-              mainWindow?.webContents.send('update-not-available')
-            }
-          })
-          .catch((err: { message?: string }) => {
-            logMain('updater-check-failed', err?.message ?? err)
-            mainWindow?.webContents.send(
-              'update-error',
-              err?.message ?? 'Check failed',
-            )
-          })
-      })
-      autoUpdater.checkForUpdates().catch((err: { message?: string }) => {
-        logMain('updater-check-failed', err?.message ?? err)
-      })
+      // Run a check on request. `silent` (the renderer's on-mount check) only
+      // surfaces a *found* update — no "checking…"/"up to date"/transient-error
+      // noise every launch. A non-silent check (Help → Check for Updates) shows
+      // the full feedback. Either way a newer version fires autoUpdater's own
+      // 'update-available' handler above, which sends the banner.
+      ipcMain.on(
+        'check-for-updates',
+        (_event, payload?: { silent?: boolean }) => {
+          const silent = payload?.silent === true
+          if (!silent) mainWindow?.webContents.send('update-checking')
+          autoUpdater
+            .checkForUpdates()
+            .then((result: { updateInfo?: { version?: string } } | null) => {
+              const found = result?.updateInfo?.version
+              if (!silent && (!found || found === app.getVersion())) {
+                mainWindow?.webContents.send('update-not-available')
+              }
+            })
+            .catch((err: { message?: string }) => {
+              logMain('updater-check-failed', err?.message ?? err)
+              if (!silent) {
+                mainWindow?.webContents.send(
+                  'update-error',
+                  err?.message ?? 'Check failed',
+                )
+              }
+            })
+        },
+      )
+      // NOTE: the launch check is now driven by the renderer once its IPC
+      // listeners are mounted (App.tsx sends `check-for-updates {silent:true}`),
+      // so a found update can no longer be dropped by the old ready-to-show
+      // race. Do NOT re-add an unconditional checkForUpdates() here.
     }
   })
 

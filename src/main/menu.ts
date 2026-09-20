@@ -95,6 +95,12 @@ export default class MenuBuilder {
           this.mainWindow.webContents.send('showWelcome')
         },
       },
+      {
+        label: 'Check for Updates…',
+        click: () => {
+          this.mainWindow.webContents.send('trigger-update-check')
+        },
+      },
       { type: 'separator' },
       {
         label: 'Lunar Clipper on GitHub',

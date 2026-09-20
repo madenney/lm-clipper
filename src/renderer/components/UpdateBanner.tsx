@@ -1,9 +1,11 @@
 import type { CSSProperties } from 'react'
 
 type UpdateStatus =
+  | { state: 'checking' }
   | { state: 'available'; version: string }
   | { state: 'downloading'; percent: number }
   | { state: 'ready' }
+  | { state: 'not-available' }
   | { state: 'error'; message: string }
 
 type Props = {
@@ -41,6 +43,25 @@ const btnStyle: CSSProperties = {
 }
 
 export default function UpdateBanner({ status, onDismiss }: Props) {
+  if (status.state === 'checking') {
+    return (
+      <div style={bannerStyle}>
+        <span>Checking for updates…</span>
+      </div>
+    )
+  }
+
+  if (status.state === 'not-available') {
+    return (
+      <div style={bannerStyle}>
+        <span>You&apos;re up to date ✓</span>
+        <button type="button" style={btnStyle} onClick={onDismiss}>
+          Dismiss
+        </button>
+      </div>
+    )
+  }
+
   if (status.state === 'available') {
     return (
       <div style={bannerStyle}>

@@ -76,9 +76,11 @@ export default function App() {
   const [archive, setArchive] = useState<ShallowArchiveInterface | null>(null)
   const [config, setConfig] = useState<ConfigInterface | null>(null)
   const [updateStatus, setUpdateStatus] = useState<
+    | { state: 'checking' }
     | { state: 'available'; version: string }
     | { state: 'downloading'; percent: number }
     | { state: 'ready' }
+    | { state: 'not-available' }
     | { state: 'error'; message: string }
     | null
   >(null)
@@ -222,6 +224,23 @@ export default function App() {
       },
     )
 
+    const removeUpdateChecking = window.electron.ipcRenderer.on(
+      'update-checking',
+      () => setUpdateStatus({ state: 'checking' }),
+    )
+
+    const removeUpdateNotAvailable = window.electron.ipcRenderer.on(
+      'update-not-available',
+      () => setUpdateStatus({ state: 'not-available' }),
+    )
+
+    // Help → Check for Updates. Runs a user-initiated (non-silent) check so the
+    // "checking…" / "up to date" / error states surface, not just a found one.
+    const removeTriggerUpdateCheck = window.electron.ipcRenderer.on(
+      'trigger-update-check',
+      () => window.electron.ipcRenderer.sendMessage('check-for-updates', {}),
+    )
+
     const removeTemplatesUpdated = window.electron.ipcRenderer.on(
       'config-templates-updated',
       (templates: SavedCustomFilter[]) => {
@@ -236,6 +255,17 @@ export default function App() {
       () => setWelcomeOpen(true),
     )
 
+    // Kick the update check now that the listeners above are registered. The
+    // main process's launch check fires on `ready-to-show`, which can (and on
+    // some machines reliably does) beat React mounting — so its resulting
+    // `update-available` was landing before anything was listening and getting
+    // dropped, i.e. an available update never showed a banner. Re-running it
+    // here guarantees a listener exists. `silent` keeps it quiet unless there's
+    // actually an update (no "checking…"/"up to date" noise on every launch).
+    window.electron.ipcRenderer.sendMessage('check-for-updates', {
+      silent: true,
+    })
+
     return () => {
       removeCloseListener()
       removeOpenListener()
@@ -249,10 +279,20 @@ export default function App() {
       removeUpdateProgress()
       removeUpdateDownloaded()
       removeUpdateError()
+      removeUpdateChecking()
+      removeUpdateNotAvailable()
+      removeTriggerUpdateCheck()
       removeTemplatesUpdated()
       removeShowWelcomeListener()
     }
   }, [])
+
+  // "You're up to date" is informational — auto-clear it after a few seconds.
+  useEffect(() => {
+    if (updateStatus?.state !== 'not-available') return undefined
+    const t = setTimeout(() => setUpdateStatus(null), 4000)
+    return () => clearTimeout(t)
+  }, [updateStatus])
 
   useEffect(() => {
     const handleError = (event: ErrorEvent) => {
