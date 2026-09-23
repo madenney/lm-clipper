@@ -8,15 +8,18 @@ import { CSSProperties } from 'react'
 
 // The forceable screens. Keep the ids in sync with App.tsx's forced-render
 // branch. '' = normal app flow.
+// Labels mirror APP_FLOW.md's flow table. "reference" = how-it-works (passive),
+// "guidance" = what-to-do-now (active). Keep ids in sync with App.tsx's forced
+// branch and with APP_FLOW.md.
 export const DEV_SCREENS: { id: string; label: string }[] = [
   { id: '', label: 'Normal (live app)' },
-  { id: 'loading', label: 'Loading screen' },
-  { id: 'consent', label: 'Consent notice' },
-  { id: 'welcome', label: 'Welcome modal' },
-  { id: 'project-ideas', label: 'Project ideas (1st project)' },
-  { id: 'setup-play', label: 'Setup wizard — Play' },
-  { id: 'setup-record', label: 'Setup wizard — Record' },
-  { id: 'empty', label: 'Empty / start screen' },
+  { id: 'loading', label: '1 · Loading screen' },
+  { id: 'empty', label: '2 · Start screen (no project)' },
+  { id: 'consent', label: '3 · Consent banner' },
+  { id: 'welcome', label: '4 · Getting Started (Help→Welcome) — reference' },
+  { id: 'project-ideas', label: '6 · What to make? (1st-run) — guidance' },
+  { id: 'setup-play', label: '8 · Setup wizard — Play' },
+  { id: 'setup-record', label: '8 · Setup wizard — Record' },
 ]
 
 const box: CSSProperties = {
