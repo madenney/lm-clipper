@@ -72,6 +72,10 @@
   padding: 0 5px;
   color: #c9c9c9;
 }
+.pi-sub strong {
+  color: #6fd3e0;
+  font-weight: 600;
+}
 
 .pi-cols {
   display: grid;
@@ -87,6 +91,35 @@
   border-top: 2px solid #2a8b9a;
   border-radius: 8px;
   padding: 14px 15px 15px;
+  /* button resets — the whole card is clickable */
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  transition:
+    transform 0.08s ease,
+    border-color 0.12s ease,
+    box-shadow 0.12s ease,
+    background 0.12s ease;
+}
+.pi-col:hover:not(:disabled) {
+  background: #222;
+  border-color: #3a3a3a;
+  border-top-color: #48c0d2;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+  transform: translateY(-2px);
+}
+.pi-col:active:not(:disabled) {
+  transform: translateY(0);
+}
+.pi-col:focus-visible {
+  outline: 2px solid #48c0d2;
+  outline-offset: 2px;
+}
+.pi-col:disabled {
+  cursor: default;
+}
+.pi-cols:has(.pi-col:disabled) .pi-col:not([data-busy='true']) {
+  opacity: 0.55;
 }
 
 .pi-col-tag {
@@ -135,40 +168,43 @@
   font-weight: 700;
 }
 
+.pi-col-cta {
+  margin-top: auto;
+  padding-top: 12px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #6fd3e0;
+}
+.pi-col:hover:not(:disabled) .pi-col-cta {
+  color: #9be9f3;
+}
+
 .pi-footer {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: center;
   gap: 16px;
   margin-top: 18px;
   padding-top: 14px;
   border-top: 1px solid #262626;
 }
 
-.pi-dontshow {
-  display: flex;
-  align-items: center;
-  gap: 7px;
+.pi-skip {
+  background: none;
+  border: none;
+  color: #8a8a8a;
   font-size: 12.5px;
-  color: #9a9a9a;
   cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
 }
-.pi-dontshow input {
-  cursor: pointer;
+.pi-skip:hover:not(:disabled) {
+  color: #cfcfcf;
+  text-decoration: underline;
 }
-
-.pi-got-it {
-  background: linear-gradient(180deg, #1f6b78 0%, #15505a 100%);
-  border: 1px solid #2a8b9a;
-  border-radius: 6px;
-  color: #eafcff;
-  font-size: 13px;
-  font-weight: 600;
-  padding: 8px 16px;
-  cursor: pointer;
-}
-.pi-got-it:hover {
-  background: linear-gradient(180deg, #24808f 0%, #196070 100%);
+.pi-skip:disabled {
+  cursor: default;
+  opacity: 0.5;
 }
 
 @media (max-width: 720px) {

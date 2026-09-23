@@ -169,6 +169,9 @@ export default {
   addFilter(type: string, handler?: ResponseHandler<any>) {
     return request('addFilter', type, 'addFilter', handler)
   },
+  applyStarterChain(key: string, handler?: ResponseHandler<any>) {
+    return request('applyStarterChain', key, 'applyStarterChain', handler)
+  },
   removeFilter(id: string, handler?: ResponseHandler<any>) {
     return request('removeFilter', id, 'removeFilter', handler)
   },

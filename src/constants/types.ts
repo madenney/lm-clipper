@@ -750,6 +750,7 @@ export interface ArchiveInterface {
     ids: number[],
   ): Promise<(ClipInterface | FileInterface | LiteItem)[]>
   addFilter?(newFilterJSON: FilterInterface): Promise<void>
+  replaceDownstreamFilters?(downstream: FilterInterface[]): Promise<void>
   deleteFilter?(filterId: string): Promise<void>
   saveMetaData?(): Promise<void>
   resetFiltersFrom?(

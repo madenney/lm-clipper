@@ -250,6 +250,24 @@ export default class Archive {
     await this.saveMetaData()
   }
 
+  // Replace the whole downstream chain in one shot, keeping the base Game Filter
+  // (type 'files') intact. Used by the first-run starter picker: drops every
+  // non-files filter's result table, then builds the supplied chain fresh.
+  async replaceDownstreamFilters(downstream: FilterInterface[]) {
+    const filesFilter = this.filters.find((f) => f.type === 'files')
+    await asyncForEach(this.filters, async (f: FilterInterface) => {
+      if (f.type === 'files') return
+      await deleteFilter(this.path, f.id)
+    })
+    this.filters = filesFilter ? [filesFilter] : []
+    await asyncForEach(downstream, async (json: FilterInterface) => {
+      const newFilter = new Filter(json)
+      await newFilter.init(this.path)
+      this.filters.push(newFilter)
+    })
+    await this.saveMetaData()
+  }
+
   async deleteFilter(filterId: string) {
     const selectedFilter = this.filters.find((f) => f.id === filterId)
     if (!selectedFilter) {

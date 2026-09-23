@@ -805,6 +805,96 @@ export default class Controller {
     }
   }
 
+  // Build a fresh filter JSON of `type` with its config-default params (plus any
+  // overrides), assigning a unique id. Mirrors the defaulting in addFilter.
+  private buildFilterJSON(
+    type: string,
+    existingIds: Set<string>,
+    paramOverrides?: Record<string, any>,
+  ): FilterInterface {
+    const template = filtersConfig.find((p) => p.id === type)
+    if (!template) throw new Error(`Invalid Filter Type ${type}`)
+    let newFilterId: string
+    do {
+      const randomNum = Math.floor(1000 + Math.random() * 90000)
+      newFilterId = `filter_${randomNum}`
+    } while (existingIds.has(newFilterId))
+    existingIds.add(newFilterId)
+    const json: FilterInterface = {
+      id: newFilterId,
+      results: 0,
+      type: template.id,
+      isProcessed: false,
+      label: template.label,
+      params: {},
+    }
+    template.options.forEach((option) => {
+      json.params[option.id] = option.default
+    })
+    if (paramOverrides) Object.assign(json.params, paramOverrides)
+    return json
+  }
+
+  // First-run starter picker (ProjectIdeas modal). Replaces the downstream chain
+  // with a purpose-built one for the chosen goal, keeping the base Game Filter.
+  async applyStarterChain(event: IpcMainEvent, data: RequestEnvelope<string>) {
+    const { requestId, payload } = unpackRequest<string>(data)
+    if (!this.archive) {
+      try {
+        await this.createNewArchiveInternal({
+          name: this.config.projectName || undefined,
+        })
+      } catch (error) {
+        console.error('Error creating default DB:', error)
+      }
+    }
+    if (
+      !this.archive ||
+      !this.archive.shallowCopy ||
+      !this.archive.replaceDownstreamFilters
+    )
+      return reply(event, 'applyStarterChain', requestId, {
+        error: 'archive undefined',
+      })
+
+    const CHAINS: Record<
+      string,
+      Array<{ type: string; params?: Record<string, any> }>
+    > = {
+      combos: [
+        { type: 'slpParser' },
+        { type: 'comboFilter' },
+        { type: 'sort', params: { sortFunction: 'dps' } },
+      ],
+      edgeguards: [
+        { type: 'edgeguard' },
+        { type: 'edgeguardFilter' },
+        { type: 'sort', params: { sortFunction: 'edgeguardScore' } },
+      ],
+      custom: [{ type: 'custom' }],
+    }
+    const spec = payload ? CHAINS[payload] : undefined
+    if (!spec)
+      return reply(event, 'applyStarterChain', requestId, {
+        error: `unknown starter chain: ${payload}`,
+      })
+
+    const existingIds = new Set(this.archive.filters.map((f) => f.id))
+    try {
+      const downstream = spec.map((s) =>
+        this.buildFilterJSON(s.type, existingIds, s.params),
+      )
+      await this.archive.replaceDownstreamFilters(downstream)
+      const metadata = await this.archive.shallowCopy()
+      return reply(event, 'applyStarterChain', requestId, metadata)
+    } catch (error) {
+      console.error('[applyStarterChain] error:', error)
+      return reply(event, 'applyStarterChain', requestId, {
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
+  }
+
   async removeFilter(event: IpcMainEvent, data: RequestEnvelope<string>) {
     const { requestId, payload } = unpackRequest<string>(data)
     if (
@@ -1411,6 +1501,7 @@ export default class Controller {
     )
     ipcMain.on('closeArchive', this.closeArchive.bind(this))
     ipcMain.on('addFilter', this.addFilter.bind(this))
+    ipcMain.on('applyStarterChain', this.applyStarterChain.bind(this))
     ipcMain.on('updateFilter', this.updateFilter.bind(this))
     ipcMain.on('reorderFilter', this.reorderFilter.bind(this))
     ipcMain.on('removeFilter', this.removeFilter.bind(this))

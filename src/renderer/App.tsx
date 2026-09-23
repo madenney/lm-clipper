@@ -428,14 +428,17 @@ export default function App() {
   // Guards the first-project welcome to fire at most once per session.
   const projectIdeasFiredRef = useRef(false)
 
-  // Show the "what do you want to make?" welcome the first time the user reaches
-  // the main screen (a project is open) — not on the empty start screen, not on
-  // the loading/consent steps. Fires once ever (config.projectIdeasSeen) and
-  // waits for the consent banner to be handled first. Skipped while a dev screen
-  // is being force-previewed (that path drives its own visibility below).
+  // Show the "what do you want to make?" onboarding the first time a project
+  // actually has replays in it — i.e. right after the first import — NOT merely
+  // when a project opens. This keeps it from covering the tray's own import
+  // prompt on an empty New Project, and guarantees the cards have data to act on
+  // (picking one builds a chain the user can immediately run). Fires once ever
+  // (config.projectIdeasSeen), after consent is handled, and never while a dev
+  // screen is being force-previewed (that path drives its own visibility below).
   useEffect(() => {
     if (projectIdeasFiredRef.current) return
     if (!config || !archive) return
+    if (!archive.files || archive.files <= 0) return
     if (config.devForceScreen) return
     if (config.projectIdeasSeen) return
     if (!config.consentNoticeSeen) return
@@ -621,6 +624,8 @@ export default function App() {
         <ProjectIdeas
           config={config}
           setConfig={setConfig}
+          setArchive={setArchive}
+          fileCount={archive?.files ?? null}
           preview={forcing}
           onClose={() => (forcing ? setForced('') : setProjectIdeasOpen(false))}
         />

@@ -26,6 +26,7 @@ const SEND_CHANNELS = new Set([
   'stopImport',
   'closeArchive',
   'addFilter',
+  'applyStarterChain',
   'updateFilter',
   'reorderFilter',
   'removeFilter',
