@@ -3,7 +3,7 @@ const characters = [
     id: 0,
     name: 'Captain Falcon',
     shortName: 'Falcon',
-    colors: ['Default', 'Black', 'Red', 'Pink', 'Green', 'Blue'],
+    colors: ['Default', 'Black', 'Red', 'White', 'Green', 'Blue'],
     img: 'character-icons/falcon/',
   },
   {
@@ -52,7 +52,7 @@ const characters = [
     id: 7,
     name: 'Luigi',
     shortName: 'Luigi',
-    colors: ['Default', 'White', 'Blue', 'Pink'],
+    colors: ['Default', 'White', 'Blue', 'Red'],
     img: 'character-icons/luigi/',
   },
   {
@@ -94,7 +94,7 @@ const characters = [
     id: 13,
     name: 'Pikachu',
     shortName: 'Pikachu',
-    colors: ['Default', 'Red', 'Party_Hat', 'Fedora'],
+    colors: ['Default', 'Red', 'Party Hat', 'Cowboy Hat'],
     img: 'character-icons/pikachu/',
   },
   {
@@ -108,7 +108,7 @@ const characters = [
     id: 15,
     name: 'Jigglypuff',
     shortName: 'Puff',
-    colors: ['Default', 'Flower', 'Bow', 'Headband', 'Crown'],
+    colors: ['Default', 'Red', 'Blue', 'Headband', 'Crown'],
     img: 'character-icons/puff/',
   },
   {
@@ -216,14 +216,14 @@ const sortedCharacters = [
     id: 15,
     name: 'Jigglypuff',
     shortName: 'Puff',
-    colors: ['Default', 'Flower', 'Bow', 'Headband', 'Crown'],
+    colors: ['Default', 'Red', 'Blue', 'Headband', 'Crown'],
     img: 'character-icons/puff/',
   },
   {
     id: 0,
     name: 'Captain Falcon',
     shortName: 'Falcon',
-    colors: ['Default', 'Black', 'Red', 'Pink', 'Green', 'Blue'],
+    colors: ['Default', 'Black', 'Red', 'White', 'Green', 'Blue'],
     img: 'character-icons/falcon/',
   },
   {
@@ -244,7 +244,7 @@ const sortedCharacters = [
     id: 13,
     name: 'Pikachu',
     shortName: 'Pikachu',
-    colors: ['Default', 'Red', 'Party_Hat', 'Fedora'],
+    colors: ['Default', 'Red', 'Party Hat', 'Cowboy Hat'],
     img: 'character-icons/pikachu/',
   },
   {
@@ -265,7 +265,7 @@ const sortedCharacters = [
     id: 7,
     name: 'Luigi',
     shortName: 'Luigi',
-    colors: ['Default', 'White', 'Blue', 'Pink'],
+    colors: ['Default', 'White', 'Blue', 'Red'],
     img: 'character-icons/luigi/',
   },
   {

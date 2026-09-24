@@ -90,6 +90,9 @@ export default class Archive {
     // archive's own file count is lazily hydrated and reads null right after an
     // import invalidates it.
     let inserted = 0
+    // Not errors: games Clipper doesn't import, and files already in the project.
+    let skipped = 0
+    let duplicates = 0
     let lastProgressAt = 0
     let pendingBatch: FileInterface[] = []
     let flushQueue = Promise.resolve()
@@ -164,6 +167,7 @@ export default class Archive {
         try {
           const existingFile = await getFileByPath(this.path, path)
           if (existingFile) {
+            duplicates += 1
             processed += 1
             emitProgress()
             return
@@ -187,6 +191,7 @@ export default class Archive {
       }
 
       if (!fileJSON || !fileJSON.isValid) {
+        skipped += 1
         processed += 1
         emitProgress()
         return
@@ -240,7 +245,7 @@ export default class Archive {
       this.activeImportPool = null
     }
 
-    return { terminated, failed, inserted }
+    return { terminated, failed, inserted, skipped, duplicates }
   }
 
   async addFilter(newFilterJSON: FilterInterface) {

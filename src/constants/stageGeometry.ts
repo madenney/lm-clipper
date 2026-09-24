@@ -97,7 +97,7 @@ const stageGeometry: Record<number, StageGeometryEntry> = {
   // Dream Land
   28: {
     id: 28,
-    name: 'Dream Land',
+    name: 'Dream Land N64',
     ground: { xMin: -77.2713, xMax: 77.2713, y: 0 },
     ledgeGrab: 80.1792,
     platforms: [

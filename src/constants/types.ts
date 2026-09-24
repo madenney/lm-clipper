@@ -733,7 +733,13 @@ export interface ArchiveInterface {
         slpzOutputDir: string
       }
     },
-  ): Promise<{ terminated: boolean; failed: number; inserted: number }>
+  ): Promise<{
+    terminated: boolean
+    failed: number
+    inserted: number
+    skipped?: number
+    duplicates?: number
+  }>
   getItems?(params: {
     filterId: string
     numPerPage?: number

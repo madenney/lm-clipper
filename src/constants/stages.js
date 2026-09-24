@@ -19,7 +19,7 @@ export const legalStages = [
   },
   {
     id: 28,
-    name: 'Dream Land',
+    name: 'Dream Land N64',
     shortName: 'Dreamland',
     tag: 'dl',
   },
@@ -124,7 +124,7 @@ export const stages = {
   },
   16: {
     id: 16,
-    name: "Yoshi's Island'",
+    name: "Yoshi's Island",
     img: 'stages/nonlegal.jpg',
     tag: 'yi',
   },
@@ -190,7 +190,7 @@ export const stages = {
   },
   28: {
     id: 28,
-    name: 'Dream Land',
+    name: 'Dream Land N64',
     img: 'stages/dreamland.jpg',
     tag: 'dl',
   },

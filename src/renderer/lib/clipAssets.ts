@@ -128,7 +128,8 @@ export const resolveCharacterImage = (
     ?.replace(/^character-icons\//, '')
     .replace(/\/$/, '')
   if (!folder) return undefined
-  return charImages.get(`${folder}/${color}`)
+  // Icon files use underscores for spaces in slippi-js costume names.
+  return charImages.get(`${folder}/${color.replace(/ /g, '_')}`)
 }
 
 /**

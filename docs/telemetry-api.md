@@ -2,9 +2,10 @@
 
 > **Audience:** whoever builds the server-side ingest endpoint + admin dashboard
 > on **lunarmelee.com**. This document is the source of truth for what the
-> desktop app sends. The client implementation lives in the `lm-clipper` repo:
-> `src/main/telemetry.ts` (sender) and the call sites listed below. Keep this
-> doc and that file in sync.
+> desktop app sends. The client implementation is in `apps/clipper`:
+> `src/main/telemetry.ts` (sender), `src/constants/telemetryEvents.ts` (event
+> names) and the call sites listed below. The website handler is
+> `apps/website/src/pages/api/app-usage.ts`. Keep all of them in sync.
 
 ## Overview
 
@@ -93,7 +94,7 @@ Field notes for the server:
 | `video_created`    | Clips finished rendering (checkpointed — see below) | None                   |
 | `import_completed` | An `.slp` import finished (not cancelled)     | None                         |
 | `filter_run`       | A filter finished running (not cancelled)     | None                         |
-| `ai_prompt_copied` | "Copy AI Prompt" clicked in the code editor   | None                         |
+| `ai_prompt_copied` | "Copy AI Prompt" clicked in the code editor   | `mode`                       |
 | `usage_opt_out`    | The user switched usage data **off**          | Last event the install sends |
 | `usage_opt_in`     | The user switched usage data back **on**      | None                         |
 
@@ -250,7 +251,7 @@ daily rollup table keyed on `(day, event)` keeps the dashboard cheap.
   could duplicate — de-dupe on `(install_id, event='install')` if exact install
   counts matter.
 
-## Client reference (lm-clipper repo)
+## Client reference (apps/clipper)
 
 - **Sender:** `src/main/telemetry.ts` — `initTelemetry({ getConfig })` + `track(event, data)`.
 - **Install id + `install`/`app_open`:** `src/main/controller.ts`

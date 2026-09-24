@@ -1,6 +1,7 @@
 import https from 'https'
 import { app } from 'electron'
 import type { ConfigInterface } from '../constants/types'
+import type { TelemetryEvent } from '../constants/telemetryEvents'
 
 // Anonymous usage telemetry. Fire-and-forget pings to the lunarmelee.com
 // ingest endpoint, used to drive the admin dashboard. The wire contract
@@ -9,15 +10,7 @@ import type { ConfigInterface } from '../constants/types'
 
 const ENDPOINT = 'https://www.lunarmelee.com/api/app-usage'
 
-export type TelemetryEvent =
-  | 'install' // once, the first time a fresh install launches
-  | 'app_open' // at most once per calendar day (DAU / version / OS)
-  | 'video_created' // a checkpoint of rendered clips (many per render, shared renderId)
-  | 'import_completed' // an import finished (files added)
-  | 'filter_run' // a filter finished running
-  | 'ai_prompt_copied' // the "Copy AI Prompt" button in the custom-code editor
-  | 'usage_opt_out' // the user just turned this off — the last event we send
-  | 'usage_opt_in' // the user turned it back on
+export type { TelemetryEvent }
 
 let getConfig: (() => ConfigInterface) | null = null
 
