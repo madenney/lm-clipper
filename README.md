@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/lunar_logo.png" alt="Lunar Clipper" width="120">
+<img src="src/images/logo.png" alt="Lunar Clipper" width="120">
 
 # Lunar Clipper
 
