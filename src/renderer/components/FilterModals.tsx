@@ -320,7 +320,8 @@ export function CustomCodeConsentModal({
         )}{' '}
         with <strong>full access to your computer</strong> — your files,
         network, everything. Only run code you wrote yourself or got from
-        someone you trust; code an AI wrote for you counts too, so read it (or ask the AI to explain it) first.
+        someone you trust; code an AI wrote for you counts too, so read it (or
+        ask the AI to explain it) first.
       </div>
       <div className="filter-warn-actions">
         <button

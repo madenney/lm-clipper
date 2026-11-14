@@ -40,7 +40,6 @@ import {
   applyUsageConsent,
   releaseHeldTelemetry,
   reportStartupTelemetry,
-  flushTelemetry,
   telemetrySuppressedReason,
 } from '../main/telemetry'
 // eslint-disable-next-line import/first
@@ -60,7 +59,11 @@ function makeConfig(overrides: Partial<ConfigInterface>): ConfigInterface {
 beforeEach(() => {
   mockApp.isPackaged = true
   for (const k of Object.keys(process.env))
-    if (k === 'LM_CLIPPER_TEST_HOME' || k === 'LM_CLIPPER_TELEMETRY_FORCE' || k.startsWith('LM_CLIPPER_AUTORUN_'))
+    if (
+      k === 'LM_CLIPPER_TEST_HOME' ||
+      k === 'LM_CLIPPER_TELEMETRY_FORCE' ||
+      k.startsWith('LM_CLIPPER_AUTORUN_')
+    )
       delete process.env[k]
   httpsRequest.mockClear()
   mockReq.on.mockClear()
@@ -286,7 +289,9 @@ describe('dev, rig and test runs are not users (analytics review F7)', () => {
     expect(httpsRequest).not.toHaveBeenCalled()
   })
   it('sends nothing with testMode on', () => {
-    initTelemetry({ getConfig: () => makeConfig({ consentNoticeSeen: true, testMode: true }) })
+    initTelemetry({
+      getConfig: () => makeConfig({ consentNoticeSeen: true, testMode: true }),
+    })
     track('app_open')
     expect(httpsRequest).not.toHaveBeenCalled()
   })
@@ -308,7 +313,8 @@ function respondWith(status: number | 'error') {
       }),
       write: jest.fn(),
       end: jest.fn(() => {
-        if (status !== 'error') setImmediate(() => cb({ statusCode: status, resume: jest.fn() }))
+        if (status !== 'error')
+          setImmediate(() => cb({ statusCode: status, resume: jest.fn() }))
       }),
       destroy: jest.fn(),
     }
@@ -365,7 +371,9 @@ describe('launch pings are marked sent only once acknowledged (F19)', () => {
     httpsRequest.mockClear()
     reportStartupTelemetry('1.1.0', new Date('2026-11-12T12:00:00Z'))
     expect(httpsRequest).toHaveBeenCalledTimes(1)
-    expect(JSON.parse(mockReq.write.mock.calls.at(-1)![0]).event).toBe('app_open')
+    expect(JSON.parse(mockReq.write.mock.calls.at(-1)![0]).event).toBe(
+      'app_open',
+    )
   })
   it('keeps an install ping that was held for the notice, and sends it after', async () => {
     config.consentNoticeSeen = false
@@ -390,7 +398,9 @@ describe('flushTelemetry', () => {
       // eslint-disable-next-line global-require
       mod = require('../main/telemetry')
     })
-    mod!.initTelemetry({ getConfig: () => makeConfig({ consentNoticeSeen: true }) })
+    mod!.initTelemetry({
+      getConfig: () => makeConfig({ consentNoticeSeen: true }),
+    })
     return mod!
   }
   it('resolves at once with nothing in flight and waits for a request that is', async () => {

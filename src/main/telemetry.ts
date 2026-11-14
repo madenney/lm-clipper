@@ -47,7 +47,7 @@ export function telemetrySuppressedReason(
 // has been shown (config.consentNoticeSeen), so nothing is sent before the user
 // could have seen it or turned it off (launch review PRIV-1).
 const HELD_UNTIL_NOTICE: TelemetryEvent[] = ['install', 'app_open']
-type Held = { data: Record<string, unknown>; onResult?: (ok: boolean) => void }
+type Held = { data: Record<string, unknown>; onResult?: (_ok: boolean) => void }
 const held = new Map<TelemetryEvent, Held>()
 
 // Requests still on the wire, so a quit can wait a moment for them (flushTelemetry).
@@ -89,7 +89,7 @@ export function flushTelemetry(timeoutMs = 1500): Promise<void> {
 export function track(
   event: TelemetryEvent,
   data: Record<string, unknown> = {},
-  onResult?: (ok: boolean) => void,
+  onResult?: (_ok: boolean) => void,
 ) {
   let reported = false
   const report = (ok: boolean) => {
@@ -181,7 +181,10 @@ export function reportStartupTelemetry(version: string, now = new Date()) {
       saveConfig?.()
     })
   }
-  if (config.lastUsagePing !== today || config.lastUsagePingVersion !== version) {
+  if (
+    config.lastUsagePing !== today ||
+    config.lastUsagePingVersion !== version
+  ) {
     track('app_open', {}, (ok) => {
       const c = getConfig?.()
       if (!ok || !c) return

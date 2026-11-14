@@ -23,7 +23,7 @@ const enabled = () => process.env.NODE_ENV === 'development'
 
 export const debugLog = (label: string, data?: any) => {
   // Developer diagnostics: nothing in a shipped build (launch review CR-1).
-  if (process.env.NODE_ENV !== 'development') return
+  if (!enabled()) return
   const ts = new Date().toISOString()
   const line =
     data !== undefined

@@ -31,9 +31,9 @@ describe('isLocalTestFeed (SEC-7)', () => {
 
 describe('shortUpdateError (CR-4)', () => {
   it('keeps the first line and cuts a long one', () => {
-    expect(shortUpdateError('Cannot find latest.yml\n  at foo (bar.js:1)', 'x')).toBe(
-      'Cannot find latest.yml',
-    )
+    expect(
+      shortUpdateError('Cannot find latest.yml\n  at foo (bar.js:1)', 'x'),
+    ).toBe('Cannot find latest.yml')
     const long = 'a'.repeat(400)
     expect(shortUpdateError(long, 'x').length).toBeLessThanOrEqual(160)
     expect(shortUpdateError(long, 'x').endsWith('...')).toBe(true)

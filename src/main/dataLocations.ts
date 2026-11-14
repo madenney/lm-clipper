@@ -55,8 +55,7 @@ export function cloudSyncProvider(
   }
   const segments = full.split(/[\\/]/).filter(Boolean)
   for (const seg of segments)
-    for (const [re, name] of SYNC_SEGMENTS)
-      if (re.test(seg)) return name
+    for (const [re, name] of SYNC_SEGMENTS) if (re.test(seg)) return name
   return null
 }
 

@@ -201,6 +201,8 @@ describe('client identity headers (XC-4, DL-13)', () => {
     const h = clientHeaders()
     expect(h['User-Agent']).toMatch(/^LunarClipper\/3\.1\.4 \(/)
     expect(h['X-Lunar-App-Version']).toBe('3.1.4')
-    expect(Object.keys(h).map((k) => k.toLowerCase())).not.toContain('x-lunar-install-id')
+    expect(Object.keys(h).map((k) => k.toLowerCase())).not.toContain(
+      'x-lunar-install-id',
+    )
   })
 })

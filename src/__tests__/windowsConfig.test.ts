@@ -61,9 +61,9 @@ describe('cloud-synced and network folders', () => {
     expect(
       cloudSyncProvider('c:/users/BOB/onedrive/Documents/x', env, 'win32'),
     ).toBe('OneDrive')
-    expect(
-      cloudSyncProvider('D:\\OneDrive - Contoso\\Docs', {}, 'win32'),
-    ).toBe('OneDrive')
+    expect(cloudSyncProvider('D:\\OneDrive - Contoso\\Docs', {}, 'win32')).toBe(
+      'OneDrive',
+    )
     expect(cloudSyncProvider('C:\\Users\\bob\\Dropbox\\x', {}, 'win32')).toBe(
       'Dropbox',
     )
@@ -73,7 +73,9 @@ describe('cloud-synced and network folders', () => {
   })
 
   it('does not call a local folder synced', () => {
-    expect(cloudSyncProvider('C:\\Users\\bob\\Documents', env, 'win32')).toBeNull()
+    expect(
+      cloudSyncProvider('C:\\Users\\bob\\Documents', env, 'win32'),
+    ).toBeNull()
     expect(
       cloudSyncProvider('C:\\Users\\bob\\OneDriveBackup\\x', env, 'win32'),
     ).toBeNull()
@@ -219,9 +221,9 @@ describe('the hidden-window launcher failing (WIN-11, REC-13)', () => {
     ])
       expect(hideLauncherFailed(detail, 'win32')).toBe(true)
     expect(hideLauncherFailed('exit code 91', 'linux')).toBe(false)
-    expect(hideLauncherFailed('exit code 1, no output from Dolphin', 'win32')).toBe(
-      false,
-    )
+    expect(
+      hideLauncherFailed('exit code 1, no output from Dolphin', 'win32'),
+    ).toBe(false)
   })
 
   it('hiding stays requested by the setting; the fallback is per session state', () => {
@@ -252,21 +254,28 @@ describe('real Dolphin.ini is only touched when a dump flag is on (WIN-12)', () 
   })
 
   it('a missing file or profile is no', async () => {
-    expect(await dumpFlagsAreOn({ dolphinIni: path.join(dir, 'nope.ini') })).toBe(
-      false,
-    )
+    expect(
+      await dumpFlagsAreOn({ dolphinIni: path.join(dir, 'nope.ini') }),
+    ).toBe(false)
     expect(await dumpFlagsAreOn(null)).toBe(false)
   })
 })
 
 describe('output file names (WIN-14)', () => {
-  const replay = { index: 7, path: '/g.slp', startFrame: 1, endFrame: 2 } as never
+  const replay = {
+    index: 7,
+    path: '/g.slp',
+    startFrame: 1,
+    endFrame: 2,
+  } as never
 
   it('characters NTFS reads as a stream or wildcard are replaced in the pattern text too', () => {
     const out = resolveFilenamePattern('Clip: {index}', replay)
     expect(out).not.toMatch(/[:<>"|?*]/)
     expect(out).toMatch(/^Clip_ /)
-    expect(resolveFilenamePattern('a?b*c|d<e>f"g', replay)).toBe('a_b_c_d_e_f_g')
+    expect(resolveFilenamePattern('a?b*c|d<e>f"g', replay)).toBe(
+      'a_b_c_d_e_f_g',
+    )
   })
 
   it('folders in the pattern still work', () => {

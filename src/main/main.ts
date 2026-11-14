@@ -22,7 +22,7 @@ import { runWorkflow } from './workflow'
 import { runAutorunDownload, runAutorunFullDbInfo } from './autorunDownload'
 import { logMain } from './logger'
 import { flushTelemetry } from './telemetry'
-import { isLocalTestFeed, shortUpdateError } from './updaterUtils'
+import { shortUpdateError } from './updaterUtils'
 import {
   registerTimedHandlers,
   startMainWatchdog,
