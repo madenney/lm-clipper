@@ -164,14 +164,16 @@ jobs:
             linux) ffmpeg=release/app/ffmpeg/ffmpeg-linux-x64;     slpz=release/app/slpz/slpz-linux-x64 ;;
             mac)   ffmpeg=release/app/ffmpeg/ffmpeg-darwin-${{ matrix.arch }}; slpz=release/app/slpz/slpz-darwin-${{ matrix.arch }} ;;
           esac
-          "$ffmpeg" -hide_banner -version | head -n 1
+          # (no pipe into head: under pipefail the static ffmpeg dies of SIGPIPE and fails the step)
+          ffversion=$("$ffmpeg" -hide_banner -version)
+          printf '%s\n' "${ffversion%%$'\n'*}"
           decoders=$("$ffmpeg" -hide_banner -decoders)
           encoders=$("$ffmpeg" -hide_banner -encoders)
           for c in utvideo ffv1 mpeg4; do
-            echo "$decoders" | grep -qE "^ [A-Z.]{6} $c " || { echo "::error::$ffmpeg has no $c decoder"; exit 1; }
+            grep -qE "^ [A-Z.]{6} $c " <<<"$decoders" || { echo "::error::$ffmpeg has no $c decoder"; exit 1; }
           done
           for c in libx264 aac; do
-            echo "$encoders" | grep -qE "^ [A-Z.]{6} $c " || { echo "::error::$ffmpeg has no $c encoder"; exit 1; }
+            grep -qE "^ [A-Z.]{6} $c " <<<"$encoders" || { echo "::error::$ffmpeg has no $c encoder"; exit 1; }
           done
           if [ "${{ matrix.platform }}" = "mac" ]; then
             # Must not depend on Homebrew/MacPorts libraries users won't have.
