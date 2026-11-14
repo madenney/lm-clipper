@@ -1,0 +1,10 @@
+{
+  "// purpose": "ts-jest's compiler options: tsconfig.json plus the yauzl pin of tsconfig.typecheck.json. The dev setup links src/node_modules to release/app/node_modules, which holds the older yauzl 2.x types (electron's extract-zip pulls them in); without this the suites that import openPromise (zip import, direct download, database client, transfers) fail to compile. At runtime package.json's moduleNameMapper picks the app's own yauzl.",
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "paths": {
+      "electron-updater": ["../release/app/node_modules/electron-updater"],
+      "yauzl": ["../node_modules/@types/yauzl"]
+    }
+  }
+}

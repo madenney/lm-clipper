@@ -4,13 +4,16 @@ import {
   EventEmitterInterface,
   WorkerMessage,
 } from '../constants/types'
-import { createFilter, deleteFilter, upsertFilterRun } from '../main/db'
 import {
+  createFilterAsync as createFilter,
+  deleteFilterAsync as deleteFilter,
+  upsertFilterRunAsync as upsertFilterRun,
   getTableCountAsync,
   getProcessedSourceIdsAsync,
   deleteFilterRunAsync,
 } from '../main/dbAsync'
 import { getWorkerExecArgv } from '../lib'
+import { REPLAY_READING_FILTERS, traitsOf } from './filterTraits'
 
 type Slice = {
   bottom: number
@@ -28,6 +31,7 @@ export default class Filter {
   results: number | null
   inputId?: string
   lastRunMs?: number
+  locked?: boolean
   private _activeSlices: Slice[] | null = null
 
   constructor(filterJSON: FilterInterface) {
@@ -39,6 +43,7 @@ export default class Filter {
     this.results = filterJSON.results
     this.inputId = filterJSON.inputId
     this.lastRunMs = filterJSON.lastRunMs
+    this.locked = filterJSON.locked === true ? true : undefined
   }
 
   async init(dbPath: string) {
@@ -68,9 +73,17 @@ export default class Filter {
     numFilterThreads: number,
     eventEmitter: EventEmitterInterface,
     abortSignal?: AbortSignal,
-    options?: { resume?: boolean; resumeFromProgress?: number },
+    options?: {
+      resume?: boolean
+      resumeFromProgress?: number
+      /** Replay library folder, for the detector cache (detectionCache.ts). */
+      libraryFolder?: string
+    },
   ): Promise<{
     terminated: boolean
+    // The run could not do its work (e.g. a resume that couldn't start).
+    // Never mark such a run processed.
+    failed?: boolean
     errors: string[]
     logs?: string[]
     lastProgress?: number
@@ -80,7 +93,17 @@ export default class Filter {
     durationMs?: number
   }> {
     const startedAt = Date.now()
-    const resume = options?.resume === true
+    // Lunar Database clips are added, not computed (clipSearch.ts): "running"
+    // keeps them as they are.
+    // A locked step's results are fixed (types.ts): running keeps them too.
+    if (traitsOf(this.type).run === 'supplied' || this.locked) {
+      this.isProcessed = true
+      return { terminated: false, errors: [], durationMs: 0 }
+    }
+    // Sort, sample, range and dedupe depend on the whole input: a resume of a
+    // partial run would append duplicates, so they start again from nothing.
+    const resume =
+      options?.resume === true && !traitsOf(this.type).restartOnResume
     const prevResultsLength = await getTableCountAsync(dbPath, prevTableId)
     let maxFiles = prevResultsLength
 
@@ -100,6 +123,7 @@ export default class Filter {
         const msg = err instanceof Error ? err.message : String(err)
         return {
           terminated: false,
+          failed: true,
           errors: [`Resume failed: ${msg}`],
           logs: [],
         }
@@ -112,7 +136,12 @@ export default class Filter {
 
     // Record that this filter run is in progress
     try {
-      upsertFilterRun(dbPath, this.id, JSON.stringify(this.params), maxFiles)
+      await upsertFilterRun(
+        dbPath,
+        this.id,
+        JSON.stringify(this.params),
+        maxFiles,
+      )
     } catch (err) {
       console.error('Failed to record filter run:', err)
     }
@@ -127,12 +156,9 @@ export default class Filter {
     // needs a true global ordering, randomSample a uniform sample of the entire
     // set, and range counts global positions (N workers would each count from 1
     // within their own slice, so "clip 3050" would be meaningless).
-    const threadCount =
-      this.type === 'sort' ||
-      this.type === 'randomSample' ||
-      this.type === 'range'
-        ? 1
-        : Math.min(minThreads, maxFiles)
+    const threadCount = traitsOf(this.type).singleWorker
+      ? 1
+      : Math.min(minThreads, maxFiles)
     const slices = createSlices(maxFiles, threadCount)
     this._activeSlices = slices
     const workerResults = new Array(slices.length).fill(0)
@@ -168,7 +194,7 @@ export default class Filter {
     // On resume, offset progress so counter starts from where it left off
     // Use the saved progress count (actual files processed), not skipSourceIds.length
     // (which only counts files that produced results)
-    const progressOffset = options?.resumeFromProgress ?? 0
+    const progressOffset = resume ? (options?.resumeFromProgress ?? 0) : 0
     eventEmitter({
       current: progressOffset,
       total: maxFiles,
@@ -181,19 +207,7 @@ export default class Filter {
         // Slow I/O filters (edgeguard, actionStateFilter, etc.) load full .slp
         // frame data via SlippiGame.getFrames(), which can be 20-40 MB per file.
         // Worker threads default to a small heap (~48-64 MB) so we bump it.
-        const slowIOTypes = new Set([
-          'slpParser',
-          'earlyQuitOut',
-          'actionStateFilter',
-          'edgeguard',
-          'phantom',
-          'reverse',
-          'removeStarKOFrames',
-          'koDirection',
-          'stageCenter',
-          'pressure',
-        ])
-        const resourceLimits = slowIOTypes.has(this.type)
+        const resourceLimits = REPLAY_READING_FILTERS.has(this.type)
           ? { maxOldGenerationSizeMb: 1024 }
           : undefined
 
@@ -206,6 +220,7 @@ export default class Filter {
             slice,
             params: this.params,
             skipSourceIds,
+            libraryFolder: options?.libraryFolder,
           },
           stderr: true,
           ...(workerExecArgv ? { execArgv: workerExecArgv } : {}),
@@ -252,8 +267,12 @@ export default class Filter {
                   (a: number, b: number) => a + b,
                   0,
                 )
-                const displayProgress =
-                  progressOffset + (totalCompleted - totalSkipped)
+                // Never past the total: a resumed run's saved offset counts
+                // games that produced no output, which the skip list cannot.
+                const displayProgress = Math.min(
+                  maxFiles,
+                  progressOffset + (totalCompleted - totalSkipped),
+                )
                 eventEmitter({
                   current: displayProgress,
                   total: maxFiles,
@@ -294,7 +313,10 @@ export default class Filter {
             workerStderr += chunk.toString()
           })
 
+          // A crash fires 'error' and then 'exit': say it once.
+          let crashReported = false
           worker.on('error', (error) => {
+            crashReported = true
             clearTimeout(idleTimer)
             console.error('Worker error:', error)
             const detail = workerStderr
@@ -307,7 +329,7 @@ export default class Filter {
 
           worker.on('exit', (code) => {
             clearTimeout(idleTimer)
-            if (code !== 0 && !workerDone && !terminated) {
+            if (code !== 0 && !workerDone && !terminated && !crashReported) {
               console.log(
                 `Worker ${i} exited with code ${code}`,
                 workerStderr.slice(-500),
@@ -348,6 +370,22 @@ export default class Filter {
       // Leave run record as-is so resume is available
       return {
         terminated: true,
+        errors,
+        logs,
+        lastProgress: finalProgress,
+        missing,
+        corrupt,
+        examples,
+      }
+    }
+
+    // A worker crashed or exited early: partial results, like a stop. Keep the
+    // run record so FilterExecutor can save how far it got and offer Resume
+    // (deleting it here lost the resume point after a crash).
+    if (errors.length > 0) {
+      return {
+        terminated: false,
+        failed: true,
         errors,
         logs,
         lastProgress: finalProgress,

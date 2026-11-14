@@ -1,4 +1,5 @@
 import { ConfigInterface } from '../constants/types'
+import { OWNER_CONFIG_KEYS, OWNER_SECRET_KEYS } from '../owner/channels'
 
 // Config-value migrations applied on load. Older configs stored `resolution` as
 // a string label ('2x') and several numeric fields as strings; coerce them to
@@ -39,6 +40,13 @@ export function migrateConfigTypes(config: any): ConfigInterface {
   ) {
     config.resolution = RESOLUTION_LABELS[config.resolution]
   }
+  // "Show Dolphin While Recording" became "Hide Recording Windows" (on by
+  // default): whoever had Dolphin shown keeps it shown. Only an old config has
+  // the key (it is no longer a default), so this runs once.
+  if (typeof config.showRecordingDolphin === 'boolean') {
+    if (config.showRecordingDolphin) config.hideRecordingWindows = false
+    delete config.showRecordingDolphin
+  }
   INT_KEYS.forEach((key) => {
     if (typeof config[key] === 'string') {
       const parsed = parseInt(config[key], 10)
@@ -48,4 +56,21 @@ export function migrateConfigTypes(config: any): ConfigInterface {
     }
   })
   return config
+}
+
+// Secrets kept in the config that the renderer never needs to see (owner tools'
+// keys, used by the main process only).
+export const SECRET_CONFIG_KEYS = [...OWNER_SECRET_KEYS]
+
+/** The config as sent to the renderer: secrets removed. */
+export function rendererConfig(config: ConfigInterface): ConfigInterface {
+  const copy = { ...config }
+  for (const key of SECRET_CONFIG_KEYS) delete copy[key]
+  return copy
+}
+
+/** Keys the renderer's generic updateConfig may not write (owner tools save
+ *  their own through their own validated request). */
+export function rendererMayWrite(key: unknown): boolean {
+  return typeof key === 'string' && !OWNER_CONFIG_KEYS.includes(key)
 }

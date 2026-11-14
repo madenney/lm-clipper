@@ -14,3 +14,14 @@ export const TELEMETRY_EVENTS = [
 ] as const
 
 export type TelemetryEvent = (typeof TELEMETRY_EVENTS)[number]
+
+// Config keys a Settings > Reset keeps: the install's random id and the usage-data choice.
+// Losing them made every reset a "new install" in the numbers and silently turned a
+// user's opt-out back on. Keep this file import-free (a root test loads it).
+export const TELEMETRY_CONFIG_KEYS = [
+  'installId',
+  'sendAnonymousUsage',
+  'lastUsagePing',
+  'lastUsagePingVersion',
+  'installPingPending',
+] as const

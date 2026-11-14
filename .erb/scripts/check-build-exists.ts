@@ -1,4 +1,6 @@
-// Check if the renderer and main bundles are built
+// Jest setup: say so when the renderer and main bundles are not built. A warning, not an error:
+// the unit tests import source, not the bundles, so a fresh checkout can run `npm test` at once
+// (it used to throw unless CI was set).
 import path from 'path';
 import chalk from 'chalk';
 import fs from 'fs';
@@ -9,17 +11,17 @@ if (!process.env.CI) {
   const rendererPath = path.join(webpackPaths.distRendererPath, 'renderer.js');
 
   if (!fs.existsSync(mainPath)) {
-    throw new Error(
-      chalk.whiteBright.bgRed.bold(
-        'The main process is not built yet. Build it by running "npm run build:main"'
+    console.warn(
+      chalk.yellow(
+        'Note: the main process is not built (npm run build:main); unit tests do not need it.'
       )
     );
   }
 
   if (!fs.existsSync(rendererPath)) {
-    throw new Error(
-      chalk.whiteBright.bgRed.bold(
-        'The renderer process is not built yet. Build it by running "npm run build:renderer"'
+    console.warn(
+      chalk.yellow(
+        'Note: the renderer is not built (npm run build:renderer); unit tests do not need it.'
       )
     );
   }

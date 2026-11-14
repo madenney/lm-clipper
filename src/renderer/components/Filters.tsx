@@ -10,12 +10,17 @@ import {
   useEffect,
 } from 'react'
 import '../styles/Filters.css'
+import '../styles/FiltersCompact.css'
 import {
   filtersConfig,
   REQUIRED_PRODUCER,
   PRODUCER_LABEL,
   FILTER_LAYOUT,
 } from 'constants/config'
+import { useFiltersStyle } from '../lib/filtersStyle'
+import { START_OPTION_EVENT, StartOption } from '../lib/startOptions'
+import { showNotice } from '../importNotice'
+import AiFilterGuide, { AI_GUIDE_EVENT } from './AiFilterGuide'
 import ipcBridge from '../ipcBridge'
 import useIpcListener from '../hooks/useIpcListener'
 import {
@@ -27,6 +32,8 @@ import {
 } from '../../constants/types'
 import TemplateCatalog from './TemplateCatalog'
 import FilterCard from './FilterCard'
+import TrayNote from './TrayNote'
+import { STEP_FILTER_EVENT } from '../lib/filterNav'
 import {
   FilterErrorModal,
   FilterLogsModal,
@@ -34,6 +41,7 @@ import {
   ConfirmResetModal,
   ParserRunModal,
   CustomCodeConsentModal,
+  ConfirmModal,
   ResetWarnSeverity,
 } from './FilterModals'
 import {
@@ -58,12 +66,12 @@ function getUnprocessedPrereqs(
   filters: ShallowFilterInterface[],
   targetIndex: number,
   branchingOn: boolean,
-  // Indices of filters currently running. A running upstream is already
+  // Ids of filters currently running. A running upstream is already
   // producing output, so it isn't a prerequisite to kick off — the target just
   // runs on its partial results (FilterExecutor handles the live table). Treat
   // it like a processed input and stop the walk, so we don't pop a "run the
   // parser first" warning for a parser the user already has running.
-  runningIndices: Set<number>,
+  runningIds: Set<string>,
 ): ShallowFilterInterface[] {
   const chain: ShallowFilterInterface[] = []
   const seen = new Set<number>()
@@ -82,7 +90,7 @@ function getUnprocessedPrereqs(
     if (
       inputFilter.isProcessed ||
       inputFilter.resumable ||
-      runningIndices.has(inputIdx)
+      runningIds.has(inputFilter.id)
     )
       break
     chain.unshift(inputFilter)
@@ -174,6 +182,7 @@ export default function Filters({
   config,
   setConfig,
 }: FiltersProps) {
+  const filtersStyle = useFiltersStyle()
   const dismissParserNote = () => {
     setConfig((prev) => (prev ? { ...prev, hideParserNote: true } : prev))
     ipcBridge.updateConfig({ key: 'hideParserNote', value: true })
@@ -182,7 +191,10 @@ export default function Filters({
     setConfig((prev) => (prev ? { ...prev, hideRunHint: true } : prev))
     ipcBridge.updateConfig({ key: 'hideRunHint', value: true })
   }
-  const [runningFilters, setRunningFilters] = useState<Set<number>>(new Set())
+  // Running filters by id (positions shift when steps are deleted or moved
+  // mid-run), and the ones told to stop that are still winding down.
+  const [runningFilters, setRunningFilters] = useState<Set<string>>(new Set())
+  const [stoppingFilters, setStoppingFilters] = useState<Set<string>>(new Set())
   const [filterMsgs, setFilterMsgs] = useState<Record<string, string>>({})
   const [liveResults, setLiveResults] = useState<Record<string, number>>({})
   const [expandedFilters, setExpandedFilters] = useState<
@@ -232,6 +244,18 @@ export default function Filters({
   // Set when a run includes custom-code filters the user hasn't approved. Holds
   // the labels (for display), their code hashes (to persist on "always trust"),
   // and the action to take once consent is given.
+  // An in-app yes / no question (ConfirmModal); askConfirm resolves with it.
+  const [confirmAsk, setConfirmAsk] = useState<{
+    title: string
+    body: string
+    confirmLabel: string
+    resolve: (_ok: boolean) => void
+  } | null>(null)
+  function askConfirm(title: string, body: string, confirmLabel: string) {
+    return new Promise<boolean>((resolve) => {
+      setConfirmAsk({ title, body, confirmLabel, resolve })
+    })
+  }
   const [customConsent, setCustomConsent] = useState<{
     labels: string[]
     hashes: string[]
@@ -256,6 +280,35 @@ export default function Filters({
   const dragHeightRef = useRef(0)
   const dragWarningTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const filtersListRef = useRef<HTMLDivElement>(null)
+  // Z/X and the arrow keys (from the tray's grid) move the highlighted step, in the order the
+  // list shows: the Game Filter first, then the rest.
+  const stepRef = useRef<(_delta: number) => void>(() => {})
+  stepRef.current = (delta: number) => {
+    const all = archive?.filters ?? []
+    const game = all.find((f) => f.type === 'files')
+    const ids = [
+      ...(game ? [game.id] : []),
+      ...all.filter((f) => f !== game).map((f) => f.id),
+    ]
+    if (!ids.length) return
+    const at = Math.max(0, ids.indexOf(activeFilterId))
+    const next = Math.min(ids.length - 1, Math.max(0, at + delta))
+    if (next === at && ids.includes(activeFilterId)) return
+    setActiveFilterId(ids[next])
+    // Once it has rendered as the active card, bring it into view.
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() =>
+        filtersListRef.current
+          ?.querySelector('.filter-active')
+          ?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }),
+      ),
+    )
+  }
+  useEffect(() => {
+    const on = (e: Event) => stepRef.current((e as CustomEvent<number>).detail)
+    window.addEventListener(STEP_FILTER_EVENT, on)
+    return () => window.removeEventListener(STEP_FILTER_EVENT, on)
+  }, [])
   const cardMidYs = useRef<{ index: number; midY: number }[]>([])
   const dropdownRef = useRef<HTMLDivElement>(null)
   const dragAllowedRef = useRef(true)
@@ -266,27 +319,35 @@ export default function Filters({
     }
   }, [])
 
-  useIpcListener('currentlyRunningFilter', (event: { running: number[] }) => {
-    const next = new Set(event.running)
-    setRunningFilters((prev) => {
-      const stopped: number[] = []
-      prev.forEach((idx) => {
-        if (!next.has(idx)) stopped.push(idx)
-      })
-      if (stopped.length > 0) {
-        setFilterMsgs((msgs) => {
-          const updated = { ...msgs }
-          for (const key of Object.keys(updated)) {
-            if (/^\d+\/\d+$/.test(updated[key])) {
-              delete updated[key]
-            }
-          }
-          return updated
+  useIpcListener(
+    'currentlyRunningFilter',
+    (event: {
+      running: number[]
+      runningIds?: string[]
+      stoppingIds?: string[]
+    }) => {
+      const next = new Set(event.runningIds ?? [])
+      setStoppingFilters(new Set(event.stoppingIds ?? []))
+      setRunningFilters((prev) => {
+        const stopped: string[] = []
+        prev.forEach((id) => {
+          if (!next.has(id)) stopped.push(id)
         })
-      }
-      return next
-    })
-  })
+        if (stopped.length > 0) {
+          setFilterMsgs((msgs) => {
+            const updated = { ...msgs }
+            for (const key of Object.keys(updated)) {
+              if (/^\d+\/\d+$/.test(updated[key])) {
+                delete updated[key]
+              }
+            }
+            return updated
+          })
+        }
+        return next
+      })
+    },
+  )
 
   useIpcListener(
     'filterUpdate',
@@ -358,11 +419,14 @@ export default function Filters({
     setCodesLoading(true)
     // Queries run in a worker thread so the main process stays responsive.
     ipcBridge.getNames((names) => {
-      setNamesList(names || [])
+      // Never trust the payload's type — an error/stale-reaper reply is a
+      // truthy non-array, which `|| []` wouldn't catch and would later blow up
+      // `filteredNames.filter(...)` when a name-select renders.
+      setNamesList(Array.isArray(names) ? names : [])
       setNamesLoading(false)
     })
     ipcBridge.getConnectCodes((codes) => {
-      setConnectCodesList(codes || [])
+      setConnectCodesList(Array.isArray(codes) ? codes : [])
       setCodesLoading(false)
     })
     // Re-fetch when the file count changes too (not just on project switch) so
@@ -370,26 +434,82 @@ export default function Filters({
     // otherwise they'd stay stuck at the empty-project result.
   }, [archive?.path, archive?.files])
 
-  function stopFilter(filterId: string, filterIndex: number) {
-    setRunningFilters((prev) => {
-      const next = new Set(prev)
-      next.delete(filterIndex)
-      return next
-    })
+  // Set by a Stop: the run sequence stops before starting its next step, so
+  // steps queued behind a stopped one don't run.
+  const stopRequestedRef = useRef(false)
+  // The step stays "running" (shown as Stopping…) until the main process says
+  // its workers have exited and its partial results are saved.
+  function stopFilter(filterId: string, _filterIndex?: number) {
+    stopRequestedRef.current = true
+    setStoppingFilters((prev) => new Set(prev).add(filterId))
     ipcBridge.stopFilter(filterId)
+  }
+
+  // Filters whose Run was clicked but that aren't finished yet: shown as
+  // running at once (the main process's broadcast arrives a beat later) and
+  // protected from a second click, which would abort and restart the run.
+  const [pendingRunIds, setPendingRunIds] = useState<Set<string>>(new Set())
+  const pendingRunIdsRef = useRef<Set<string>>(new Set())
+  const startingRunIdsRef = useRef<Set<string>>(new Set())
+  function markRunPending(filters: ShallowFilterInterface[], on: boolean) {
+    const next = new Set(pendingRunIdsRef.current)
+    for (const f of filters) {
+      if (on) next.add(f.id)
+      else next.delete(f.id)
+    }
+    pendingRunIdsRef.current = next
+    setPendingRunIds(next)
+  }
+
+  // Parameter edits not yet sent to the main process, per filter (updateFilter
+  // debounces them). Keyed by id so edits to two filters in quick succession
+  // are both saved.
+  const pendingSavesRef = useRef<
+    Map<string, { filterIndex: number; newFilter: ShallowFilterInterface }>
+  >(new Map())
+
+  // Send every pending edit now, in order. Resolves with the archive from the
+  // last save (null if there was nothing to save or it failed).
+  async function flushPendingSaves(): Promise<ShallowArchiveInterface | null> {
+    if (saveTimer.current) {
+      clearTimeout(saveTimer.current)
+      saveTimer.current = null
+    }
+    const saves = Array.from(pendingSavesRef.current.values())
+    pendingSavesRef.current.clear()
+    let latest: ShallowArchiveInterface | null = null
+    for (const save of saves) {
+      // eslint-disable-next-line no-await-in-loop
+      const response = await new Promise<any>((resolve) => {
+        ipcBridge.updateFilter(save, resolve)
+      })
+      if (!response || response?.error) {
+        console.error('updateFilter response error:', response?.error)
+      } else {
+        latest = response
+        setArchive(response)
+      }
+    }
+    return latest
   }
 
   // Running a filter means "produce its results": run any UNPROCESSED upstream
   // filters first (cheap ones silently; an expensive parser asks first), then
   // run the filter itself. Clean (already-run) upstream is reused untouched.
-  function runFilter(filter: ShallowFilterInterface) {
-    if (!archive) return
+  function runFilter(
+    requested: ShallowFilterInterface,
+    // The archive just returned by a flushed save (see requestRun); the
+    // render-time `archive` would still hold the pre-save filters.
+    current: ShallowArchiveInterface | null = archive,
+  ) {
+    if (!current) return
     const branchingOn = config.branchingEnabled === true
-    const targetIndex = archive.filters.findIndex((f) => f.id === filter.id)
+    const targetIndex = current.filters.findIndex((f) => f.id === requested.id)
+    const filter = targetIndex >= 0 ? current.filters[targetIndex] : requested
     const prereqs =
       targetIndex >= 0
         ? getUnprocessedPrereqs(
-            archive.filters,
+            current.filters,
             targetIndex,
             branchingOn,
             runningFilters,
@@ -399,7 +519,7 @@ export default function Filters({
     // parse, or re-running a parser that previously took a while. A small first
     // run just goes (nothing to lose).
     const bigInput =
-      typeof archive.files === 'number' && archive.files >= PARSER_CONFIRM_COUNT
+      typeof current.files === 'number' && current.files >= PARSER_CONFIRM_COUNT
     const parserPrereq = prereqs.find(
       (f) =>
         PRODUCER_LABEL[f.type] &&
@@ -413,11 +533,35 @@ export default function Filters({
         target: filter,
         prereqs,
         parserLabel: PRODUCER_LABEL[parserPrereq.type],
-        count: archive.files ?? null,
+        count: current.files ?? null,
       })
       return
     }
     continueRun(filter, prereqs)
+  }
+
+  // Run button entry point. Saves any parameter edit still waiting in the
+  // debounce first — clicking Run blurs the field, which commits the edit at
+  // the same moment — so the run always uses what's on screen. (Without this
+  // the run used the old params and the late save then reset the filter:
+  // "you have to click Run twice".) Also ignores repeat clicks while this
+  // filter is starting or running.
+  // `current`: an archive newer than this render's (e.g. just after the steps
+  // were replaced), so the run sees the new steps.
+  async function requestRun(
+    filter: ShallowFilterInterface,
+    current: ShallowArchiveInterface | null = null,
+  ) {
+    const { id } = filter
+    if (startingRunIdsRef.current.has(id) || pendingRunIdsRef.current.has(id))
+      return
+    startingRunIdsRef.current.add(id)
+    try {
+      const saved = await flushPendingSaves()
+      runFilter(filter, saved ?? current ?? archive)
+    } finally {
+      startingRunIdsRef.current.delete(id)
+    }
   }
 
   // Guard an expensive RE-RUN of the target itself (the long-run tiers), then
@@ -460,7 +604,10 @@ export default function Filters({
     }
     const out: { filter: ShallowFilterInterface; hash: string }[] = []
     for (const f of filters) {
-      const code = f.type === 'custom' ? f.params?.code : undefined
+      const code =
+        f.type === 'custom' || f.type === 'aiFilter'
+          ? f.params?.code
+          : undefined
       if (typeof code === 'string' && code.trim()) {
         // eslint-disable-next-line no-await-in-loop
         const hash = await sha256Hex(code)
@@ -469,6 +616,11 @@ export default function Filters({
     }
     return out
   }
+
+  // Code pasted into an AI Filter is NOT approved by pasting it: it came from
+  // an AI or a stranger (a chat post, a prompt injection), and runs with full
+  // access to the computer. It asks like any other custom code (launch review
+  // SEC-1), and main refuses it until the user has said yes.
 
   function approveCustomHashes(hashes: string[]) {
     const merged = Array.from(
@@ -484,6 +636,18 @@ export default function Filters({
     filters: ShallowFilterInterface[],
     customApproved = false,
   ) {
+    markRunPending(filters, true)
+    try {
+      await runSequenceInner(filters, customApproved)
+    } finally {
+      markRunPending(filters, false)
+    }
+  }
+
+  async function runSequenceInner(
+    filters: ShallowFilterInterface[],
+    customApproved: boolean,
+  ) {
     if (!customApproved) {
       const unapproved = await unapprovedCustomFilters(filters)
       if (unapproved.length > 0) {
@@ -495,10 +659,14 @@ export default function Filters({
         return
       }
     }
+    stopRequestedRef.current = false
     for (const f of filters) {
+      if (stopRequestedRef.current) break
       // Sequential by design: each filter feeds the next.
       // eslint-disable-next-line no-await-in-loop
       const res = await doRunFilter(f)
+      // Done: no longer queued (the rest of the run still is).
+      markRunPending([f], false)
       if (!res || res.error) break
     }
   }
@@ -530,16 +698,11 @@ export default function Filters({
         setArchive(response)
         // Clear running state immediately so results display switches to final count
         // Use response.filters (fresh) instead of archive.filters (stale closure)
-        const fIdx = response?.filters?.findIndex(
-          (f: ShallowFilterInterface) => f.id === filter.id,
-        )
-        if (fIdx != null && fIdx >= 0) {
-          setRunningFilters((prev) => {
-            const next = new Set(prev)
-            next.delete(fIdx)
-            return next
-          })
-        }
+        setRunningFilters((prev) => {
+          const next = new Set(prev)
+          next.delete(filter.id)
+          return next
+        })
         // Clear live results for this filter
         setLiveResults((prev) => {
           const updated = { ...prev }
@@ -598,16 +761,11 @@ export default function Filters({
 
       setArchive(response)
       // Use response.filters (fresh) instead of archive.filters (stale closure)
-      const fIdx = response?.filters?.findIndex(
-        (f: ShallowFilterInterface) => f.id === filter.id,
-      )
-      if (fIdx != null && fIdx >= 0) {
-        setRunningFilters((prev) => {
-          const next = new Set(prev)
-          next.delete(fIdx)
-          return next
-        })
-      }
+      setRunningFilters((prev) => {
+        const next = new Set(prev)
+        next.delete(filter.id)
+        return next
+      })
       setLiveResults((prev) => {
         const updated = { ...prev }
         delete updated[filter.id]
@@ -626,25 +784,29 @@ export default function Filters({
     })
   }
 
-  function dismissResume(filter: ShallowFilterInterface) {
-    console.log('[dismissResume] sending for filter:', filter.id)
-    ipcBridge.dismissFilterResume(filter.id, (response) => {
-      console.log('[dismissResume] response:', response)
+  // A stopped or failed run whose results are good: keep them as they are.
+  function keepFilterResults(filter: ShallowFilterInterface) {
+    if (!archive) return
+    ipcBridge.keepFilterResults(filter.id, (response) => {
       if (!response || response?.error) {
-        console.error('dismissFilterResume error:', response?.error)
+        showNotice(
+          `Couldn’t keep those results${response?.error ? `: ${response.error}` : '.'}`,
+        )
         return
       }
-      const stillResumable = response?.filters?.filter((f: any) => f.resumable)
-      console.log(
-        '[dismissResume] still resumable:',
-        stillResumable?.map((f: any) => ({
-          id: f.id,
-          label: f.label,
-          resumable: f.resumable,
-        })),
-      )
       setArchive(response)
+      setFilterMsgs((prev) => {
+        const updated = { ...prev }
+        delete updated[filter.id]
+        return updated
+      })
     })
+  }
+
+  // AI Filters start open (their Copy prompt + response box is the whole
+  // point); everything else starts collapsed. A click overrides either.
+  function isExpanded(filter: ShallowFilterInterface) {
+    return expandedFilters[filter.id] ?? filter.type === 'aiFilter'
   }
 
   function toggleFilterCollapse(
@@ -652,10 +814,9 @@ export default function Filters({
     filterId: string,
   ) {
     event.stopPropagation()
-    setExpandedFilters((prev) => ({
-      ...prev,
-      [filterId]: !prev[filterId],
-    }))
+    const filter = archive?.filters.find((f) => f.id === filterId)
+    const open = filter ? isExpanded(filter) : !!expandedFilters[filterId]
+    setExpandedFilters((prev) => ({ ...prev, [filterId]: !open }))
   }
 
   function addFilter(e: any) {
@@ -663,7 +824,10 @@ export default function Filters({
     const nextType = e.target.value
     ipcBridge.addFilter(nextType, (response) => {
       if (!response || response?.error) {
-        console.error('addFilter response error:', response.error)
+        console.error('addFilter response error:', response?.error)
+        showNotice(
+          `Couldn’t add that filter${response?.error ? `: ${response.error}` : '.'}`,
+        )
         return
       }
       // Auto-expand the newly added filter
@@ -722,16 +886,13 @@ export default function Filters({
     setArchive({ ...archive, filters: nextFilters })
 
     // The destructive part is the save (it resets results). Debounce it...
+    // (Run flushes it immediately; see requestRun.)
     const save = () => {
+      pendingSavesRef.current.set(newFilter.id, { filterIndex, newFilter })
       if (saveTimer.current) clearTimeout(saveTimer.current)
       saveTimer.current = setTimeout(() => {
-        ipcBridge.updateFilter({ filterIndex, newFilter }, (response) => {
-          if (!response || response?.error) {
-            console.error('updateFilter response error:', response?.error)
-            return
-          }
-          setArchive(response)
-        })
+        saveTimer.current = null
+        flushPendingSaves()
       }, 300)
     }
 
@@ -747,7 +908,7 @@ export default function Filters({
     save()
   }
 
-  function deleteFilter(filter: FilterInterface) {
+  async function deleteFilter(filter: FilterInterface) {
     if (archive) {
       // Block deletion if any filter still depends on this one as its producer
       // (e.g. deleting a combo parser with a combo filter below, or an
@@ -779,10 +940,11 @@ export default function Filters({
         if (
           config.warnOnParserDelete !== false &&
           inputCount >= 10000 &&
-          // eslint-disable-next-line no-alert
-          !window.confirm(
-            `This combo parser was run on ${inputCount.toLocaleString()} files. Are you sure you want to delete it?`,
-          )
+          !(await askConfirm(
+            'Delete the Combo Parser?',
+            `It was run on ${inputCount.toLocaleString()} replays; running it again takes a while.`,
+            'Delete',
+          ))
         ) {
           return
         }
@@ -901,6 +1063,182 @@ export default function Filters({
     })
   }
 
+  // Whether an import is running: a welcome option picked mid-import waits
+  // for it to finish before running its steps (startOption).
+  const [isImporting, setIsImporting] = useState<boolean | null>(null)
+  const applyImportStatus = (status: any) => {
+    if (status && typeof status === 'object') {
+      setIsImporting(!!status.isImporting)
+    }
+  }
+  useIpcListener('importStatus', applyImportStatus)
+  useEffect(() => {
+    ipcBridge.getImportStatus(applyImportStatus)
+  }, [])
+  // No first-run auto-run (user, 2026-10-03): steps run when the user picks
+  // a welcome option or presses Run.
+
+  // The welcome modal's start options (lib/startOptions.ts), acting on this
+  // project's steps. A ref keeps the listener on the latest archive.
+  async function startOption(option: StartOption) {
+    if (!archive) return
+    // A new choice replaces any run still waiting for an import.
+    pendingStartRunRef.current = null
+    setWaitingForImport(null)
+    const pool = archive.filters.find((f) => f.type === 'files')
+    if (option === 'games') {
+      // Just the Replays pool (other steps removed, user 2026-10-03): its
+      // results are whole games, and Record makes full-game videos.
+      const next = await new Promise<ShallowArchiveInterface | null>(
+        (resolve) => {
+          ipcBridge.applyStarterChain('games', (response) => {
+            if (!response || response.error) {
+              showNotice(
+                `Couldn’t set up the steps${response?.error ? `: ${response.error}` : '.'}`,
+              )
+              return resolve(null)
+            }
+            setArchive(response)
+            return resolve(response)
+          })
+        },
+      )
+      const onlyPool = next?.filters.find((f) => f.type === 'files') ?? pool
+      if (onlyPool) setActiveFilterId(onlyPool.id)
+      showNotice(
+        'Showing whole games. Pick the ones you want, then press Record.',
+      )
+      return
+    }
+    if (option === 'combos' || option === 'edgeguards') {
+      // Fill in the steps (parser, filter, sort: applyStarterChain), then run
+      // them if there are replays. A project that already has this filter
+      // just runs it; other steps are only replaced after asking.
+      const filterType = option === 'combos' ? 'comboFilter' : 'edgeguardFilter'
+      let current: ShallowArchiveInterface | null = archive
+      const steps = current.filters.filter((f) => f.type !== 'files')
+      if (!steps.some((f) => f.type === filterType)) {
+        if (
+          steps.length > 0 &&
+          !(await askConfirm(
+            `Switch to ${option}?`,
+            `This replaces your ${steps.length === 1 ? 'current step' : `${steps.length} current steps`} with the ${option} steps. ${steps.length === 1 ? 'Its results are' : 'Their results are'} discarded.`,
+            'Replace',
+          ))
+        )
+          return
+        current = await new Promise<ShallowArchiveInterface | null>(
+          (resolve) => {
+            ipcBridge.applyStarterChain(option, (response) => {
+              if (!response || response.error) {
+                showNotice(
+                  `Couldn’t set up the steps${response?.error ? `: ${response.error}` : '.'}`,
+                )
+                return resolve(null)
+              }
+              setArchive(response)
+              return resolve(response)
+            })
+          },
+        )
+        if (!current) return
+      }
+      // Just added: run the whole new chain (its last step, the sort).
+      // Already there: run that filter.
+      const existing = archive.filters.find((f) => f.type === filterType)
+      const target = existing
+        ? current.filters.find((f) => f.id === existing.id)
+        : current.filters[current.filters.length - 1]
+      if (!target) return
+      // Picking the option is the go-ahead: no "parse may take a while" ask.
+      for (const f of current.filters)
+        if (PRODUCER_LABEL[f.type]) parserConfirmedRef.current.add(f.id)
+      const hasReplays = typeof current.files === 'number' && current.files > 0
+      if (!hasReplays && !isImporting) {
+        // Nothing to look through yet (e.g. Start empty project, then Look for
+        // combos): show the Replays step, whose empty tray offers the imports,
+        // and run the steps as soon as replays are in (user, 2026-10-08).
+        const replaysPool = current.filters.find((f) => f.type === 'files')
+        setActiveFilterId(replaysPool?.id ?? target.id)
+        pendingStartRunRef.current = target.id
+        setWaitingForImport(target.id)
+        showNotice(
+          `Import some replays and the ${option} steps run by themselves.`,
+        )
+        return
+      }
+      setActiveFilterId(target.id)
+      if (isImporting) {
+        pendingStartRunRef.current = target.id
+        setWaitingForImport(target.id)
+      } else requestRun(target, current)
+      return
+    }
+    // AI: the Replays pool plus one AI Filter step (other steps removed,
+    // user 2026-10-03), opened so its three steps show.
+    const next = await new Promise<ShallowArchiveInterface | null>(
+      (resolve) => {
+        ipcBridge.applyStarterChain('ai', (response) => {
+          if (!response || response.error) {
+            showNotice(
+              `Couldn’t set up the steps${response?.error ? `: ${response.error}` : '.'}`,
+            )
+            return resolve(null)
+          }
+          setArchive(response)
+          return resolve(response)
+        })
+      },
+    )
+    const step = next?.filters.find((f) => f.type === 'aiFilter')
+    if (!step) return
+    const { id } = step
+    setActiveFilterId(id)
+    setExpandedFilters((prev) => ({ ...prev, [id]: true }))
+    setAiGuideFor(id)
+    setAiGuideOpen(true)
+  }
+  // A welcome option picked during an import runs once the import is done.
+  // Kept in state too, so the steps can say they're waiting for it.
+  const pendingStartRunRef = useRef<string | null>(null)
+  const [waitingForImport, setWaitingForImport] = useState<string | null>(null)
+  useEffect(() => {
+    const id = pendingStartRunRef.current
+    if (!id || isImporting !== false || !archive) return
+    // Still no replays (none imported yet, or an import that added none):
+    // keep waiting for them.
+    if (!(typeof archive.files === 'number' && archive.files > 0)) return
+    pendingStartRunRef.current = null
+    setWaitingForImport(null)
+    const target = archive.filters.find((f) => f.id === id)
+    if (target) {
+      setActiveFilterId(target.id)
+      requestRun(target)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isImporting, archive])
+  // The AI Filter's how-it-works guide (AiFilterGuide): the card's ?, and
+  // by itself right after the welcome's Use AI.
+  // Open, and for which AI Filter (null: the first one in the project).
+  const [aiGuideOpen, setAiGuideOpen] = useState(false)
+  const [aiGuideFor, setAiGuideFor] = useState<string | null>(null)
+  useEffect(() => {
+    const on = (e: Event) => {
+      setAiGuideFor((e as CustomEvent<string | undefined>).detail ?? null)
+      setAiGuideOpen(true)
+    }
+    window.addEventListener(AI_GUIDE_EVENT, on)
+    return () => window.removeEventListener(AI_GUIDE_EVENT, on)
+  }, [])
+  const startOptionRef = useRef(startOption)
+  startOptionRef.current = startOption
+  useEffect(() => {
+    const on = (e: Event) =>
+      startOptionRef.current((e as CustomEvent<StartOption>).detail)
+    window.addEventListener(START_OPTION_EVENT, on)
+    return () => window.removeEventListener(START_OPTION_EVENT, on)
+  }, [])
+
   function renderFilters() {
     if (!archive) return ''
     const branchingOn = config.branchingEnabled === true
@@ -930,22 +1268,9 @@ export default function Filters({
       }
     })
 
-    // One-time first-run nudge: the very first time a user has imported files
-    // but never run anything, point at the Combo Filter's Run button. Gated on
-    // a persistent flag so it only ever appears once, then never again.
-    const hasFiles = typeof archive.files === 'number' && archive.files > 0
-    const nothingRun = archive.filters
-      .filter((f) => f.type !== 'files')
-      .every((f) => !f.isProcessed && !f.resumable)
-    const comboFilter = archive.filters.find((f) => f.type === 'comboFilter')
-    const runHintFilterId =
-      config.hideRunHint !== true &&
-      hasFiles &&
-      nothingRun &&
-      comboFilter &&
-      !comboFilter.isProcessed
-        ? comboFilter.id
-        : null
+    // The old first-run "Click Run to find your combos" nudge is gone (user,
+    // 2026-10-06): the welcome's options run the steps.
+    const runHintFilterId: string | null = null
 
     const entries = archive.filters.map((filter, index) => ({
       filter,
@@ -965,8 +1290,19 @@ export default function Filters({
           const { filter, index } = entry
           const isGameFilter = entry === gameEntry
           const isActive = activeFilterId === filter.id
-          const isRunning = runningFilters.has(index)
-          const isCollapsed = !expandedFilters[filter.id]
+          // Only the step actually working shows Stop; ones waiting their turn
+          // in a run show as queued.
+          const isRunning = runningFilters.has(filter.id)
+          const isStopping = isRunning && stoppingFilters.has(filter.id)
+          // Steps of a welcome option picked mid-import: up to its target.
+          const waitIndex = waitingForImport
+            ? archive.filters.findIndex((f) => f.id === waitingForImport)
+            : -1
+          const afterImport =
+            !isRunning && waitIndex >= 0 && index > 0 && index <= waitIndex
+          const isQueued =
+            afterImport || (!isRunning && pendingRunIds.has(filter.id))
+          const isCollapsed = !isExpanded(filter)
           const filterMsg = filterMsgs[filter.id] || ''
           const resultsCount =
             filter.type === 'files' && !filter.isProcessed && archive
@@ -1031,6 +1367,9 @@ export default function Filters({
               filterIndex={index}
               isActive={isActive}
               isRunning={isRunning}
+              isQueued={isQueued}
+              isStopping={isStopping}
+              queuedLabel={afterImport ? 'After import' : undefined}
               isCollapsed={isCollapsed}
               isGameFilter={!!isGameFilter}
               isDragging={isDragging}
@@ -1038,12 +1377,14 @@ export default function Filters({
               filterMsg={filterMsg}
               liveResults={liveResults[filter.id]}
               resultsCount={resultsCount}
+              poolTotal={archive?.files ?? null}
               namesList={namesList}
               connectCodesList={connectCodesList}
               namesLoading={namesLoading}
               codesLoading={codesLoading}
               hasParser={hasParser}
               hasEdgeguardParser={hasEdgeguardParser}
+              previousType={archive.filters[index - 1]?.type}
               inputOptions={inputOptions}
               defaultInputId={defaultInputId}
               indentLevel={indentLevel}
@@ -1051,7 +1392,7 @@ export default function Filters({
               onToggleCollapse={toggleFilterCollapse}
               onClick={() => setActiveFilterId(filter.id)}
               onDoubleClick={() => {
-                if (!expandedFilters[filter.id]) {
+                if (!isExpanded(filter)) {
                   setExpandedFilters((prev) => ({
                     ...prev,
                     [filter.id]: true,
@@ -1062,10 +1403,10 @@ export default function Filters({
               onDismissRunHint={dismissRunHint}
               parserNoteDisabled={config.hideParserNote === true}
               onDismissParserNote={dismissParserNote}
-              onRun={runFilter}
+              onRun={requestRun}
               onStop={stopFilter}
               onResume={resumeFilterRun}
-              onDismissResume={dismissResume}
+              onKeepResults={keepFilterResults}
               onDelete={deleteFilter}
               onUpdate={updateFilter}
               onDismissMsg={dismissFilterMsg}
@@ -1117,8 +1458,24 @@ export default function Filters({
     )
   }
 
+  const busy = runningFilters.size > 0 || pendingRunIds.size > 0
+
   return (
-    <div className="filters">
+    <div
+      className={`filters${filtersStyle === 'compact' ? ' filters--compact' : ''}`}
+    >
+      {aiGuideOpen && (
+        <AiFilterGuide
+          previousType={(() => {
+            const fs = archive?.filters ?? []
+            const at = fs.findIndex((f) =>
+              aiGuideFor ? f.id === aiGuideFor : f.type === 'aiFilter',
+            )
+            return at > 0 ? fs[at - 1].type : undefined
+          })()}
+          onClose={() => setAiGuideOpen(false)}
+        />
+      )}
       <div className="filters-header">
         <div className="filters-title">Filters</div>
         {archive && (
@@ -1128,9 +1485,43 @@ export default function Filters({
             ) : (
               archive.files.toLocaleString()
             )}{' '}
-            SLP files
+            {filtersStyle === 'compact'
+              ? archive.files === 1
+                ? 'replay'
+                : 'replays'
+              : 'SLP files'}
           </div>
         )}
+        {filtersStyle === 'compact' &&
+          archive &&
+          archive.filters.length > 1 && (
+            // Running the last step runs every step above it that needs it
+            // (runFilter), so this is "run the whole chain".
+            <button
+              type="button"
+              className={`filters-run-all${busy ? ' filters-run-all--stop' : ''}`}
+              disabled={!busy && !!waitingForImport}
+              title={
+                busy
+                  ? 'Stop the step that is running and the ones queued after it'
+                  : 'Run every step that needs it, top to bottom'
+              }
+              onClick={() => {
+                if (!busy) {
+                  requestRun(archive.filters[archive.filters.length - 1])
+                  return
+                }
+                stopRequestedRef.current = true
+                for (const id of runningFilters) stopFilter(id)
+              }}
+            >
+              {busy
+                ? '■ Stop'
+                : waitingForImport
+                  ? 'Starts after import…'
+                  : '▶ Run all'}
+            </button>
+          )}
       </div>
       {archive ? (
         renderFilters()
@@ -1144,7 +1535,7 @@ export default function Filters({
             className="add-filter-dropdown"
             onClick={() => setDropdownOpen((prev) => !prev)}
           >
-            + Add Filter
+            {filtersStyle === 'compact' ? '+ Add filter' : '+ Add Filter'}
           </button>
           {dropdownOpen && (
             <div className="add-filter-menu">
@@ -1219,6 +1610,14 @@ export default function Filters({
           )}
         </div>
       </div>
+      {archive && (
+        <TrayNote
+          filters={archive.filters}
+          activeFilterId={activeFilterId}
+          replayCount={archive.files}
+          live={{ running: runningFilters, counts: liveResults }}
+        />
+      )}
       {dragWarning && <div className="drag-warning-toast">{dragWarning}</div>}
       {resetConfirm && (
         <ConfirmResetModal
@@ -1294,12 +1693,32 @@ export default function Filters({
           }}
         />
       )}
+      {confirmAsk && (
+        <ConfirmModal
+          title={confirmAsk.title}
+          body={confirmAsk.body}
+          confirmLabel={confirmAsk.confirmLabel}
+          onConfirm={() => {
+            confirmAsk.resolve(true)
+            setConfirmAsk(null)
+          }}
+          onCancel={() => {
+            confirmAsk.resolve(false)
+            setConfirmAsk(null)
+          }}
+        />
+      )}
       {customConsent && (
         <CustomCodeConsentModal
           filterLabels={customConsent.labels}
           onCancel={() => setCustomConsent(null)}
           onRunOnce={() => {
-            const { onApprove } = customConsent
+            const { onApprove, hashes } = customConsent
+            // Main enforces the same gate: tell it this once, for this session.
+            window.electron.ipcRenderer.sendMessage(
+              'approveCustomCodeOnce',
+              hashes,
+            )
             setCustomConsent(null)
             onApprove()
           }}

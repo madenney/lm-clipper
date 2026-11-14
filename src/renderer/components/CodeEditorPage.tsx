@@ -370,6 +370,8 @@ I'm writing a "Custom Code" filter. This filter receives the output of previous 
 
 ## 1. \`clips\` — Array of clip objects from the previous filter
 
+The code runs many times, on a small batch each time (25 clips, or one game when the input is whole games), not once on the whole list. Decide about each clip on its own: no ranking or "top N" across clips (add a Sort filter after this one), and no state kept between calls. A \`total\` variable holds the size of the whole input (e.g. for random sampling: keep each clip with probability count / total).
+
 Each clip has this shape:
 \`\`\`
 {
@@ -404,7 +406,7 @@ Each clip has this shape:
     moves?: {
       playerIndex: number
       frame: number
-      moveId: number      // Melee move ID (e.g. 2=jab, 7=ftilt, 10=nair, etc.)
+      moveId: number      // Melee move ID (e.g. 2=jab, 7=ftilt, 13=nair, 14=fair, etc.)
       hitCount: number
       damage: number
     }[]

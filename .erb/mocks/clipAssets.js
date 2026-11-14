@@ -8,5 +8,6 @@ module.exports = {
   resolveCharacterImage: () => '',
   getCharacterName: () => null,
   getCharacterShortName: () => null,
-  getPlayerLabel: () => '',
+  // Like the real one minus the character fallback (no character table here).
+  getPlayerLabel: (p) => (p ? p.displayName || p.nametag || '' : ''),
 }

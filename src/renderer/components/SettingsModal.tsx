@@ -5,10 +5,16 @@ import {
   useState,
   useEffect,
   useContext,
+  useRef,
   Dispatch,
   SetStateAction,
 } from 'react'
-import { videoConfig } from 'constants/config'
+import { videoConfig, settingForPlatform } from 'constants/config'
+import { keyboardClick } from '../lib/keyboardClick'
+import { DISCORD_URL, GITHUB_URL } from '../../constants/links'
+import Modal from './Modal'
+import { IntField, PathField } from './SettingsFields'
+import { openChangelog } from './WhatsNew'
 
 import {
   ConfigInterface,
@@ -21,6 +27,15 @@ import { hasActiveBranches, FILES_TABLE } from '../../lib/filterGraph'
 import { ArchiveContext } from '../context/AppContext'
 import ipcBridge from '../ipcBridge'
 import GeckoCodeList from './GeckoCodeList'
+import useGeckoCodes from './useGeckoCodes'
+import { openLunarDatabase } from '../lib/openDatabase'
+import {
+  performanceWarning,
+  recordingWarning,
+  freeDiskNote,
+  hardwareSummary,
+} from '../lib/performanceWarnings'
+import { ownerSettingsSections, useOwnerAdminView } from '../../owner/renderer'
 
 // IDs that moved out of the settings modal
 const hiddenFromSettings = new Set([
@@ -61,9 +76,10 @@ const VIDEO_QUALITY_PRESETS: {
   {
     id: 'test',
     label: 'Test — 1x, fast',
-    hint: 'Low resolution, fast encode. For quickly checking a filter or output.',
+    hint: 'Low resolution, Fast draft recording, fast encode. For quickly checking a filter or output, not for publishing.',
     settings: {
       resolution: 2,
+      recordingFormat: 'draft',
       videoCodec: 'h264',
       videoQualityMode: 'crf',
       crf: 23,
@@ -82,6 +98,7 @@ const VIDEO_QUALITY_PRESETS: {
       crf: 21,
       videoPreset: 'medium',
       keepLosslessMaster: false,
+      recordingFormat: 'auto',
     },
   },
   {
@@ -95,6 +112,7 @@ const VIDEO_QUALITY_PRESETS: {
       crf: 18,
       videoPreset: 'slow',
       keepLosslessMaster: false,
+      recordingFormat: 'auto',
     },
   },
   {
@@ -108,11 +126,18 @@ const VIDEO_QUALITY_PRESETS: {
       crf: 16,
       videoPreset: 'veryslow',
       keepLosslessMaster: false,
+      recordingFormat: 'auto',
     },
   },
 ]
 
-type SettingsSection = (typeof settingsSections)[number]['key']
+// Owner tools add their own sections (empty in release builds), before About.
+const allSettingsSections: { key: string; label: string }[] = [
+  ...settingsSections.filter((s) => s.key !== 'about'),
+  ...ownerSettingsSections.map(({ key, label }) => ({ key, label })),
+  ...settingsSections.filter((s) => s.key === 'about'),
+]
+type SettingsSection = (typeof settingsSections)[number]['key'] | (string & {})
 
 const patternVariables = [
   { key: 'character1', label: 'Character 1', example: 'Fox' },
@@ -164,6 +189,8 @@ type SettingsModalProps = {
   onClose: () => void
   onOpenGeckoModal: () => void
   onRunSetupWizard?: () => void
+  /** Open on this section instead of Paths (e.g. 'recording'). */
+  initialSection?: string
 }
 
 export default function SettingsModal({
@@ -172,21 +199,43 @@ export default function SettingsModal({
   onClose,
   onOpenGeckoModal: _onOpenGeckoModal,
   onRunSetupWizard,
+  initialSection,
 }: SettingsModalProps) {
-  const [activeSection, setActiveSection] = useState<SettingsSection>('paths')
+  // The owner's sections hide while looking at the regular user's Clipper.
+  const adminView = useOwnerAdminView()
+  const ownerKeys = new Set(ownerSettingsSections.map((o) => o.key))
+  const visibleSections = adminView
+    ? allSettingsSections
+    : allSettingsSections.filter((s) => !ownerKeys.has(s.key))
+  const [activeSection, setActiveSection] = useState<SettingsSection>(
+    initialSection ?? 'paths',
+  )
   const [overlaySamplePath, setOverlaySamplePath] = useState(
     '/replays/netplay/DaShizWiz/2023/Game_20230202T075353.slp',
   )
   const [resetConfirm, setResetConfirm] = useState(false)
+  const [clearPathsConfirm, setClearPathsConfirm] = useState(false)
+  const [detectorCache, setDetectorCache] = useState<{
+    entries: number
+    bytes: number
+  } | null>(null)
+  useEffect(() => {
+    ipcBridge.detectorCache('stats', (r) => setDetectorCache(r?.stats ?? null))
+  }, [config.replayLibraryPath])
   const [resetAppConfirm, setResetAppConfirm] = useState(false)
   const [appVersion, setAppVersion] = useState('')
   const [logsPath, setLogsPath] = useState('')
   const [exportingLogs, setExportingLogs] = useState(false)
   const [exportedPath, setExportedPath] = useState<string | null>(null)
-  const [expandedGeckoIdx, setExpandedGeckoIdx] = useState<number | null>(null)
   const [updateCheckStatus, setUpdateCheckStatus] = useState<
     'idle' | 'checking' | 'up-to-date' | 'available' | 'error'
   >('idle')
+  // "Pick settings for this computer": waiting for main to detect and apply.
+  const [picking, setPicking] = useState(false)
+  const [pickedNote, setPickedNote] = useState('')
+  // The last Test Dolphin result (main reports it as a videoMsg).
+  const [testStatus, setTestStatus] = useState('')
+  const [testRunning, setTestRunning] = useState(false)
   // Confirm before disabling branching while the open project still has branches.
   const [branchDisableConfirm, setBranchDisableConfirm] = useState(false)
 
@@ -231,6 +280,18 @@ export default function SettingsModal({
       () => setUpdateCheckStatus('error'),
     )
 
+    const removeVideoMsg = window.electron.ipcRenderer.on('videoMsg', (msg) => {
+      if (typeof msg !== 'string') return
+      if (
+        /^(Launching Dolphin test|Dolphin test|Error: Dolphin|Error: Set Dolphin|Error: test\.slp|Error: dolphinPath|Error: isoPath)/.test(
+          msg,
+        )
+      ) {
+        setTestStatus(msg)
+        setTestRunning(msg.startsWith('Launching'))
+      }
+    })
+
     window.electron.ipcRenderer.sendMessage('getAppVersion', null)
     window.electron.ipcRenderer.sendMessage('getLogsPath', null)
 
@@ -241,16 +302,23 @@ export default function SettingsModal({
       removeUpdateAvailable()
       removeUpdateNotAvailable()
       removeUpdateError()
+      removeVideoMsg()
     }
   }, [])
 
   function handleChange(key: string, value: any) {
-    setConfig({
-      ...config,
-      [key]: value,
-    })
+    // From the latest config: two boxes committing together (Settings closing) must not undo each other.
+    setConfig((prev) => (prev ? { ...prev, [key]: value } : prev))
     ipcBridge.updateConfig({ key, value })
   }
+
+  const {
+    expandedGeckoIdx,
+    setExpandedGeckoIdx,
+    handleAddGeckoCode,
+    handleRemoveGeckoCode,
+    handleUpdateGeckoCode,
+  } = useGeckoCodes(config, handleChange)
 
   // Apply several config keys at once (one setConfig so none clobber each other,
   // plus a persist per key). Used by the Quality Preset selector.
@@ -263,13 +331,32 @@ export default function SettingsModal({
 
   // The preset whose bundle currently matches every relevant setting, else
   // 'custom' — so tweaking any individual control below reads as Custom.
-  const currentPreset =
+  // Picking "Custom" keeps the current values and sends you to the controls
+  // below; it reads Custom until a preset is picked again.
+  const [customPicked, setCustomPicked] = useState(false)
+  const presetItemRef = useRef<HTMLDivElement>(null)
+  const matchedPreset =
     VIDEO_QUALITY_PRESETS.find((p) =>
       Object.entries(p.settings).every(
-        ([k, v]) => (config as Record<string, unknown>)[k] === v,
+        // An install from before Recording Format existed has no key: auto.
+        ([k, v]) =>
+          ((config as Record<string, unknown>)[k] ??
+            (k === 'recordingFormat' ? 'auto' : undefined)) === v,
       ),
     )?.id || 'custom'
+  const currentPreset = customPicked ? 'custom' : matchedPreset
   const applyPreset = (id: string) => {
+    if (id === 'custom') {
+      setCustomPicked(true)
+      const next = presetItemRef.current
+        ?.nextElementSibling as HTMLElement | null
+      next?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      next
+        ?.querySelector<HTMLElement>('select, input, button')
+        ?.focus({ preventScroll: true })
+      return
+    }
+    setCustomPicked(false)
     const preset = VIDEO_QUALITY_PRESETS.find((p) => p.id === id)
     if (preset) handleChangeMany(preset.settings)
   }
@@ -349,6 +436,14 @@ export default function SettingsModal({
   function handleGetPath(key: string, type: string) {
     ipcBridge.getPath(type as 'openFile' | 'openDirectory', (p) => {
       if (!p) return
+      // The library moves with its setting (main asks first and may decline),
+      // so show whatever main ends up using.
+      if (key === 'replayLibraryPath') {
+        ipcBridge.moveReplayLibrary(p, (res) => {
+          if (res?.config) setConfig(res.config)
+        })
+        return
+      }
       setConfig({
         ...config,
         [key]: p,
@@ -372,6 +467,23 @@ export default function SettingsModal({
     window.electron.ipcRenderer.sendMessage('resetConfig', null)
   }
 
+  // Detect this computer again and apply the recording settings picked for it
+  // (main's resetConfig with only: 'hardware'; every other setting is kept).
+  function handlePickForComputer() {
+    setPicking(true)
+    setPickedNote('')
+    const removeListener = window.electron.ipcRenderer.on('config', (cfg) => {
+      removeListener()
+      setPicking(false)
+      if (cfg && typeof cfg === 'object') {
+        setConfig(cfg as ConfigInterface)
+        setPickedNote('Applied.')
+        setTimeout(() => setPickedNote(''), 4000)
+      }
+    })
+    window.electron.ipcRenderer.sendMessage('resetConfig', { only: 'hardware' })
+  }
+
   function handleResetApp() {
     if (!resetAppConfirm) {
       setResetAppConfirm(true)
@@ -380,32 +492,6 @@ export default function SettingsModal({
     setResetAppConfirm(false)
     // Main wipes config + paths to defaults and relaunches; no reply expected.
     window.electron.ipcRenderer.sendMessage('resetApp', null)
-  }
-
-  function handleAddGeckoCode() {
-    const codes = [...(config.customGeckoCodes || [])]
-    codes.push({ name: '', code: '', enabled: true })
-    handleChange('customGeckoCodes', codes)
-    setExpandedGeckoIdx(codes.length - 1)
-  }
-
-  function handleRemoveGeckoCode(idx: number) {
-    const codes = [...(config.customGeckoCodes || [])]
-    codes.splice(idx, 1)
-    handleChange('customGeckoCodes', codes)
-    if (expandedGeckoIdx === idx) setExpandedGeckoIdx(null)
-    else if (expandedGeckoIdx !== null && expandedGeckoIdx > idx)
-      setExpandedGeckoIdx(expandedGeckoIdx - 1)
-  }
-
-  function handleUpdateGeckoCode(
-    idx: number,
-    field: keyof CustomGeckoCode,
-    value: string | boolean,
-  ) {
-    const codes = [...(config.customGeckoCodes || [])]
-    codes[idx] = { ...codes[idx], [field]: value }
-    handleChange('customGeckoCodes', codes)
   }
 
   function renderInput(c: any) {
@@ -437,17 +523,37 @@ export default function SettingsModal({
       case 'openDirectory':
         return (
           <div className="settings-path-row">
-            <input
-              type="text"
+            <PathField
               id={c.id}
-              className="settings-path-input"
               value={config[c.id] || ''}
-              placeholder={
-                c.type === 'openDirectory'
-                  ? '/path/to/directory'
-                  : '/path/to/file'
+              // The Replay Library moves its files when it changes: only Browse
+              // (moveReplayLibrary, which asks first) may change it. Typing here
+              // re-pointed the library at every half-typed path (launch review CR-3).
+              readOnly={c.id === 'replayLibraryPath'}
+              title={
+                c.id === 'replayLibraryPath'
+                  ? 'Use Browse to move the Replay Library'
+                  : undefined
               }
-              onChange={(e) => handleChange(c.id, e.target.value)}
+              placeholder={
+                c.id === 'scratchPath'
+                  ? 'System temp folder'
+                  : c.type === 'openDirectory'
+                    ? '/path/to/directory'
+                    : '/path/to/file'
+              }
+              // Saved when the user is done typing (blur, Enter), not per keystroke. The
+              // Replay Library goes through the move (main asks first, and may decline).
+              onCommit={(next, revert) => {
+                if (c.id === 'replayLibraryPath') {
+                  ipcBridge.moveReplayLibrary(next, (res) => {
+                    if (res?.config) setConfig(res.config)
+                    else revert()
+                  })
+                  return
+                }
+                handleChange(c.id, next)
+              }}
             />
             <button
               type="button"
@@ -473,12 +579,10 @@ export default function SettingsModal({
         )
       case 'int':
         return (
-          <input
-            type="number"
+          <IntField
             id={c.id}
-            className="settings-input settings-input--number"
             value={config[c.id]}
-            onChange={(e) => handleChange(c.id, parseInt(e.target.value, 10))}
+            onCommit={(n) => handleChange(c.id, n)}
           />
         )
       case 'dropdown':
@@ -1051,10 +1155,12 @@ export default function SettingsModal({
       case 'encoding':
       case 'performance': {
         const categoryKey = section
-        const items = videoConfig.filter(
-          (c: any) =>
-            c.category === categoryKey && !hiddenFromSettings.has(c.id),
-        )
+        const items = videoConfig
+          .filter(
+            (c: any) =>
+              c.category === categoryKey && !hiddenFromSettings.has(c.id),
+          )
+          .map((c) => settingForPlatform(c, window.electronPlatform))
         if (items.length === 0) {
           return (
             <div className="settings-empty">No settings in this section.</div>
@@ -1062,10 +1168,73 @@ export default function SettingsModal({
         }
         return (
           <div className="settings-list">
-            {categoryKey === 'encoding' && (
+            {categoryKey === 'performance' && (
               <div
                 className="settings-item"
-                title="Apply a bundle of quality settings. Changing any control below switches this to Custom."
+                title="Worker threads for filter processing (importing, parsing, filtering)"
+              >
+                <div className="settings-item-info">
+                  <label
+                    className="settings-item-label"
+                    htmlFor="numFilterThreads"
+                  >
+                    CPU threads for filters
+                  </label>
+                  <span className="settings-item-desc">
+                    How many replays are read and filtered at once. More is
+                    faster on a big library.
+                  </span>
+                </div>
+                <div className="settings-item-control">
+                  <input
+                    type="number"
+                    id="numFilterThreads"
+                    className="settings-input settings-input--number"
+                    min={1}
+                    value={config.numFilterThreads}
+                    onChange={(e) =>
+                      handleChange(
+                        'numFilterThreads',
+                        Math.max(1, parseInt(e.target.value, 10) || 1),
+                      )
+                    }
+                  />
+                </div>
+              </div>
+            )}
+            {categoryKey === 'performance' && (
+              <div
+                className="settings-item"
+                title="Look at this computer's CPU, memory and graphics again and set Dolphin Instances, Recording and Player Resolution, Quality Mode, CRF and Encoder Preset to suit it. Other settings are kept."
+              >
+                <div className="settings-item-info">
+                  <span className="settings-item-label">
+                    Settings for this computer
+                  </span>
+                  <span className="settings-item-desc">
+                    {hardwareSummary(config.hardwareProfile) ||
+                      'Pick recording settings that suit this computer.'}
+                  </span>
+                </div>
+                <div className="settings-item-control">
+                  <button
+                    type="button"
+                    className="settings-action-btn"
+                    disabled={picking}
+                    onClick={handlePickForComputer}
+                  >
+                    {picking
+                      ? 'Checking…'
+                      : pickedNote || 'Pick settings for this computer'}
+                  </button>
+                </div>
+              </div>
+            )}
+            {categoryKey === 'encoding' && (
+              <div
+                ref={presetItemRef}
+                className="settings-item"
+                title="Apply a bundle of quality settings, or pick Custom to set each option below yourself."
               >
                 <div className="settings-item-info">
                   <label
@@ -1076,8 +1245,7 @@ export default function SettingsModal({
                   </label>
                   <span className="settings-item-desc">
                     {VIDEO_QUALITY_PRESETS.find((p) => p.id === currentPreset)
-                      ?.hint ||
-                      'Custom — individual settings below don’t match a preset.'}
+                      ?.hint || 'Custom: set each option below.'}
                   </span>
                 </div>
                 <select
@@ -1091,9 +1259,7 @@ export default function SettingsModal({
                       {p.label}
                     </option>
                   ))}
-                  <option value="custom" disabled>
-                    Custom
-                  </option>
+                  <option value="custom">Custom</option>
                 </select>
               </div>
             )}
@@ -1111,21 +1277,30 @@ export default function SettingsModal({
                 >
                   <button
                     type="button"
-                    className="settings-action-btn"
+                    className={`settings-action-btn${clearPathsConfirm ? ' settings-action-btn--danger settings-action-btn--confirm' : ''}`}
                     onClick={() => {
+                      // Two clicks: this forgets Dolphin, the ISO, the output folder and ffmpeg.
+                      if (!clearPathsConfirm) {
+                        setClearPathsConfirm(true)
+                        return
+                      }
+                      setClearPathsConfirm(false)
                       const cleared = {
                         dolphinPath: '',
                         ssbmIsoPath: '',
                         outputPath: '',
                         ffmpegPath: '',
                       }
-                      setConfig({ ...config, ...cleared })
+                      setConfig((prev) =>
+                        prev ? { ...prev, ...cleared } : prev,
+                      )
                       Object.entries(cleared).forEach(([key, value]) =>
                         ipcBridge.updateConfig({ key, value }),
                       )
                     }}
+                    title="Forget the Dolphin, Melee ISO, output folder and ffmpeg paths (you can set them again with the wizard)"
                   >
-                    Clear Paths
+                    {clearPathsConfirm ? 'Forget these paths?' : 'Clear Paths'}
                   </button>
                   <button
                     type="button"
@@ -1151,6 +1326,8 @@ export default function SettingsModal({
                   className={`settings-item${isWide ? ' settings-item--path' : ''}${isCheck ? ' settings-item--clickable' : ''}`}
                   key={c.id}
                   title={c.tooltip || ''}
+                  // The hover text, for a screen reader and the keyboard too.
+                  aria-description={c.tooltip || undefined}
                   // The whole row toggles a checkbox setting. The toggle switch
                   // is click-inert (pointer-events:none in CSS) so every click in
                   // the row lands here — one handler, no double-fire.
@@ -1171,6 +1348,40 @@ export default function SettingsModal({
                     )}
                     {/* Always shown (not gated on the toggle) so enabling the
                         setting doesn't change the row's height. */}
+                    {c.type === 'int' &&
+                      performanceWarning(
+                        c.id,
+                        config[c.id],
+                        config.hardwareProfile?.threads,
+                        config.hardwareProfile,
+                      ) && (
+                        <span className="settings-item-warning" role="alert">
+                          ⚠{' '}
+                          {performanceWarning(
+                            c.id,
+                            config[c.id],
+                            config.hardwareProfile?.threads,
+                            config.hardwareProfile,
+                          )}
+                        </span>
+                      )}
+                    {recordingWarning(c.id, config) && (
+                      <span className="settings-item-warning" role="alert">
+                        ⚠ {recordingWarning(c.id, config)}
+                      </span>
+                    )}
+                    {c.id === 'recordingFormat' && freeDiskNote(config) && (
+                      <span
+                        className={
+                          freeDiskNote(config)!.low
+                            ? 'settings-item-warning'
+                            : 'settings-item-desc'
+                        }
+                      >
+                        {freeDiskNote(config)!.low ? '⚠ ' : ''}
+                        {freeDiskNote(config)!.text}
+                      </span>
+                    )}
                     {c.warning && (
                       <span className="settings-item-warning">{c.warning}</span>
                     )}
@@ -1210,6 +1421,35 @@ export default function SettingsModal({
               </div>
             )}
             {categoryKey === 'recording' && renderOutputSection()}
+            {categoryKey === 'paths' && (
+              <div
+                className="settings-item"
+                title="Combos and edgeguards Clipper already found, per game, so re-running a parser (or using the same games in another project) skips reading the replays."
+              >
+                <div className="settings-item-info">
+                  <span className="settings-item-label">Detector cache</span>
+                  <span className="settings-item-desc">
+                    {detectorCache
+                      ? `${detectorCache.entries.toLocaleString()} games · ${(detectorCache.bytes / 1e6).toFixed(1)} MB, in the Replay Library folder.`
+                      : 'Results Clipper already found, kept in the Replay Library folder.'}
+                  </span>
+                </div>
+                <div className="settings-item-control">
+                  <button
+                    type="button"
+                    className="settings-action-btn"
+                    disabled={!detectorCache?.entries}
+                    onClick={() =>
+                      ipcBridge.detectorCache('clear', (r) =>
+                        setDetectorCache(r?.stats ?? null),
+                      )
+                    }
+                  >
+                    Clear
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )
       }
@@ -1255,14 +1495,31 @@ export default function SettingsModal({
                 <span className="settings-item-desc">
                   Launch a test Dolphin instance to verify your setup
                 </span>
+                {testStatus && (
+                  <span
+                    className={
+                      testStatus.startsWith('Error')
+                        ? 'settings-item-warning'
+                        : 'settings-item-desc'
+                    }
+                    role={testStatus.startsWith('Error') ? 'alert' : undefined}
+                    style={{ userSelect: 'text', whiteSpace: 'pre-wrap' }}
+                  >
+                    {testStatus}
+                  </span>
+                )}
               </div>
               <div className="settings-item-control">
                 <button
                   type="button"
                   className="settings-action-btn"
-                  onClick={() => ipcBridge.testDolphin()}
+                  disabled={testRunning}
+                  onClick={() => {
+                    setTestStatus('')
+                    ipcBridge.testDolphin()
+                  }}
                 >
-                  Launch Test
+                  {testRunning ? 'Testing…' : 'Launch Test'}
                 </button>
               </div>
             </div>
@@ -1369,9 +1626,10 @@ export default function SettingsModal({
               <div className="settings-item-info">
                 <span className="settings-item-label">Reset App</span>
                 <span className="settings-item-desc">
-                  Clear everything — settings, paths, and recent projects — and
-                  restart fresh, as if newly installed. Your saved projects are
-                  not deleted.
+                  Put every setting, path and the recent-projects list back to
+                  how a new install starts, and restart. Your projects, your
+                  Replay Library and all replay files stay exactly where they
+                  are; nothing is deleted.
                 </span>
               </div>
               <div className="settings-item-control">
@@ -1380,7 +1638,7 @@ export default function SettingsModal({
                   className={`settings-action-btn settings-action-btn--danger${resetAppConfirm ? ' settings-action-btn--confirm' : ''}`}
                   onClick={handleResetApp}
                 >
-                  {resetAppConfirm ? 'Reset & restart?' : 'Reset App'}
+                  {resetAppConfirm ? 'Yes, wipe it and restart' : 'Reset App'}
                 </button>
               </div>
             </div>
@@ -1393,6 +1651,19 @@ export default function SettingsModal({
             <div className="settings-about-title">Lunar Clipper</div>
             <div className="settings-about-version">
               Version {appVersion || '...'}
+              {' · '}
+              <span
+                className="settings-about-link settings-about-link--clickable"
+                role="button"
+                tabIndex={0}
+                onKeyDown={keyboardClick}
+                onClick={() => {
+                  onClose()
+                  openChangelog()
+                }}
+              >
+                What&apos;s new
+              </span>
             </div>
             <div className="settings-about-desc">
               Automated clip generation from Slippi replays.
@@ -1400,23 +1671,30 @@ export default function SettingsModal({
             <div className="settings-about-links">
               <span
                 className="settings-about-link settings-about-link--clickable"
-                onClick={() =>
-                  window.open('https://github.com/madenney/lm-clipper')
-                }
+                role="button"
+                tabIndex={0}
+                onKeyDown={keyboardClick}
+                onClick={() => window.open(GITHUB_URL)}
               >
                 GitHub
               </span>
               <span className="settings-about-sep">&middot;</span>
               <span
                 className="settings-about-link settings-about-link--clickable"
-                onClick={() => window.open('https://www.lunarmelee.com')}
+                role="button"
+                tabIndex={0}
+                onKeyDown={keyboardClick}
+                onClick={() => openLunarDatabase()}
               >
                 Lunar Database
               </span>
               <span className="settings-about-sep">&middot;</span>
               <span
                 className="settings-about-link settings-about-link--clickable"
-                onClick={() => window.open('https://discord.gg/ThjMCW3F4R')}
+                role="button"
+                tabIndex={0}
+                onKeyDown={keyboardClick}
+                onClick={() => window.open(DISCORD_URL)}
               >
                 Discord
               </span>
@@ -1425,112 +1703,113 @@ export default function SettingsModal({
         )
 
       default:
-        return null
+        return (
+          ownerSettingsSections
+            .find((o) => o.key === section)
+            ?.render(onClose) ?? null
+        )
     }
   }
 
+  const closeSettings = () => {
+    onClose()
+    setResetConfirm(false)
+    setResetAppConfirm(false)
+    setClearPathsConfirm(false)
+  }
+
   return (
-    <div
-      className="settings-overlay"
-      onClick={() => {
-        onClose()
-        setResetConfirm(false)
-        setResetAppConfirm(false)
-      }}
+    <Modal
+      overlayClassName="settings-overlay"
+      className="settings-modal"
+      onClose={closeSettings}
+      label="Settings"
     >
-      <div className="settings-modal" onClick={(e) => e.stopPropagation()}>
-        {branchDisableConfirm && (
-          <div
-            className="filter-warn-overlay"
-            role="presentation"
-            onClick={() => setBranchDisableConfirm(false)}
-          >
-            <div
-              className="filter-warn-modal filter-warn-medium"
-              role="presentation"
-              onClick={(e) => e.stopPropagation()}
+      {branchDisableConfirm && (
+        <Modal
+          overlayClassName="filter-warn-overlay"
+          className="filter-warn-modal filter-warn-medium"
+          onClose={() => setBranchDisableConfirm(false)}
+          label="Disable filter branching?"
+        >
+          <div className="filter-warn-title">Disable filter branching?</div>
+          <div className="filter-warn-body">
+            This project has{' '}
+            <strong>
+              {branchCount} branched filter{branchCount === 1 ? '' : 's'}
+            </strong>
+            . Disabling branching runs the chain linearly — each filter reads
+            from the one directly above it — until you turn branching back on.
+            Your branch settings are kept and will be restored when you
+            re-enable it.
+          </div>
+          <div className="filter-warn-actions">
+            <button
+              type="button"
+              className="filter-warn-btn filter-warn-btn-secondary"
+              onClick={() => setBranchDisableConfirm(false)}
             >
-              <div className="filter-warn-title">Disable filter branching?</div>
-              <div className="filter-warn-body">
-                This project has{' '}
-                <strong>
-                  {branchCount} branched filter{branchCount === 1 ? '' : 's'}
-                </strong>
-                . Disabling branching runs the chain linearly — each filter
-                reads from the one directly above it — until you turn branching
-                back on. Your branch settings are kept and will be restored when
-                you re-enable it.
-              </div>
-              <div className="filter-warn-actions">
-                <button
-                  type="button"
-                  className="filter-warn-btn filter-warn-btn-secondary"
-                  onClick={() => setBranchDisableConfirm(false)}
-                >
-                  Keep branching on
-                </button>
-                <button
-                  type="button"
-                  className="filter-warn-btn filter-warn-btn-danger"
-                  onClick={() => {
-                    handleChange('branchingEnabled', false)
-                    setBranchDisableConfirm(false)
-                  }}
-                >
-                  Disable branching
-                </button>
-              </div>
-            </div>
+              Keep branching on
+            </button>
+            <button
+              type="button"
+              className="filter-warn-btn filter-warn-btn-danger"
+              onClick={() => {
+                handleChange('branchingEnabled', false)
+                setBranchDisableConfirm(false)
+              }}
+            >
+              Disable branching
+            </button>
           </div>
-        )}
-        <div className="settings-header">
-          <h2 className="settings-title">Settings</h2>
-          <button
-            type="button"
-            className="settings-close"
-            onClick={() => {
-              onClose()
-              setResetConfirm(false)
-              setResetAppConfirm(false)
-            }}
-            aria-label="Close settings"
-          >
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-              <path
-                d="M1 1L13 13M1 13L13 1"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-              />
-            </svg>
-          </button>
+        </Modal>
+      )}
+      <div className="settings-header">
+        <h2 className="settings-title">Settings</h2>
+        <button
+          type="button"
+          className="settings-close"
+          onClick={closeSettings}
+          aria-label="Close settings"
+        >
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+            <path
+              d="M1 1L13 13M1 13L13 1"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+            />
+          </svg>
+        </button>
+      </div>
+      <div className="settings-layout">
+        <div className="settings-sidebar">
+          {visibleSections.map((s) => (
+            <button
+              type="button"
+              key={s.key}
+              className={`settings-sidebar-item${activeSection === s.key ? ' settings-sidebar-item--active' : ''}`}
+              aria-current={activeSection === s.key ? 'page' : undefined}
+              onClick={() => {
+                setActiveSection(s.key)
+                setResetConfirm(false)
+                setResetAppConfirm(false)
+                setClearPathsConfirm(false)
+              }}
+            >
+              {s.label}
+            </button>
+          ))}
         </div>
-        <div className="settings-layout">
-          <div className="settings-sidebar">
-            {settingsSections.map((s) => (
-              <div
-                key={s.key}
-                className={`settings-sidebar-item${activeSection === s.key ? ' settings-sidebar-item--active' : ''}`}
-                onClick={() => {
-                  setActiveSection(s.key)
-                  setResetConfirm(false)
-                  setResetAppConfirm(false)
-                }}
-              >
-                {s.label}
-              </div>
-            ))}
-          </div>
-          <div className="settings-body">
-            <div className="settings-section">
-              <h3 className="settings-section-title">
-                {settingsSections.find((s) => s.key === activeSection)?.label}
-              </h3>
-              {renderSectionContent(activeSection)}
-            </div>
+        <div className="settings-body">
+          <div className="settings-section">
+            <h3 className="settings-section-title">
+              {visibleSections.find((s) => s.key === activeSection)?.label}
+            </h3>
+            {renderSectionContent(activeSection)}
           </div>
         </div>
       </div>
-    </div>
+    </Modal>
   )
 }

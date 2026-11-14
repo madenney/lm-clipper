@@ -21,16 +21,28 @@ jest.mock('https', () => ({
   request: jest.fn(() => mockReq),
 }))
 
+const mockApp = { isPackaged: true }
 jest.mock('electron', () => ({
   app: {
     getVersion: () => '9.9.9-test',
+    get isPackaged() {
+      return mockApp.isPackaged
+    },
   },
 }))
 
 // eslint-disable-next-line import/first
 import https from 'https'
 // eslint-disable-next-line import/first
-import { initTelemetry, track, applyUsageConsent } from '../main/telemetry'
+import {
+  initTelemetry,
+  track,
+  applyUsageConsent,
+  releaseHeldTelemetry,
+  reportStartupTelemetry,
+  flushTelemetry,
+  telemetrySuppressedReason,
+} from '../main/telemetry'
 // eslint-disable-next-line import/first
 import type { ConfigInterface } from '../constants/types'
 
@@ -46,6 +58,10 @@ function makeConfig(overrides: Partial<ConfigInterface>): ConfigInterface {
 }
 
 beforeEach(() => {
+  mockApp.isPackaged = true
+  for (const k of Object.keys(process.env))
+    if (k === 'LM_CLIPPER_TEST_HOME' || k === 'LM_CLIPPER_TELEMETRY_FORCE' || k.startsWith('LM_CLIPPER_AUTORUN_'))
+      delete process.env[k]
   httpsRequest.mockClear()
   mockReq.on.mockClear()
   mockReq.write.mockClear()
@@ -87,7 +103,11 @@ describe('track — enabled (POSTs a JSON body)', () => {
   beforeEach(() => {
     initTelemetry({
       getConfig: () =>
-        makeConfig({ sendAnonymousUsage: true, installId: 'install-xyz' }),
+        makeConfig({
+          sendAnonymousUsage: true,
+          installId: 'install-xyz',
+          consentNoticeSeen: true,
+        }),
     })
   })
 
@@ -201,5 +221,192 @@ describe('applyUsageConsent — reports the toggle around the flip', () => {
     track('filter_run', { filterType: 'combo', durationMs: 5 })
     track('usage_opt_out')
     expect(httpsRequest).not.toHaveBeenCalled()
+  })
+})
+
+describe('first-launch pings wait for the usage-stats notice', () => {
+  it('holds install and app_open until the notice was shown, then sends once', () => {
+    const config = makeConfig({ consentNoticeSeen: false })
+    initTelemetry({ getConfig: () => config })
+    track('install')
+    track('app_open')
+    track('app_open')
+    expect(httpsRequest).not.toHaveBeenCalled()
+    // Other events are not held.
+    track('import_completed', { files: 1 })
+    expect(httpsRequest).toHaveBeenCalledTimes(1)
+    httpsRequest.mockClear()
+    config.consentNoticeSeen = true
+    releaseHeldTelemetry()
+    const sent = mockReq.write.mock.calls.map((c) => JSON.parse(c[0]).event)
+    expect(sent.filter((e) => e === 'install')).toHaveLength(1)
+    expect(sent.filter((e) => e === 'app_open')).toHaveLength(1)
+  })
+
+  it('sends nothing held when the user opted out before the notice', () => {
+    const config = makeConfig({ consentNoticeSeen: false })
+    initTelemetry({ getConfig: () => config })
+    track('install')
+    config.sendAnonymousUsage = false
+    config.consentNoticeSeen = true
+    httpsRequest.mockClear()
+    releaseHeldTelemetry()
+    expect(httpsRequest).not.toHaveBeenCalled()
+  })
+})
+
+describe('dev, rig and test runs are not users (analytics review F7)', () => {
+  const cfg = () => makeConfig({ consentNoticeSeen: true })
+  afterEach(() => {
+    delete process.env.LM_CLIPPER_TEST_HOME
+    delete process.env.LM_CLIPPER_AUTORUN_WORKFLOW
+    delete process.env.LM_CLIPPER_TELEMETRY_FORCE
+  })
+
+  it('sends from a packaged build', () => {
+    initTelemetry({ getConfig: cfg })
+    track('app_open')
+    expect(httpsRequest).toHaveBeenCalledTimes(1)
+    expect(telemetrySuppressedReason(cfg())).toBeNull()
+  })
+  it('sends nothing from a build that is not packaged', () => {
+    mockApp.isPackaged = false
+    initTelemetry({ getConfig: cfg })
+    track('app_open')
+    expect(httpsRequest).not.toHaveBeenCalled()
+    expect(telemetrySuppressedReason(cfg())).toBe('not-packaged')
+  })
+  it('sends nothing under the win-rig test home or autorun flags', () => {
+    initTelemetry({ getConfig: cfg })
+    process.env.LM_CLIPPER_TEST_HOME = '/tmp/home'
+    track('app_open')
+    delete process.env.LM_CLIPPER_TEST_HOME
+    process.env.LM_CLIPPER_AUTORUN_WORKFLOW = '1'
+    track('video_created', { clips: 1 })
+    expect(httpsRequest).not.toHaveBeenCalled()
+  })
+  it('sends nothing with testMode on', () => {
+    initTelemetry({ getConfig: () => makeConfig({ consentNoticeSeen: true, testMode: true }) })
+    track('app_open')
+    expect(httpsRequest).not.toHaveBeenCalled()
+  })
+  it('lets a developer force it on purpose', () => {
+    mockApp.isPackaged = false
+    process.env.LM_CLIPPER_TELEMETRY_FORCE = '1'
+    initTelemetry({ getConfig: cfg })
+    track('app_open')
+    expect(httpsRequest).toHaveBeenCalledTimes(1)
+  })
+})
+
+/** Make https.request answer with a status code (or fail), like the real thing. */
+function respondWith(status: number | 'error') {
+  httpsRequest.mockImplementationOnce((_url, _opts, cb) => {
+    const req = {
+      on: jest.fn((evt: string, fn: () => void) => {
+        if (evt === 'error' && status === 'error') setImmediate(fn)
+      }),
+      write: jest.fn(),
+      end: jest.fn(() => {
+        if (status !== 'error') setImmediate(() => cb({ statusCode: status, resume: jest.fn() }))
+      }),
+      destroy: jest.fn(),
+    }
+    return req
+  })
+}
+const tick = () => new Promise((r) => setTimeout(r, 5))
+
+describe('launch pings are marked sent only once acknowledged (F19)', () => {
+  let config: ConfigInterface
+  const save = jest.fn()
+  beforeEach(() => {
+    save.mockClear()
+    config = makeConfig({ consentNoticeSeen: true, installPingPending: true })
+    initTelemetry({ getConfig: () => config, saveConfig: save })
+  })
+
+  it('keeps install pending and the day unmarked when the request fails', async () => {
+    respondWith('error')
+    respondWith('error')
+    reportStartupTelemetry('1.0.0', new Date('2026-11-12T10:00:00Z'))
+    await tick()
+    expect(config.installPingPending).toBe(true)
+    expect(config.lastUsagePing).toBeUndefined()
+    expect(save).not.toHaveBeenCalled()
+  })
+  it('keeps them unmarked on a non-2xx answer', async () => {
+    respondWith(503)
+    respondWith(429)
+    reportStartupTelemetry('1.0.0', new Date('2026-11-12T10:00:00Z'))
+    await tick()
+    expect(config.installPingPending).toBe(true)
+    expect(config.lastUsagePing).toBeUndefined()
+  })
+  it('marks both after 2xx and does not repeat the same day and version', async () => {
+    respondWith(204)
+    respondWith(204)
+    reportStartupTelemetry('1.0.0', new Date('2026-11-12T10:00:00Z'))
+    await tick()
+    expect(config.installPingPending).toBe(false)
+    expect(config.lastUsagePing).toBe('2026-11-12')
+    expect(config.lastUsagePingVersion).toBe('1.0.0')
+    expect(save).toHaveBeenCalled()
+    httpsRequest.mockClear()
+    reportStartupTelemetry('1.0.0', new Date('2026-11-12T23:00:00Z'))
+    expect(httpsRequest).not.toHaveBeenCalled()
+  })
+  it('sends app_open again for a new day and for a new version', async () => {
+    config.installPingPending = false
+    config.lastUsagePing = '2026-11-12'
+    config.lastUsagePingVersion = '1.0.0'
+    reportStartupTelemetry('1.0.0', new Date('2026-11-13T00:01:00Z'))
+    expect(httpsRequest).toHaveBeenCalledTimes(1)
+    httpsRequest.mockClear()
+    reportStartupTelemetry('1.1.0', new Date('2026-11-12T12:00:00Z'))
+    expect(httpsRequest).toHaveBeenCalledTimes(1)
+    expect(JSON.parse(mockReq.write.mock.calls.at(-1)![0]).event).toBe('app_open')
+  })
+  it('keeps an install ping that was held for the notice, and sends it after', async () => {
+    config.consentNoticeSeen = false
+    config.lastUsagePing = '2026-11-12'
+    config.lastUsagePingVersion = '1.0.0'
+    reportStartupTelemetry('1.0.0', new Date('2026-11-12T10:00:00Z'))
+    expect(httpsRequest).not.toHaveBeenCalled()
+    expect(config.installPingPending).toBe(true)
+    respondWith(204)
+    config.consentNoticeSeen = true
+    releaseHeldTelemetry()
+    await tick()
+    expect(config.installPingPending).toBe(false)
+  })
+})
+
+describe('flushTelemetry', () => {
+  // A fresh module, so requests left hanging by the tests above are not in flight here.
+  const fresh = () => {
+    let mod: typeof import('../main/telemetry')
+    jest.isolateModules(() => {
+      // eslint-disable-next-line global-require
+      mod = require('../main/telemetry')
+    })
+    mod!.initTelemetry({ getConfig: () => makeConfig({ consentNoticeSeen: true }) })
+    return mod!
+  }
+  it('resolves at once with nothing in flight and waits for a request that is', async () => {
+    const t = fresh()
+    await t.flushTelemetry(50)
+    respondWith(204)
+    t.track('app_open')
+    const t0 = Date.now()
+    await t.flushTelemetry(1000)
+    expect(Date.now() - t0).toBeLessThan(500)
+  })
+  it('gives up after the timeout when the request never finishes', async () => {
+    const t = fresh()
+    t.track('app_open') // the default mock never answers
+    const t0 = Date.now()
+    await t.flushTelemetry(40)
+    expect(Date.now() - t0).toBeGreaterThanOrEqual(30)
   })
 })

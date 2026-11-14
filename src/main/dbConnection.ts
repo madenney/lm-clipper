@@ -1,3 +1,4 @@
+import fs from 'fs'
 import Database from 'better-sqlite3'
 
 let currentDb: Database.Database | null = null
@@ -6,7 +7,11 @@ let currentDbPath: string | null = null
 export function getDb(dbPath: string): Database.Database {
   if (currentDb && currentDbPath === dbPath) return currentDb
   closeDb()
+  const isNew = !fs.existsSync(dbPath)
   currentDb = new Database(dbPath)
+  // New projects can be compacted in place, quickly and without extra disk
+  // (projectCompaction.ts). Must be set before WAL mode and the first table.
+  if (isNew) currentDb.pragma('auto_vacuum = INCREMENTAL')
   currentDb.pragma('journal_mode = WAL')
   currentDb.pragma('busy_timeout = 5000')
   currentDbPath = dbPath

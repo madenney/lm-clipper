@@ -1,0 +1,36 @@
+/* Dialogs main asks for (AppDialogHost): the app's own look instead of the
+   system's message boxes. Builds on the .filter-warn-* modal in Filters.css. */
+.app-dialog-overlay {
+  z-index: 2000;
+}
+
+.app-dialog {
+  width: 570px;
+}
+
+.app-dialog-eyebrow {
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--filter-muted);
+}
+
+.app-dialog-detail {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 40vh;
+  overflow-y: auto;
+}
+
+.app-dialog-actions {
+  flex-wrap: wrap;
+}
+
+.app-dialog .app-dialog-default {
+  background: rgba(79, 182, 198, 0.2);
+  border-color: #4fb6c6;
+}
+
+.app-dialog .app-dialog-default:hover {
+  background: rgba(79, 182, 198, 0.32);
+}

@@ -53,34 +53,49 @@ const safeStringify = (value: any) => {
 
 let logDirReady = false
 const MAX_LOG_SIZE = 10 * 1024 * 1024 // 10 MB
-const rotatedFiles = new Set<string>()
+// One log line is at most this long (a render error loop can send big payloads).
+const MAX_ENTRY_CHARS = 20_000
+// Bytes each log file has now, counted as lines are written, so the 10 MB limit
+// holds during a session and not only at the first write after the app starts.
+const knownSizes = new Map<string, number>()
 
-const rotateIfNeeded = (filePath: string) => {
-  if (rotatedFiles.has(filePath)) return
-  try {
-    const stats = fs.statSync(filePath)
-    if (stats.size > MAX_LOG_SIZE) {
-      const backupPath = `${filePath}.old`
-      try {
-        fs.unlinkSync(backupPath)
-      } catch (_) {
-        // no old backup
-      }
-      fs.renameSync(filePath, backupPath)
+const rotateIfNeeded = (filePath: string, incoming: number) => {
+  let size = knownSizes.get(filePath)
+  if (size === undefined) {
+    try {
+      size = fs.statSync(filePath).size
+    } catch (_) {
+      size = 0 // file doesn't exist yet
     }
-  } catch (_) {
-    // file doesn't exist yet
   }
-  rotatedFiles.add(filePath)
+  if (size + incoming > MAX_LOG_SIZE) {
+    const backupPath = `${filePath}.old`
+    try {
+      fs.unlinkSync(backupPath)
+    } catch (_) {
+      // no old backup
+    }
+    try {
+      fs.renameSync(filePath, backupPath)
+    } catch (_) {
+      // nothing to rotate
+    }
+    size = 0
+  }
+  knownSizes.set(filePath, size + incoming)
 }
 
-const writeLog = (fileName: string, entry: string) => {
+const writeLog = (fileName: string, rawEntry: string) => {
   if (!logDirReady) {
     ensureLogDir()
     logDirReady = true
   }
+  const entry =
+    rawEntry.length > MAX_ENTRY_CHARS
+      ? `${rawEntry.slice(0, MAX_ENTRY_CHARS)}... [cut]`
+      : rawEntry
   const filePath = path.join(logRoot, fileName)
-  rotateIfNeeded(filePath)
+  rotateIfNeeded(filePath, Buffer.byteLength(entry) + 1)
   fsPromises.appendFile(filePath, `${entry}\n`).catch((err) => {
     process.stderr.write(`Log write failed: ${err?.message}\n`)
   })

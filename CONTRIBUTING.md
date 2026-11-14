@@ -6,7 +6,7 @@ Thanks for your interest in contributing! This document covers development setup
 
 ### Prerequisites
 
-- Node.js >= 18
+- Node.js >= 22.15 (24 is what the maintainers use)
 - npm
 - Git
 
@@ -15,7 +15,7 @@ Thanks for your interest in contributing! This document covers development setup
 ```bash
 git clone https://github.com/madenney/lm-clipper.git
 cd lm-clipper
-npm install
+npm ci
 npm run start
 ```
 

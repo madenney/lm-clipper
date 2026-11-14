@@ -1,6 +1,9 @@
 /* eslint-disable jsx-a11y/no-static-element-interactions */
 /* eslint-disable jsx-a11y/click-events-have-key-events */
 import { useState, useMemo, useRef, useEffect } from 'react'
+import { keyboardClick } from '../lib/keyboardClick'
+import { DISCORD_URL } from '../../constants/links'
+import Modal from './Modal'
 import { SavedCustomFilter } from '../../constants/types'
 import { FILTER_LAYOUT, PRODUCER_LABEL } from '../../constants/config'
 import '../styles/TemplateCatalog.css'
@@ -28,15 +31,6 @@ export default function TemplateCatalog({
   useEffect(() => {
     searchRef.current?.focus()
   }, [])
-
-  // Close on Escape
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
 
   // Derive categories from templates
   const categories = useMemo(() => {
@@ -93,123 +87,128 @@ export default function TemplateCatalog({
   }, [templates, activeCategory, search])
 
   return (
-    <div className="tc-overlay" onClick={onClose}>
-      <div className="tc-modal" onClick={(e) => e.stopPropagation()}>
-        {/* Header */}
-        <div className="tc-header">
-          <span className="tc-title">Browse more</span>
-          <div className="tc-search-wrap">
-            <input
-              ref={searchRef}
-              className="tc-search"
-              type="text"
-              placeholder="Search templates..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-          </div>
-          <button type="button" className="tc-close" onClick={onClose}>
-            &times;
-          </button>
+    <Modal
+      overlayClassName="tc-overlay"
+      className="tc-modal"
+      onClose={onClose}
+      label="Browse more filter templates"
+    >
+      {/* Header */}
+      <div className="tc-header">
+        <span className="tc-title">Browse more</span>
+        <div className="tc-search-wrap">
+          <input
+            ref={searchRef}
+            className="tc-search"
+            type="text"
+            placeholder="Search templates..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+        <button type="button" className="tc-close" onClick={onClose}>
+          &times;
+        </button>
+      </div>
+
+      <div className="tc-body">
+        {/* Sidebar */}
+        <div className="tc-sidebar">
+          {categories.map((cat) => (
+            <div
+              key={cat}
+              className={`tc-cat${activeCategory === cat ? ' tc-cat-active' : ''}${cat === 'My Templates' ? ' tc-cat-user' : ''}${cat === 'Community' ? ' tc-cat-community' : ''}`}
+              onClick={() => setActiveCategory(cat)}
+            >
+              {cat}
+            </div>
+          ))}
         </div>
 
-        <div className="tc-body">
-          {/* Sidebar */}
-          <div className="tc-sidebar">
-            {categories.map((cat) => (
-              <div
-                key={cat}
-                className={`tc-cat${activeCategory === cat ? ' tc-cat-active' : ''}${cat === 'My Templates' ? ' tc-cat-user' : ''}${cat === 'Community' ? ' tc-cat-community' : ''}`}
-                onClick={() => setActiveCategory(cat)}
-              >
-                {cat}
-              </div>
-            ))}
-          </div>
-
-          {/* Template list */}
-          <div className="tc-list">
-            {activeCategory === 'Community' && (
-              <div className="tc-community">
-                <div className="tc-community-title">Community Templates</div>
-                <p className="tc-community-text">
-                  Community-submitted templates will show up here in future
-                  updates. Have a cool filter you think others would find
-                  useful?
-                </p>
-                <p className="tc-community-text">
-                  Join the{' '}
-                  <span
-                    className="tc-community-link"
-                    onClick={() => window.open('https://discord.gg/ThjMCW3F4R')}
-                  >
-                    Discord
-                  </span>{' '}
-                  and share your template — we&apos;ll review it and add it to
-                  the built-in list for everyone to use.
-                </p>
-              </div>
-            )}
-            {activeCategory !== 'Community' && filtered.length === 0 && (
-              <div className="tc-empty">
-                {search
-                  ? 'No templates match your search.'
-                  : 'No templates in this category.'}
-              </div>
-            )}
-            {activeCategory !== 'Community' &&
-              filtered.map((t, i) => {
-                // A native catalog entry names its exact producer; a JS template
-                // uses the legacy `requiresParser` shorthand for the combo parser.
-                const needProducer =
-                  t.requiredProducer ??
-                  (t.requiresParser ? 'slpParser' : undefined)
-                const needLabel = needProducer
-                  ? PRODUCER_LABEL[needProducer] || needProducer
-                  : ''
-                const disabled = !!needProducer && !presentSet.has(needProducer)
-                return (
-                  <div
-                    key={`${t.name}-${i}`}
-                    className={`tc-item${disabled ? ' tc-item-disabled' : ''}`}
-                    onClick={() => !disabled && onSelect(t)}
-                    title={disabled ? `Add a ${needLabel} first` : undefined}
-                  >
-                    <div className="tc-item-top">
-                      <span className="tc-item-name">{t.name}</span>
-                      {disabled && (
-                        <span className="tc-item-badge tc-item-badge-parser">
-                          Needs {needLabel}
-                        </span>
-                      )}
-                      {t.category && t.builtIn && (
-                        <span className="tc-item-badge">{t.category}</span>
-                      )}
-                      {!t.builtIn && (
-                        <span className="tc-item-badge tc-item-badge-user">
-                          My Template
-                        </span>
-                      )}
-                    </div>
-                    {t.description && (
-                      <div className="tc-item-desc">{t.description}</div>
+        {/* Template list */}
+        <div className="tc-list">
+          {activeCategory === 'Community' && (
+            <div className="tc-community">
+              <div className="tc-community-title">Community Templates</div>
+              <p className="tc-community-text">
+                Community-submitted templates will show up here in future
+                updates. Have a cool filter you think others would find useful?
+              </p>
+              <p className="tc-community-text">
+                Join the{' '}
+                <span
+                  className="tc-community-link"
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={keyboardClick}
+                  onClick={() => window.open(DISCORD_URL)}
+                >
+                  Discord
+                </span>{' '}
+                and share your template — we&apos;ll review it and add it to the
+                built-in list for everyone to use.
+              </p>
+            </div>
+          )}
+          {activeCategory !== 'Community' && filtered.length === 0 && (
+            <div className="tc-empty">
+              {search
+                ? 'No templates match your search.'
+                : 'No templates in this category.'}
+            </div>
+          )}
+          {activeCategory !== 'Community' &&
+            filtered.map((t, i) => {
+              // A native catalog entry names its exact producer; a JS template
+              // uses the legacy `requiresParser` shorthand for the combo parser.
+              const needProducer =
+                t.requiredProducer ??
+                (t.requiresParser ? 'slpParser' : undefined)
+              const needLabel = needProducer
+                ? PRODUCER_LABEL[needProducer] || needProducer
+                : ''
+              const disabled = !!needProducer && !presentSet.has(needProducer)
+              return (
+                <div
+                  key={`${t.name}-${i}`}
+                  className={`tc-item${disabled ? ' tc-item-disabled' : ''}`}
+                  onClick={() => !disabled && onSelect(t)}
+                  title={disabled ? `Add a ${needLabel} first` : undefined}
+                >
+                  <div className="tc-item-top">
+                    <span className="tc-item-name">{t.name}</span>
+                    {disabled && (
+                      <span className="tc-item-badge tc-item-badge-parser">
+                        Needs {needLabel}
+                      </span>
                     )}
-                    {t.customParams && t.customParams.length > 0 && (
-                      <div className="tc-item-params">
-                        {t.customParams.map((p) => (
-                          <span key={p.name} className="tc-item-param">
-                            {p.name}
-                            {p.value ? `=${p.value}` : ''}
-                          </span>
-                        ))}
-                      </div>
+                    {t.category && t.builtIn && (
+                      <span className="tc-item-badge">{t.category}</span>
+                    )}
+                    {!t.builtIn && (
+                      <span className="tc-item-badge tc-item-badge-user">
+                        My Template
+                      </span>
                     )}
                   </div>
-                )
-              })}
-          </div>
+                  {t.description && (
+                    <div className="tc-item-desc">{t.description}</div>
+                  )}
+                  {t.customParams && t.customParams.length > 0 && (
+                    <div className="tc-item-params">
+                      {t.customParams.map((p) => (
+                        <span key={p.name} className="tc-item-param">
+                          {p.name}
+                          {p.value ? `=${p.value}` : ''}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
         </div>
       </div>
-    </div>
+    </Modal>
   )
 }

@@ -1,7 +1,12 @@
 {
   "// purpose": "Type-check-only config. Same as tsconfig.json but module=esnext so import.meta (used in webpack's new URL(..., import.meta.url) worker pattern) type-checks. tsc --noEmit uses this; ts-jest and ts-node keep the base commonjs tsconfig.json, so the test/dev toolchains are unaffected.",
+  "// paths": "yauzl is pinned to the app's own @types/yauzl (3.x): the dev setup links src/node_modules to release/app/node_modules, which can hold an older @types/yauzl (2.x, no openPromise). Only here, never in tsconfig.json: webpack resolves runtime imports through tsconfig paths.",
   "extends": "./tsconfig.json",
   "compilerOptions": {
-    "module": "esnext"
+    "module": "esnext",
+    "paths": {
+      "electron-updater": ["../release/app/node_modules/electron-updater"],
+      "yauzl": ["../node_modules/@types/yauzl"]
+    }
   }
 }

@@ -29,15 +29,15 @@ const BASE_RECT_BOTTOM = 5
 const BOX_COLOR = '#202020'
 const TEXT_COLOR = '#FFFFFF'
 const CORNER_RADIUS = 2
-const FONT_FAMILY = 'OverlayCourierBold'
+const FONT_FAMILY = 'OverlayMonoBold'
 
 let fontRegistered = false
 
-/** Register the bundled Courier Bold font once. Safe to call repeatedly. */
+/** Register the bundled Liberation Mono Bold font (SIL OFL 1.1, assets/PROVENANCE.md) once. Safe to call repeatedly. */
 export function registerOverlayFont(): boolean {
   if (fontRegistered) return true
   try {
-    const fontPath = getAssetPath('fonts', 'cour_bold.ttf')
+    const fontPath = getAssetPath('fonts', 'LiberationMono-Bold.ttf')
     const ok = Boolean(GlobalFonts.registerFromPath(fontPath, FONT_FAMILY))
     fontRegistered = ok
     if (!ok) logMain('overlay: font registration returned false', { fontPath })

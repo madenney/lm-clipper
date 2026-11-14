@@ -1,0 +1,130 @@
+/* What's new (WhatsNew.tsx): the one-time update popup and the changelog history. */
+.wn-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.6);
+}
+
+.wn-modal {
+  width: min(620px, calc(100% - 60px));
+  max-height: calc(100% - 60px);
+  display: flex;
+  flex-direction: column;
+  background: #131416;
+  border: 1px solid #2d2f34;
+  border-radius: 14px;
+  box-shadow: 0 16px 56px rgba(0, 0, 0, 0.6);
+  color: #e8eaed;
+  font-family: system-ui, 'Segoe UI', Roboto, Arial, sans-serif;
+}
+
+.wn-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 24px 28px 14px;
+}
+
+.wn-header h2 {
+  margin: 0 0 4px;
+  font-size: 22px;
+}
+
+.wn-header p {
+  margin: 0;
+  font-size: 13.5px;
+  color: #9aa0aa;
+  line-height: 1.45;
+}
+
+.wn-icon {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  color: #a58cff;
+  background: rgba(165, 140, 255, 0.14);
+}
+
+.wn-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 4px 28px 8px;
+}
+
+.wn-release + .wn-release {
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid #25272c;
+}
+
+.wn-version {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 0 0 2px;
+  font-size: 17px;
+}
+
+.wn-date {
+  font-size: 12px;
+  font-weight: 400;
+  color: #7d838d;
+}
+
+.wn-summary {
+  margin: 0 0 10px;
+  font-size: 13px;
+  color: #9aa0aa;
+}
+
+.wn-group h4 {
+  margin: 14px 0 6px;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #a58cff;
+}
+
+.wn-group ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.wn-group li {
+  margin: 4px 0;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: #d5d8dd;
+}
+
+.wn-footer {
+  display: flex;
+  justify-content: flex-end;
+  padding: 14px 28px 20px;
+}
+
+.wn-close {
+  padding: 8px 22px;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  color: #fff;
+  background: #6b4fe0;
+  border: 0;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.wn-close:hover {
+  background: #7d62ea;
+}

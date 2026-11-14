@@ -42,6 +42,30 @@ out. **Action item for the website:** publish a privacy policy at
 what's collected (the events below), that it's anonymous, that the IP is
 discarded, and how to opt out.
 
+## What is sent, and from which builds
+
+Only a real, packaged install reports. `track()` sends nothing from a development
+run (`!app.isPackaged`), a win-rig test run (`LM_CLIPPER_TEST_HOME`,
+`LM_CLIPPER_AUTORUN_*`) or a config with `testMode` on; `LM_CLIPPER_TELEMETRY_FORCE=1`
+turns it on for a developer testing the pings. (Before 2026-11 those runs counted as
+installs, opens and "videos"; the admin App Usage page has an excluded-installs list for
+the old ids, see `apps/website/scripts/app-usage-exclude.ts`.)
+
+The "already sent" marks are written only after the server answers 2xx:
+
+- `install` stays pending (`installPingPending` in the config, set when the config is first
+  created) until acknowledged, so a first launch with no network, or a quit before the usage
+  notice is dismissed, no longer loses it.
+- `app_open` is once per UTC day **and once more when the app version changes**
+  (`lastUsagePing`, `lastUsagePingVersion`), so an update shows up in version adoption the
+  day it lands.
+- Quitting waits up to 1.5 s for pings already on the wire (`flushTelemetry`).
+- Settings > Reset keeps `installId` and the usage-data choice, so a reset is not a new
+  install and never turns an opt-out back on.
+
+The install id is also **not** sent with calls to the website or storage any more (it used
+to go out as `X-Lunar-Install-Id`, unread, even with usage stats off).
+
 ## Endpoint
 
 ```
@@ -189,6 +213,11 @@ low-cardinality enum. Current set includes: `files`, `slpParser` (Combo Parser),
 `zeroToDeaths`, `stageCenter`, `reverse`, `sort`, `custom`. Treat the field as
 an open string (new types may be added) but expect this vocabulary.
 
+> **What the counts mean.** `import_completed` fires for every import that was not cancelled,
+> including one that added nothing, and `filter_run` for every filter *step* that finished (a
+> failed or empty one included). The admin page calls them "Imports run" and "Filter steps run".
+> `data.added` and `data.resultCount` say whether anything came of them.
+
 > **Volume note:** `filter_run` and `import_completed` can fire often for power
 > users (a project may run many filters). Design ingest/storage to absorb bursts
 > and consider down-sampling/aggregating these two in the dashboard.
@@ -220,11 +249,13 @@ daily rollup table keyed on `(day, event)` keeps the dashboard cheap.
 ## Dashboard metrics this enables
 
 - **Installs** — count of `install` events; unique `install_id`s over time.
-- **DAU / MAU** — distinct `install_id` with an `app_open` in the day / 28-day
-  window. (`app_open` is client-deduped to once/day, so a simple distinct count
-  is correct.)
-- **Retention** — cohort by first-seen `install_id`, revisited via later
-  `app_open`s.
+- **DAU / MAU / active** — distinct `install_id` with any usage event (`APP_USAGE_ACTIVITY_EVENTS`:
+  `app_open`, `video_created`, `import_completed`, `filter_run`, `ai_prompt_copied`) in the
+  day / 28-day window. `app_open` alone undercounts a user who leaves the app running for
+  days. Days and months are UTC. "Active this month" is a 28-day window.
+- **Retention** — cohort by first-seen `install_id`; "came back" means any event at least 24 h
+  after the first one (not just a different UTC day); an install first seen in the last 2 days is
+  "too new to tell", not "one and done". All of these are floors.
 - **Version adoption** — distinct `install_id` per `app_version` per day; great
   for confirming an auto-update rollout is landing.
 - **Platform split** — `os` / `arch` distribution.
@@ -241,6 +272,10 @@ daily rollup table keyed on `(day, event)` keeps the dashboard cheap.
 
 - Validate `event` against the known enum; drop unknown events (or store in a
   quarantine bucket).
+- Per-event clamps (`utils/appUsageData.ts`): `video_created` at most 60 clips and 600 s per
+  clip (a checkpoint is 50 clips); an install may send 240 events an hour; one IP may introduce
+  at most 25 new install ids a day, and further ones are stored with `quarantined: true` and
+  left out of every count.
 - Require `installId` to be a UUID; reject otherwise.
 - Cap body size (e.g. 4 KB) and `data` depth; reject oversized.
 - Rate-limit per source IP and/or per `installId`.

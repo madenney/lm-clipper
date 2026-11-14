@@ -10,28 +10,50 @@ import {
 } from 'constants/types'
 
 import { Worker } from 'worker_threads'
+import fs from 'fs'
 import Filter from './Filter'
+import type { FileSeen, GameHeader } from '../main/replayLibrary'
 
 import { streamSlpFilePaths } from '../lib/file'
 import {
-  getFileByPath,
-  insertFiles,
-  getAllFromTable,
-  getItemsByIds,
-  updateMetaData,
-  deleteFilter,
-  createFilter,
-  getPlayerNameCounts,
-  getConnectCodeCounts,
-} from '../main/db'
+  invalidReasonFor,
+  type FailCounts,
+  type FailReason,
+  type SkipCounts,
+  type SkipReason,
+} from '../lib/importSkips'
+// All database work goes through DbWorker, never the main thread (db.ts
+// WORKER_SYNC_FNS explains why).
 import {
+  getFileByPathAsync as getFileByPath,
+  insertFilesAsync as insertFiles,
+  getAllFromTableAsync as getAllFromTable,
+  getItemsByIdsAsync as getItemsByIds,
+  updateMetaDataAsync as updateMetaData,
+  deleteFilterAsync as deleteFilter,
+  createFilterAsync as createFilter,
+  getPlayerNameCountsAsync as getPlayerNameCounts,
+  getConnectCodeCountsAsync as getConnectCodeCounts,
   getAllIdsAsync,
+  selectionIdsAsync,
   getTableDurationAsync,
-  getItemsAsync,
+  getWindowAsync,
   getItemsLiteAsync,
 } from '../main/dbAsync'
+import { headerKnowsCpu } from '../lib/cpuPlayers'
+import { headerKnowsLastFrame } from '../lib/lastFrame'
+import type { SelectionWire } from '../lib/selection'
+import { keepsSlpz } from '../lib/slpzDecompress'
 import { asyncForEach, getWorkerExecArgv } from '../lib'
 import { getDescendantIds } from '../lib/filterGraph'
+
+/** How import reaches the replay library (on the DB worker, via dbAsync). */
+export type ImportLibrary = {
+  /** The library folder: a .slpz in it is always read as it is. */
+  folder?: string
+  headers: (_files: FileSeen[]) => Promise<Record<string, GameHeader>>
+  record: (_files: (FileSeen & { header: GameHeader })[]) => Promise<unknown>
+}
 
 export default class Archive {
   path: string
@@ -63,12 +85,32 @@ export default class Archive {
       maxWorkers?: number
       slpzConfig?: {
         slpzBinaryPath: string
-        slpzMode: 'extract' | 'replace'
+        slpzMode: 'extract' | 'replace' | 'keep'
         slpzOutputDir: string
+        keepInside?: string
       }
+      /** The replay library (main/replayLibrary.ts): files it already read are
+       *  not parsed again, and new headers are remembered for next time. */
+      library?: ImportLibrary
     },
   ) {
     const paths = Array.isArray(_paths) ? _paths : [_paths]
+    const library = options?.library
+    let fromLibrary = 0
+    let libraryPending: (FileSeen & { header: GameHeader })[] = []
+    let libraryWrites = Promise.resolve()
+    const flushLibrary = () => {
+      if (!library || libraryPending.length === 0) return
+      const batch = libraryPending
+      libraryPending = []
+      libraryWrites = libraryWrites
+        .then(() => library.record(batch))
+        .then(
+          () => undefined,
+          (error) =>
+            console.error('Error recording replays in the library:', error),
+        )
+    }
     const detectDuplicates = options?.detectDuplicates !== false
     const abortSignal = options?.abortSignal
     const maxWorkers = Math.max(1, options?.maxWorkers || 1)
@@ -82,7 +124,13 @@ export default class Archive {
     let terminated = false
     let totalDiscovered = 0
     let processed = 0
+    // Broken files: unreadable, damaged or cut off (lib/importSkips.ts).
     let failed = 0
+    const failedReasons: FailCounts = {}
+    const fail = (reason: FailReason) => {
+      failed += 1
+      failedReasons[reason] = (failedReasons[reason] ?? 0) + 1
+    }
     let pendingNewItemCount = 0
     // Cumulative rows actually written this run. Unlike pendingNewItemCount
     // (which emitProgress drains), this survives to the return value — it's the
@@ -92,6 +140,12 @@ export default class Archive {
     let inserted = 0
     // Not errors: games Clipper doesn't import, and files already in the project.
     let skipped = 0
+    // Why each one was left out (lib/importSkips.ts), for the result notice.
+    const skippedReasons: SkipCounts = {}
+    const skip = (reason: SkipReason) => {
+      skipped += 1
+      skippedReasons[reason] = (skippedReasons[reason] ?? 0) + 1
+    }
     let duplicates = 0
     let lastProgressAt = 0
     let pendingBatch: FileInterface[] = []
@@ -114,6 +168,12 @@ export default class Archive {
       pendingNewItemCount = 0
     }
 
+    // Files tasks of this run hold (being imported, or queued and not written
+    // yet): a .slpz decompresses to a .slp the folder walk may also find
+    // (replace mode), and rows are written in batches, so the project alone
+    // can't tell. Only in-flight work is kept, so a huge import stays small.
+    const takenThisRun = new Set<string>()
+
     const flushBatch = () => {
       if (pendingBatch.length === 0) return
       const batch = pendingBatch
@@ -131,6 +191,9 @@ export default class Archive {
           inserted += batch.length
         } catch (error) {
           console.error('Error inserting batch:', error)
+        } finally {
+          // Written: the duplicate lookup finds them from here on.
+          for (const f of batch) takenThisRun.delete(f.path)
         }
       })
     }
@@ -160,44 +223,126 @@ export default class Archive {
 
     const inFlight = new Set<Promise<void>>()
 
+    /** Take the file for this task; true when another task has it or it's
+     *  in the project already. Taken before the lookup, so two tasks can't
+     *  both pass for the same file. */
+    const isDuplicate = async (file: string, claims: string[]) => {
+      if (takenThisRun.has(file)) return true
+      takenThisRun.add(file)
+      claims.push(file)
+      try {
+        if (await getFileByPath(this.path, file)) return true
+      } catch (error) {
+        console.error('Error checking duplicate:', error)
+      }
+      return false
+    }
+
     const processFile = async (path: string) => {
-      if (terminated) return
+      // What this task took; let go when it ends, except the row it queued
+      // (let go once its batch is written: the project knows it then).
+      const claims: string[] = []
+      let queued: string | null = null
+      try {
+        queued = await importOne(path, claims)
+      } finally {
+        for (const c of claims) if (c !== queued) takenThisRun.delete(c)
+      }
+    }
+
+    /** One file: the path of the row it queued, or null. */
+    const importOne = async (
+      path: string,
+      claims: string[],
+    ): Promise<string | null> => {
+      if (terminated) return null
+
+      // "Skip .slpz files" in the SLPZ wizard: they're left out, not failed.
+      if (!options?.slpzConfig && /\.slpz$/i.test(path)) {
+        skip('slpz')
+        processed += 1
+        emitProgress()
+        return null
+      }
 
       if (detectDuplicates) {
-        try {
-          const existingFile = await getFileByPath(this.path, path)
-          if (existingFile) {
-            duplicates += 1
-            processed += 1
-            emitProgress()
-            return
-          }
-        } catch (error) {
-          console.error('Error checking duplicate:', error)
+        if (await isDuplicate(path, claims)) {
+          duplicates += 1
+          processed += 1
+          emitProgress()
+          return null
         }
       }
 
       let fileJSON: FileInterface | null = null
+      // Known to the library and unchanged on disk: reuse its header.
+      let seen: FileSeen | null = null
+      // A .slpz read as it is (kept) is the same file next time too.
+      const slpzConfig = options?.slpzConfig
+      const kept =
+        /\.slp$/i.test(path) ||
+        (/\.slpz$/i.test(path) && !!slpzConfig && keepsSlpz(path, slpzConfig))
+      if (library && kept) {
+        try {
+          const st = await fs.promises.stat(path)
+          seen = { path, size: st.size, mtime: Math.floor(st.mtimeMs) }
+          const header = (await library.headers([seen]))[path]
+          // Headers from builds that didn't record CPU players, or that left an
+          // anonymized game without its length, are parsed again.
+          if (
+            header &&
+            headerKnowsCpu(header) &&
+            headerKnowsLastFrame(header)
+          ) {
+            fileJSON = { ...header, path, id: '' } as FileInterface
+            fromLibrary += 1
+          }
+        } catch (error) {
+          console.error('Error reading the replay library:', error)
+        }
+      }
       try {
-        fileJSON = await workerPool.process(path)
+        if (!fileJSON) {
+          fileJSON = await workerPool.process(path)
+          if (seen && fileJSON && fileJSON.path === path) {
+            const { path: _p, id: _id, ...header } = fileJSON
+            libraryPending.push({ ...seen, header })
+            if (libraryPending.length >= 200) flushLibrary()
+          }
+        }
       } catch (error) {
         if (!terminated) {
           console.error('Error processing file:', error)
-          failed += 1
+          fail('unreadable')
           processed += 1
           emitProgress()
         }
-        return
+        return null
       }
 
       if (!fileJSON || !fileJSON.isValid) {
-        skipped += 1
+        // A game Clipper leaves out on purpose is skipped; a broken file
+        // (no settings, cut off) failed.
+        const why = invalidReasonFor(fileJSON?.info)
+        if (why.kind === 'skipped') skip(why.reason)
+        else fail(why.reason)
         processed += 1
         emitProgress()
-        return
+        return null
       }
 
-      if (terminated) return
+      // A .slpz becomes its .slp: that one may be in already (or another task
+      // of this run has it: the folder had both).
+      if (detectDuplicates && fileJSON.path !== path) {
+        if (await isDuplicate(fileJSON.path, claims)) {
+          duplicates += 1
+          processed += 1
+          emitProgress()
+          return null
+        }
+      }
+
+      if (terminated) return null
 
       pendingBatch.push(fileJSON)
       if (pendingBatch.length >= batchThreshold) {
@@ -208,6 +353,7 @@ export default class Archive {
 
       processed += 1
       emitProgress()
+      return fileJSON.path
     }
 
     try {
@@ -229,6 +375,8 @@ export default class Archive {
       // Final flush of any remaining files
       flushBatch()
       await flushQueue
+      flushLibrary()
+      await libraryWrites
     } finally {
       if (batchTimer) {
         clearTimeout(batchTimer)
@@ -245,7 +393,16 @@ export default class Archive {
       this.activeImportPool = null
     }
 
-    return { terminated, failed, inserted, skipped, duplicates }
+    return {
+      terminated,
+      failed,
+      failedReasons,
+      inserted,
+      skipped,
+      skippedReasons,
+      duplicates,
+      fromLibrary,
+    }
   }
 
   async addFilter(newFilterJSON: FilterInterface) {
@@ -291,14 +448,15 @@ export default class Archive {
     // (transitively). In a linear chain that's "everything below startIndex";
     // with branches it leaves unrelated branches' results intact.
     const root = this.filters[startIndex]
-    if (!root) return
+    // A locked step is never reset (its descendants are skipped by getDescendantIds).
+    if (!root || root.locked) return
     const descendants = getDescendantIds(
       this.filters,
       root.id,
       branchingEnabled,
     )
     const filtersToReset = this.filters.filter(
-      (f, i) => i === startIndex || descendants.has(f.id),
+      (f, i) => !f.locked && (i === startIndex || descendants.has(f.id)),
     )
     await asyncForEach(filtersToReset, async (filterJSON: FilterInterface) => {
       await deleteFilter(this.path, filterJSON.id)
@@ -331,6 +489,7 @@ export default class Archive {
         results: number | null
         inputId?: string
         lastRunMs?: number
+        locked?: boolean
       }[]
       savedCustomFilters?: SavedCustomFilter[]
       cachedCounts?: Record<string, number>
@@ -349,6 +508,7 @@ export default class Archive {
         ...(typeof filter.lastRunMs === 'number'
           ? { lastRunMs: filter.lastRunMs }
           : {}),
+        ...(filter.locked ? { locked: true } : {}),
       })),
       cachedCounts,
     }
@@ -379,6 +539,7 @@ export default class Archive {
         ...(typeof filter.lastRunMs === 'number'
           ? { lastRunMs: filter.lastRunMs }
           : {}),
+        ...(filter.locked ? { locked: true } : {}),
       })),
       savedCustomFilters: this.savedCustomFilters || [],
     }
@@ -393,8 +554,11 @@ export default class Archive {
     offset?: number
     limit?: number
     lite?: boolean
+    /** A newer read on this lane supersedes this one (it throws StaleReadError). */
+    lane?: string
   }) {
-    const { filterId, numPerPage, currentPage, offset, limit, lite } = params
+    const { filterId, numPerPage, currentPage, offset, limit, lite, lane } =
+      params
     const resolvedLimit = limit ?? numPerPage ?? 0
     const resolvedOffset = offset ?? (currentPage || 0) * (numPerPage || 0)
 
@@ -404,7 +568,13 @@ export default class Archive {
     const response =
       lite && filterId === 'files'
         ? await getItemsLiteAsync(this.path, resolvedLimit, safeOffset)
-        : await getItemsAsync(this.path, filterId, resolvedLimit, safeOffset)
+        : await getWindowAsync(
+            this.path,
+            filterId,
+            resolvedLimit,
+            safeOffset,
+            lane,
+          )
 
     return this.parseRows(filterId, response, lite)
   }
@@ -417,6 +587,17 @@ export default class Archive {
   async getItemsByIds(filterId: string, ids: number[]) {
     const response = await getItemsByIds(this.path, filterId, ids)
     return this.parseRows(filterId, response as Record<string, any>[])
+  }
+
+  /** A tray selection's row ids in display order, at most `limit`. */
+  async getSelectionIds(
+    filterId: string,
+    selection: SelectionWire,
+    limit?: number,
+  ): Promise<number[]> {
+    return Array.from(
+      await selectionIdsAsync(this.path, filterId, selection, limit),
+    )
   }
 
   getAllIds(filterId: string): Promise<string[]> {
@@ -530,16 +711,18 @@ class ImportWorkerPool {
   private workerExecArgv?: string[]
   private slpzConfig?: {
     slpzBinaryPath: string
-    slpzMode: 'extract' | 'replace'
+    slpzMode: 'extract' | 'replace' | 'keep'
     slpzOutputDir: string
+    keepInside?: string
   }
 
   constructor(
     size: number,
     slpzConfig?: {
       slpzBinaryPath: string
-      slpzMode: 'extract' | 'replace'
+      slpzMode: 'extract' | 'replace' | 'keep'
       slpzOutputDir: string
+      keepInside?: string
     },
   ) {
     this.workerExecArgv = getWorkerExecArgv()
@@ -634,9 +817,13 @@ class ImportWorkerPool {
 
   private workerErrorCount = 0
   private readonly MAX_WORKER_RETRIES = 10
+  // A crash fires 'error' and then 'exit' (code 1) for the same worker: count
+  // and replace it once (launch review FLT-9).
+  private readonly gone = new WeakSet<Worker>()
 
   private handleWorkerError(worker: Worker, error: Error) {
-    if (this.terminated) return
+    if (this.terminated || this.gone.has(worker)) return
+    this.gone.add(worker)
     const activeId = this.activeByWorker.get(worker)
     if (activeId !== undefined) {
       const task = this.pending.get(activeId)
@@ -649,6 +836,14 @@ class ImportWorkerPool {
     this.workerErrorCount++
     if (this.workerErrorCount < this.MAX_WORKER_RETRIES) {
       this.addWorker()
+    } else if (this.workers.length === 0) {
+      // No worker left and none will be made: whatever is still queued can never
+      // run. Fail it (the import reports those files) instead of waiting forever.
+      const stopped = new Error(
+        'The import workers stopped (a replay may be crashing the reader).',
+      )
+      this.queue.forEach((task) => task.reject(stopped))
+      this.queue = []
     }
     this.schedule()
   }

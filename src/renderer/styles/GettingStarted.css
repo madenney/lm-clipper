@@ -1,130 +1,6 @@
-/* Getting-started panel — used in the Start screen and the Welcome modal */
-.gs {
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-  text-align: left;
-  color: #cfcfcf;
-  max-width: 420px;
-}
-
-.gs-heading {
-  font-size: 13px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: #6fd3e0;
-}
-
-.gs-steps {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-.gs-step {
-  display: flex;
-  gap: 12px;
-  align-items: flex-start;
-}
-
-.gs-num {
-  flex: 0 0 24px;
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  background: linear-gradient(180deg, #1f6b78 0%, #15505a 100%);
-  border: 1px solid #2a8b9a;
-  color: #d8f6fb;
-  font-size: 13px;
-  font-weight: 700;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.gs-step-title {
-  font-size: 14px;
-  font-weight: 600;
-  color: #f0f0f0;
-  margin-bottom: 2px;
-}
-
-.gs-step-desc {
-  font-size: 12.5px;
-  line-height: 1.45;
-  color: #9a9a9a;
-}
-
-.gs-step-desc code {
-  background: #1c1c1c;
-  border: 1px solid #2d2d2d;
-  border-radius: 3px;
-  padding: 0 4px;
-  font-size: 11.5px;
-  color: #c9c9c9;
-}
-
-.gs-step-desc strong {
-  color: #cfcfcf;
-}
+/* The Welcome modal (components/GettingStarted.tsx) */
 
 /* Setup status block */
-.gs-setup {
-  background: #161616;
-  border: 1px solid #2a2a2a;
-  border-radius: 8px;
-  padding: 12px 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.gs-setup-title {
-  font-size: 12px;
-  font-weight: 600;
-  color: #888;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-.gs-status-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-}
-
-.gs-status-dot {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  flex: 0 0 9px;
-}
-
-.gs-status-dot--ok {
-  background: #3fae5e;
-  box-shadow: 0 0 6px rgba(63, 174, 94, 0.6);
-}
-
-.gs-status-dot--missing {
-  background: #555;
-  border: 1px solid #6a6a6a;
-}
-
-.gs-status-label {
-  flex: 1;
-  color: #cfcfcf;
-}
-
-.gs-status-ready {
-  font-size: 12px;
-  color: #3fae5e;
-  font-weight: 600;
-}
 
 .gs-status-setup {
   background: none;
@@ -138,44 +14,6 @@
 
 .gs-status-setup:hover {
   text-decoration: underline;
-}
-
-.gs-setup-btn {
-  margin-top: 4px;
-  background: linear-gradient(180deg, #1f6b78 0%, #15505a 100%);
-  border: 1px solid #2a8b9a;
-  border-radius: 6px;
-  color: #eafcff;
-  font-size: 13px;
-  font-weight: 600;
-  padding: 8px 14px;
-  cursor: pointer;
-  transition: filter 120ms ease;
-}
-
-.gs-setup-btn:hover {
-  filter: brightness(1.12);
-}
-
-.gs-lunar-btn {
-  align-self: flex-start;
-  background: linear-gradient(180deg, #2a2a2a 0%, #1f1f1f 100%);
-  border: 1px solid #3a3a3a;
-  border-radius: 6px;
-  color: #d4d4d4;
-  font-size: 13px;
-  font-weight: 600;
-  padding: 8px 16px;
-  cursor: pointer;
-  transition: filter 120ms ease;
-}
-
-.gs-lunar-btn:hover {
-  filter: brightness(1.18);
-}
-
-.gs-lunar-arrow {
-  color: #6fd3e0;
 }
 
 /* Welcome modal (Help → Welcome) */
@@ -195,7 +33,7 @@
   border-radius: 12px;
   padding: 22px 24px;
   box-shadow: 0 12px 48px rgba(0, 0, 0, 0.6);
-  max-width: 480px;
+  max-width: 860px;
   width: calc(100% - 80px);
   max-height: calc(100% - 80px);
   overflow-y: auto;
@@ -236,12 +74,380 @@
   color: #ddd;
 }
 
-.gs-modal-toggle {
+/* Welcome modal footer: "Don't show this again" + Got it. */
+.gs-modal-footer {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-top: 18px;
-  font-size: 12.5px;
-  color: #9a9a9a;
+  gap: 14px;
+  padding: 14px 18px;
+  border-top: 1px solid #2c2f34;
+}
+
+/* A real button-sized target, so it's easy to see and hit. */
+.gs-modal-dontshow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  border: 1px solid #3a3f46;
+  border-radius: 8px;
+  background: #23262b;
+  font-size: 15px;
+  font-weight: 500;
+  color: #e3e7ec;
   cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.gs-modal-dontshow:hover {
+  border-color: #3a9956;
+  background: #263029;
+}
+
+.gs-modal-dontshow:has(input:checked) {
+  border-color: #3a9956;
+  background: #1f3326;
+  color: #fff;
+}
+
+.gs-modal-dontshow input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: #3a9956;
+  cursor: pointer;
+}
+
+.gs-modal-reopen {
+  flex: 1;
+  font-size: 12px;
+  color: #777;
+}
+
+.gs-modal-done {
+  padding: 7px 16px;
+  border: 1px solid #3a9956;
+  border-radius: 6px;
+  background: linear-gradient(180deg, #2d7d46 0%, #1f5c32 100%);
+  color: #fff;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.gs-modal-done:hover {
+  background: linear-gradient(180deg, #349950 0%, #267a3d 100%);
+}
+
+/* Welcome: four start options in a 2x2 grid. */
+.gs-start-lead {
+  font-size: 14px;
+  color: #aab0ba;
+  margin-bottom: 12px;
+}
+
+.gs-start-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.gs-start-option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  min-height: 132px;
+  padding: 18px;
+  text-align: left;
+  background: #1b1d21;
+  border: 1px solid #2e3238;
+  border-radius: 10px;
+  color: #e8eaed;
+  font: inherit;
+  cursor: pointer;
+  transition:
+    border-color 120ms ease,
+    background 120ms ease,
+    transform 120ms ease;
+}
+
+.gs-start-option:hover {
+  border-color: #3a9956;
+  background: #1c241f;
+  transform: translateY(-1px);
+}
+
+.gs-start-icon {
+  display: flex;
+  font-size: 22px;
+  color: #6fbf87;
+}
+
+.gs-start-option--games .gs-start-icon {
+  color: #e3b341;
+}
+
+.gs-start-option--ai .gs-start-icon {
+  color: #8fb4ff;
+}
+
+.gs-start-option--surprise .gs-start-icon {
+  color: #e08ad8;
+}
+
+.gs-start-title {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.gs-start-desc {
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: #9aa0aa;
+}
+
+.gs-start-setup {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 14px;
+  padding: 10px 12px;
+  border: 1px solid #3a3420;
+  border-radius: 8px;
+  background: #1d1a12;
+  font-size: 12.5px;
+  color: #d9c58e;
+}
+
+.gs-modal-footer {
+  margin-top: 16px;
+  padding: 12px 0 0;
+}
+
+/* Header: "Welcome" with the moon to its right, centred; × stays top right. */
+.gs-modal-header {
+  position: relative;
+  justify-content: center;
+}
+
+.gs-modal-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 24px;
+}
+
+.gs-modal-title .gs-modal-logo {
+  width: 30px;
+  height: 30px;
+  margin-right: 0;
+}
+
+.gs-modal-header .gs-modal-close {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.gs-start-lead {
+  text-align: center;
+}
+
+/* Bigger modal, redesigned option blocks (2026-10-03): icon in a tinted
+   circle, title + description, an arrow that slides on hover, a coloured
+   top edge per option. */
+.gs-modal {
+  padding: 28px 32px 22px;
+}
+
+.gs-modal-header {
+  margin-bottom: 6px;
+}
+
+.gs-modal-title {
+  font-size: 28px;
+}
+
+.gs-modal-title .gs-modal-logo {
+  width: 36px;
+  height: 36px;
+}
+
+.gs-start-lead {
+  font-size: 15px;
+  margin-bottom: 22px;
+}
+
+.gs-start-grid {
+  gap: 16px;
+}
+
+.gs-start-option {
+  --accent: #6fbf87;
+  position: relative;
+  flex-direction: row;
+  align-items: center;
+  gap: 18px;
+  min-height: 150px;
+  padding: 26px 24px;
+  border-radius: 14px;
+  border-top: 3px solid var(--accent);
+  background: linear-gradient(160deg, #1f2226 0%, #17191c 100%);
+  overflow: hidden;
+}
+
+.gs-start-option:hover {
+  border-color: var(--accent);
+  background: linear-gradient(160deg, #23272b 0%, #1a1d20 100%);
+  transform: translateY(-2px);
+  box-shadow: 0 10px 28px -14px rgba(0, 0, 0, 0.8);
+}
+
+.gs-start-option--games {
+  --accent: #e3b341;
+}
+
+.gs-start-option--edgeguards {
+  --accent: #5fb7d4;
+}
+
+.gs-start-option--ai {
+  --accent: #a58cff;
+}
+
+.gs-start-icon {
+  flex: none;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.gs-start-option--games .gs-start-icon,
+.gs-start-option--ai .gs-start-icon {
+  color: var(--accent);
+}
+
+.gs-start-text {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+}
+
+.gs-start-title {
+  font-size: 18px;
+}
+
+.gs-start-desc {
+  font-size: 13.5px;
+}
+
+.gs-start-go {
+  flex: none;
+  font-size: 20px;
+  color: #555;
+  transition:
+    transform 120ms ease,
+    color 120ms ease;
+}
+
+.gs-start-option:hover .gs-start-go {
+  color: var(--accent);
+  transform: translateX(4px);
+}
+
+/* ── Welcome modal motion (2026-10-08) ─────────────────────────────────────
+   In: the project behind softly blurs and dims (a layer on top of it), the card
+   rises into place, the four options follow one after another.
+   Out: the card shrinks into the ? in the top bar, which glows once: that's
+   where it lives. --fly-x/--fly-y are set by WelcomeModal before it leaves.
+   Fill mode "backwards" on the way in, so hover transforms still work after. */
+.gs-modal-overlay {
+  animation: gs-overlay-in 260ms ease-out backwards;
+  backdrop-filter: blur(5px);
+}
+.gs-modal {
+  animation: gs-modal-in 340ms cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
+}
+.gs-start-grid > .gs-start-option {
+  animation: gs-option-in 380ms cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
+}
+.gs-start-grid > .gs-start-option:nth-child(1) { animation-delay: 110ms; }
+.gs-start-grid > .gs-start-option:nth-child(2) { animation-delay: 160ms; }
+.gs-start-grid > .gs-start-option:nth-child(3) { animation-delay: 210ms; }
+.gs-start-grid > .gs-start-option:nth-child(4) { animation-delay: 260ms; }
+
+.gs-modal-overlay--leaving {
+  animation: gs-overlay-out 340ms ease-in forwards;
+  pointer-events: none;
+}
+.gs-modal--leaving {
+  animation: gs-modal-fly 340ms cubic-bezier(0.55, 0, 0.75, 0.2) forwards;
+}
+
+@keyframes gs-overlay-in {
+  from { background: rgba(0, 0, 0, 0); backdrop-filter: blur(0); }
+}
+@keyframes gs-overlay-out {
+  to { background: rgba(0, 0, 0, 0); backdrop-filter: blur(0); }
+}
+@keyframes gs-modal-in {
+  from { opacity: 0; transform: translateY(16px) scale(0.98); }
+}
+@keyframes gs-option-in {
+  from { opacity: 0; transform: translateY(10px); }
+}
+@keyframes gs-modal-fly {
+  to {
+    opacity: 0;
+    transform: translate(var(--fly-x, 0px), var(--fly-y, 0px)) scale(0.05);
+  }
+}
+
+/* The ? the welcome just went into. */
+.top-help-btn--glow {
+  animation: gs-help-glow 1000ms ease-out;
+}
+@keyframes gs-help-glow {
+  0% { box-shadow: 0 0 0 0 rgba(168, 151, 255, 0); }
+  25% { box-shadow: 0 0 0 5px rgba(168, 151, 255, 0.5); color: #fff; }
+  100% { box-shadow: 0 0 0 14px rgba(168, 151, 255, 0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gs-modal-overlay,
+  .gs-modal,
+  .gs-start-grid > .gs-start-option,
+  .top-help-btn--glow {
+    animation: none;
+  }
+  .gs-modal-overlay--leaving,
+  .gs-modal--leaving {
+    animation: gs-fade-out 120ms linear forwards;
+  }
+}
+@keyframes gs-fade-out {
+  to { opacity: 0; }
+}
+
+.gs-start-note {
+  margin: 4px 20px 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #a8a8a8;
+}
+
+.gs-start-note strong {
+  color: #d4d4d4;
+  font-weight: 600;
 }

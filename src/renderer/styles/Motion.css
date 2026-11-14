@@ -1,0 +1,329 @@
+/*
+ * Motion across the app (2026-10-09, "make it a bit more flashy"). Short and
+ * eased: 150–400 ms, nothing that delays an action, nothing on playback,
+ * recording or the clip grid's own items (the tray fades as a whole, see
+ * lib/motion.ts useEnterOnChange). Everything here switches off with the OS's
+ * reduced-motion setting (bottom of this file). The welcome modal has its own
+ * motion in GettingStarted.css.
+ */
+
+:root {
+  --mo-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --mo-spring: cubic-bezier(0.34, 1.4, 0.64, 1);
+}
+
+@keyframes mo-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes mo-rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.985);
+  }
+}
+@keyframes mo-rise-small {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+@keyframes mo-pop {
+  0% {
+    transform: scale(0.6);
+    opacity: 0;
+  }
+  70% {
+    transform: scale(1.12);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+@keyframes mo-slide-left {
+  from {
+    opacity: 0;
+    transform: translateX(-10px);
+  }
+}
+@keyframes mo-drop {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.98);
+  }
+}
+
+/* Everything below runs only when the OS allows motion (spinners elsewhere keep
+   spinning either way: they carry meaning). */
+@media (prefers-reduced-motion: no-preference) {
+  /* ── Downloads: live dot pulses, bar stripes move, a new card glows ───── */
+  .database-live-dot {
+    animation: mo-live-pulse 1.4s ease-in-out infinite;
+  }
+  .database-bar > div {
+    animation: mo-bar-stripes 0.9s linear infinite;
+  }
+  .database-bar--waiting > div {
+    animation:
+      mo-bar-stripes 0.9s linear infinite,
+      mo-bar-sweep 1.6s ease-in-out infinite;
+  }
+  .database-transfer--new {
+    animation: mo-new-glow 2s ease-in-out 3;
+  }
+  @keyframes mo-live-pulse {
+    0%,
+    100% {
+      opacity: 1;
+      transform: scale(1);
+      box-shadow: 0 0 0 0 rgba(150, 213, 167, 0.6);
+    }
+    50% {
+      opacity: 0.7;
+      transform: scale(0.85);
+      box-shadow: 0 0 0 5px rgba(150, 213, 167, 0);
+    }
+  }
+  @keyframes mo-bar-stripes {
+    from {
+      background-position: 0 0;
+    }
+    to {
+      background-position: 18px 0;
+    }
+  }
+  @keyframes mo-bar-sweep {
+    0% {
+      transform: translateX(-100%);
+    }
+    100% {
+      transform: translateX(340%);
+    }
+  }
+  @keyframes mo-new-glow {
+    0%,
+    100% {
+      box-shadow:
+        0 0 0 1px #96d5a7,
+        0 0 22px rgba(150, 213, 167, 0.28);
+    }
+    50% {
+      box-shadow:
+        0 0 0 1px #b9f0c8,
+        0 0 34px rgba(150, 213, 167, 0.55);
+    }
+  }
+
+  /* ── Overlays and dialogs: the backdrop fades, the card rises ───────────── */
+
+  .database-overlay,
+  .settings-overlay,
+  .add-replays-overlay,
+  .filter-warn-overlay,
+  .aig-overlay,
+  .szm-overlay,
+  .tc-overlay {
+    animation: mo-fade-in 200ms ease-out;
+  }
+
+  .database-panel,
+  .settings-modal,
+  .add-replays-dialog,
+  .filter-warn-modal,
+  .aig-modal,
+  .szm-modal,
+  .tc-modal {
+    animation: mo-rise 300ms var(--mo-ease);
+  }
+
+  /* Dropdown menus drop in from their control. */
+  .filter-multi-menu,
+  .search-box-dropdown {
+    animation: mo-drop 160ms var(--mo-ease);
+    transform-origin: top center;
+  }
+
+  /* ── Notices ─────────────────────────────────────────────────────────── */
+
+  @keyframes mo-notice-in {
+    from {
+      opacity: 0;
+      transform: translate(-50%, 12px);
+    }
+  }
+  .app-notice {
+    animation: mo-notice-in 260ms var(--mo-ease);
+  }
+  .drag-warning-toast,
+  .database-notice,
+  .database-error {
+    animation: mo-rise-small 240ms var(--mo-ease);
+  }
+
+  /* ── First screen: brand, card and options arrive in turn ─────────────── */
+
+  .empty-state-brand {
+    animation: mo-rise 420ms var(--mo-ease) backwards;
+  }
+  .empty-state-primary {
+    animation: mo-rise 420ms var(--mo-ease) 80ms backwards;
+  }
+  .empty-state-option {
+    animation: mo-rise-small 360ms var(--mo-ease) backwards;
+    transition:
+      transform 160ms var(--mo-ease),
+      background 160ms,
+      border-color 160ms,
+      box-shadow 160ms;
+  }
+  .empty-state-option:nth-child(1) {
+    animation-delay: 160ms;
+  }
+  .empty-state-option:nth-child(2) {
+    animation-delay: 210ms;
+  }
+  .empty-state-option:nth-child(3) {
+    animation-delay: 260ms;
+  }
+  .empty-state-option:nth-child(4) {
+    animation-delay: 310ms;
+  }
+  .empty-state-option:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 18px -10px rgba(58, 153, 86, 0.6);
+  }
+  .empty-state-recent {
+    animation: mo-fade-in 400ms ease-out 360ms backwards;
+  }
+
+  /* ── Filter steps ─────────────────────────────────────────────────────── */
+
+  /* Steps slide in when they appear (a new step, a template, opening a project). */
+  .filter {
+    animation: mo-slide-left 280ms var(--mo-ease) backwards;
+  }
+  .filter:nth-child(2) {
+    animation-delay: 30ms;
+  }
+  .filter:nth-child(3) {
+    animation-delay: 60ms;
+  }
+  .filter:nth-child(4) {
+    animation-delay: 90ms;
+  }
+  .filter:nth-child(n + 5) {
+    animation-delay: 120ms;
+  }
+  .filter-dragging {
+    animation: none;
+  }
+
+  /* A step that just finished glows once (FilterCard useFlash). */
+  @keyframes mo-done-glow {
+    0% {
+      box-shadow:
+        0 0 0 0 rgba(111, 220, 128, 0.55),
+        0 8px 18px -12px rgba(0, 0, 0, 0.8);
+    }
+    100% {
+      box-shadow:
+        0 0 0 10px rgba(111, 220, 128, 0),
+        0 8px 18px -12px rgba(0, 0, 0, 0.8);
+    }
+  }
+  .filter.filter-just-finished {
+    animation: mo-done-glow 900ms ease-out;
+  }
+  .filter-just-finished .filter-results {
+    animation: mo-pop 420ms var(--mo-spring);
+    transform-origin: left center;
+  }
+
+  /* ── Empty tray: the import choices and games on their way ────────────── */
+
+  .tray-empty .add-source {
+    animation: mo-rise-small 340ms var(--mo-ease) backwards;
+    transition:
+      transform 160ms var(--mo-ease),
+      border-color 160ms;
+  }
+  .tray-empty .add-source:nth-child(2) {
+    animation-delay: 70ms;
+  }
+  .tray-empty .add-source:hover {
+    transform: translateY(-2px);
+    border-color: rgba(255, 255, 255, 0.22);
+  }
+  .incoming-replays {
+    animation: mo-rise 360ms var(--mo-ease);
+  }
+
+  /* ── Lunar Database panel ─────────────────────────────────────────────── */
+
+  /* Switching tabs: the new tab's content fades up. */
+  .database-find,
+  .database-search,
+  .database-transfers {
+    animation: mo-rise-small 260ms var(--mo-ease);
+  }
+
+  /* Find replays: character icons, sources and amounts respond. */
+  .database-panel .database-chars button {
+    transition:
+      transform 140ms var(--mo-ease),
+      border-color 140ms,
+      background 140ms;
+  }
+  .database-panel .database-chars button:hover:not(:disabled) {
+    transform: translateY(-2px) scale(1.06);
+  }
+  .database-panel .database-chars button.selected {
+    animation: mo-pop 320ms var(--mo-spring);
+  }
+  .database-panel .database-from button,
+  .database-panel .database-amounts button {
+    transition:
+      transform 140ms var(--mo-ease),
+      border-color 140ms,
+      background 140ms;
+  }
+  .database-panel .database-amounts button:hover:not(:disabled) {
+    transform: translateY(-2px);
+  }
+  .database-panel .database-amounts button.selected strong {
+    display: inline-block;
+    animation: mo-pop 320ms var(--mo-spring);
+  }
+  .database-more,
+  .database-preview .database-table-wrap {
+    animation: mo-rise-small 240ms var(--mo-ease);
+  }
+
+  /* Downloads: rows arrive; a finished one's status pops green. */
+  .database-transfer {
+    animation: mo-rise-small 280ms var(--mo-ease) backwards;
+  }
+  .database-status-completed {
+    animation: mo-pop 420ms var(--mo-spring);
+  }
+
+  /* ── Buttons: a little give when pressed ──────────────────────────────── */
+
+  .database-primary,
+  .add-primary,
+  .top-lunar-btn,
+  .top-help-btn,
+  .empty-state-option {
+    transition-property: transform, background, border-color, box-shadow, color;
+    transition-duration: 140ms;
+  }
+  .database-primary:active:not(:disabled),
+  .add-primary:active,
+  .top-lunar-btn:active,
+  .top-help-btn:active,
+  .empty-state-option:active {
+    transform: scale(0.97);
+  }
+}

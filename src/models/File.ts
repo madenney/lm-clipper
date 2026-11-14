@@ -1,9 +1,22 @@
-import { SlippiGame } from '@slippi/slippi-js'
+import { openReplayHeader } from '../lib/slippiGame'
 import { FileInterface } from '../constants/types'
 import { GAME_START_FRAME } from '../constants/frames'
+import { CPU_PLAYER_TYPE } from '../lib/cpuPlayers'
+import { readLastFrame } from '../lib/lastFrame'
+
+/** The last frame from the end of the raw stream (lib/lastFrame.ts), or
+ *  undefined when it can't be read. Never fails the import. */
+function lastFrameFromStream(path: string): number | undefined {
+  try {
+    return readLastFrame(path) ?? undefined
+  } catch {
+    return undefined
+  }
+}
 
 export function fileProcessor(path: string) {
-  const game = new SlippiGame(path)
+  // Settings and metadata only (a .slpz isn't decompressed for this).
+  const game = openReplayHeader(path)
   const fileJSON: FileInterface = {
     path,
     id: '',
@@ -43,14 +56,10 @@ export function fileProcessor(path: string) {
     fileJSON.info = 'Invalid stage'
     return fileJSON
   }
-  // bot check
+  // Games with a CPU player are imported and marked (players[].cpu); the
+  // Game Filter leaves them out unless "Include CPU games" is on.
   const p1 = settings.players[0]
   const p2 = settings.players[1]
-  if (p1.type === 1 || p2.type === 1) {
-    fileJSON.isValid = false
-    fileJSON.info = 'Bot'
-    return fileJSON
-  }
 
   // check metadata for indicators of invalid game
   const metadata = game.getMetadata()
@@ -63,14 +72,22 @@ export function fileProcessor(path: string) {
 
   const emptyObject = {}
   if (JSON.stringify(emptyObject) === JSON.stringify(metadata)) {
+    // Anonymized replays (e.g. ranked) carry no metadata at all: read the last
+    // frame from the end of the replay instead, so the game has a duration.
+    // Their validity rules are unchanged (no 20-second check, as before).
     fileJSON.info = 'Metadata removed'
+    const lastFrame = lastFrameFromStream(path)
+    if (lastFrame !== undefined) fileJSON.lastFrame = lastFrame
   } else {
-    if (!metadata.lastFrame || !metadata.startAt) {
+    // A metadata block without lastFrame: the replay itself still knows.
+    const metaLastFrame =
+      metadata.lastFrame || (metadata.startAt && lastFrameFromStream(path))
+    if (!metaLastFrame || !metadata.startAt) {
       fileJSON.isValid = false
       fileJSON.info = 'No lastFrame in metadata'
       return fileJSON
     }
-    const length = metadata.lastFrame / 60
+    const length = metaLastFrame / 60
     if (Number.isNaN(length)) {
       fileJSON.isValid = false
       fileJSON.info = 'No length'
@@ -83,7 +100,7 @@ export function fileProcessor(path: string) {
     }
 
     fileJSON.startedAt = Math.floor(new Date(metadata.startAt).getTime() / 1000)
-    fileJSON.lastFrame = metadata.lastFrame
+    fileJSON.lastFrame = metaLastFrame
   }
 
   fileJSON.isValid = true
@@ -97,6 +114,7 @@ export function fileProcessor(path: string) {
       nametag: p1.nametag ? p1.nametag : '',
       displayName: p1.displayName,
       connectCode: p1.connectCode || '',
+      cpu: p1.type === CPU_PLAYER_TYPE,
     },
     {
       playerIndex: p2.playerIndex,
@@ -106,6 +124,7 @@ export function fileProcessor(path: string) {
       nametag: p2.nametag ? p2.nametag : '',
       displayName: p2.displayName,
       connectCode: p2.connectCode || '',
+      cpu: p2.type === CPU_PLAYER_TYPE,
     },
   ]
   return fileJSON

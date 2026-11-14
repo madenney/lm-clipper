@@ -1,0 +1,48 @@
+/* Keyboard focus and high-contrast modes. Loaded last (App.tsx), so it wins over the many
+   per-component `outline: none` rules: those stay for the mouse, this draws a ring only when the
+   focus came from the keyboard (:focus-visible). Text boxes keep their own focus look. */
+button:focus-visible,
+a:focus-visible,
+summary:focus-visible,
+select:focus-visible,
+[role='button']:focus-visible,
+[role='option']:focus-visible,
+[role='tab']:focus-visible,
+[role='listbox']:focus-visible,
+[tabindex]:not([tabindex='-1']):focus-visible,
+input[type='checkbox']:focus-visible,
+input[type='radio']:focus-visible,
+input[type='range']:focus-visible {
+  outline: 2px solid #7cc4ff !important;
+  outline-offset: 2px !important;
+}
+
+/* A big scroller (the clip grid): the ring inside its edge, not clipped by it. */
+.dom-layer:focus-visible {
+  outline-offset: -3px !important;
+}
+
+/* The dialog box takes focus itself when it has nothing else to give it to. */
+[role='dialog']:focus,
+[role='alertdialog']:focus {
+  outline: none;
+}
+
+/* Windows high-contrast: the system colours, never our greys. */
+@media (forced-colors: active) {
+  :focus-visible {
+    outline: 2px solid Highlight !important;
+    outline-offset: 2px !important;
+  }
+
+  button,
+  [role='button'],
+  select {
+    border: 1px solid ButtonText;
+  }
+
+  [aria-pressed='true'],
+  [aria-current='page'] {
+    outline: 2px solid Highlight;
+  }
+}

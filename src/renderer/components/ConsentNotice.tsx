@@ -1,62 +1,89 @@
-import type { CSSProperties } from 'react'
+import { CSSProperties, useEffect, useRef } from 'react'
+import { openSettings } from '../lib/openSettings'
 
 type Props = {
   onDismiss: () => void
 }
 
-const bannerStyle: CSSProperties = {
+// The first-run disclosure that Clipper sends anonymous usage stats. It stays in view, on the
+// start screen and in a project alike, until the user clicks OK: it used to be a 12 px grey line
+// that only the start screen showed, so someone who imported straight away never saw it. Fixed
+// and small, so nothing paints over it and it does not compete with the import action; the text
+// is light on dark (about 9:1) rather than grey.
+const cardStyle: CSSProperties = {
+  position: 'fixed',
+  left: '50%',
+  bottom: 14,
+  transform: 'translateX(-50%)',
+  zIndex: 5000,
   display: 'flex',
+  flexWrap: 'wrap',
   alignItems: 'center',
   justifyContent: 'center',
-  gap: 12,
-  padding: '6px 12px',
-  background: '#2b2f3a',
-  color: '#e7e9ee',
-  fontSize: 12.5,
-  fontFamily: 'sans-serif',
-  flexShrink: 0,
-  borderBottom: '1px solid rgba(255,255,255,0.08)',
-}
-
-const btnStyle: CSSProperties = {
-  padding: '3px 10px',
-  border: '1px solid rgba(255,255,255,0.35)',
-  borderRadius: 4,
-  background: 'transparent',
-  color: '#e7e9ee',
-  fontSize: 12,
-  cursor: 'pointer',
-  flexShrink: 0,
+  gap: '4px 12px',
+  maxWidth: 'min(640px, calc(100vw - 24px))',
+  padding: '8px 14px',
+  borderRadius: 8,
+  border: '1px solid #3a3a3a',
+  background: 'rgba(22, 22, 22, 0.97)',
+  boxShadow: '0 4px 16px rgba(0, 0, 0, 0.45)',
+  fontSize: 13,
+  lineHeight: 1.4,
+  color: '#d4d4d4',
+  textAlign: 'center',
 }
 
 const linkStyle: CSSProperties = {
-  color: '#9cc7ff',
-  textDecoration: 'underline',
+  background: 'none',
+  border: 'none',
+  padding: 0,
+  font: 'inherit',
+  color: '#b8d4ff',
   cursor: 'pointer',
-  flexShrink: 0,
+  textDecoration: 'underline',
+  textUnderlineOffset: 3,
 }
 
-// One-time first-run disclosure that the app sends anonymous usage stats.
+const okStyle: CSSProperties = {
+  ...linkStyle,
+  color: '#fff',
+  fontWeight: 600,
+}
+
 // Dismissal is persisted via the `consentNoticeSeen` config flag.
 export default function ConsentNotice({ onDismiss }: Props) {
+  // The line has been on screen: that counts as shown even when it goes away
+  // because a project opened. Main holds the first-launch usage pings until
+  // this is recorded (launch review PRIV-1).
+  const dismiss = useRef(onDismiss)
+  dismiss.current = onDismiss
+  useEffect(
+    () => () => {
+      dismiss.current()
+    },
+    [],
+  )
   return (
-    <div style={bannerStyle}>
+    <div style={cardStyle} role="region" aria-label="Usage statistics notice">
       <span>
-        Lunar Clipper sends anonymous usage stats to help improve it — no
-        personal data is collected. You can turn this off any time in Settings.
+        Clipper sends anonymous usage stats (no replays, names or file paths).
       </span>
-      <a
-        href="https://www.lunarmelee.com/privacy"
+      <button
+        type="button"
         style={linkStyle}
-        onClick={(e) => {
-          e.preventDefault()
-          window.open('https://www.lunarmelee.com/privacy')
-        }}
+        onClick={() => openSettings('diagnostics')}
       >
-        Privacy policy
-      </a>
-      <button type="button" style={btnStyle} onClick={onDismiss}>
-        Got it
+        Turn off
+      </button>
+      <button
+        type="button"
+        style={linkStyle}
+        onClick={() => window.open('https://www.lunarmelee.com/privacy')}
+      >
+        Privacy
+      </button>
+      <button type="button" style={okStyle} onClick={onDismiss}>
+        OK
       </button>
     </div>
   )

@@ -1,6 +1,10 @@
 import { useState, useEffect, Dispatch, SetStateAction } from 'react'
+import { FaFolderOpen, FaThumbsUp } from 'react-icons/fa'
+import { SLIPPI_DOWNLOADS_URL } from '../../constants/links'
+import Modal from './Modal'
 import { ConfigInterface } from '../../constants/types'
 import ipcBridge from '../ipcBridge'
+import { compressedImageKind, compressedImageMessage } from '../lib/isoImage'
 import '../styles/SetupWizard.css'
 
 type Step = {
@@ -15,20 +19,21 @@ const allSteps: Step[] = [
     key: 'dolphinPath',
     title: 'Playback Dolphin Path',
     description:
-      'Lunar Clipper requires the Playback build of Slippi Dolphin — this is NOT the same as the regular Slippi Dolphin you use for online play.',
+      'Lunar Clipper requires the Playback build of Slippi Dolphin — this is NOT the same as the regular Slippi Dolphin you use for online play. The Slippi Launcher downloads it for you: install the Launcher (slippi.gg/downloads), open it once, and Clipper finds the Playback build by itself.',
     dialogType: 'openFile',
   },
   {
     key: 'ssbmIsoPath',
     title: 'Melee ISO',
-    description: 'You can also drag and drop your ISO file onto this window.',
+    description:
+      'Your Melee disc image, the NTSC 1.02 version (the one Slippi plays). You can also drag and drop the file onto this window.',
     dialogType: 'openFile',
   },
   {
     key: 'outputPath',
     title: 'Output Directory',
     description:
-      'Recorded clips will be saved here. You can change this or hit Finish to use the default.',
+      'Recorded clips will be saved here. Choose a folder, or press Use Default to keep the default one.',
     dialogType: 'openDirectory',
   },
 ]
@@ -71,11 +76,25 @@ type SetupWizardProps = {
 function validatePath(
   stepKey: string,
   pathValue: string,
-  onResult: (_result: { valid: boolean; message: string }) => void,
+  onResult: (_result: {
+    valid: boolean
+    message: string
+    path?: string
+    warning?: string
+  }) => void,
 ) {
   if (stepKey === 'dolphinPath') {
     ipcBridge.validateDolphinPath(pathValue, onResult)
   } else if (stepKey === 'ssbmIsoPath') {
+    // A compressed image (.rvz, .gcz, ...) has no game ID in its first bytes: not ours to judge.
+    const compressed = compressedImageKind(pathValue)
+    if (compressed) {
+      onResult({
+        valid: true,
+        message: compressedImageMessage(compressed),
+      })
+      return
+    }
     ipcBridge.validateIsoPath(pathValue, onResult)
   }
 }
@@ -97,6 +116,7 @@ export default function SetupWizard({
   const [validationStatus, setValidationStatus] =
     useState<ValidationStatus>('idle')
   const [validationMessage, setValidationMessage] = useState('')
+  const [validationWarning, setValidationWarning] = useState('')
   const [autoDetected, setAutoDetected] = useState(false)
   const [helpExpanded, setHelpExpanded] = useState(false)
   const [folderWarning, setFolderWarning] = useState('')
@@ -121,10 +141,17 @@ export default function SetupWizard({
   function runValidation(stepKey: string, pathValue: string) {
     setValidationStatus('validating')
     setValidationMessage('')
+    setValidationWarning('')
     setError('')
     validatePath(stepKey, pathValue, (result) => {
+      // A pasted path with quotes around it: keep the cleaned one.
+      if (result.path && result.path !== pathValue) {
+        setConfig((prev) => (prev ? { ...prev, [stepKey]: result.path } : prev))
+        ipcBridge.updateConfig({ key: stepKey, value: result.path })
+      }
       setValidationStatus(result.valid ? 'valid' : 'invalid')
       setValidationMessage(result.message)
+      setValidationWarning(result.warning || '')
     })
   }
 
@@ -164,18 +191,10 @@ export default function SetupWizard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentValue, step.key, needsValidation])
 
-  // Close on Escape
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onDismiss(false)
-    }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [onDismiss])
-
   function resetValidation() {
     setValidationStatus('idle')
     setValidationMessage('')
+    setValidationWarning('')
   }
 
   function handleBrowse() {
@@ -246,191 +265,223 @@ export default function SetupWizard({
   const isLast = stepIndex === steps.length - 1
 
   return (
-    // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions
-    <div className="setup-overlay" onClick={() => onDismiss(false)}>
-      {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
-      <div className="setup-card" onClick={(e) => e.stopPropagation()}>
-        <div className="setup-header">
-          <div className="setup-header-left">
-            <div className="setup-header-title">Setup Required</div>
-            <div className="setup-step-indicator">
-              Step {stepIndex + 1} of {steps.length}
-            </div>
+    <Modal
+      overlayClassName="setup-overlay"
+      className="setup-card"
+      onClose={() => onDismiss(false)}
+      label="Setup required"
+    >
+      <div className="setup-header">
+        <div className="setup-header-left">
+          <div className="setup-header-title">Setup Required</div>
+          <div className="setup-step-indicator">
+            Step {stepIndex + 1} of {steps.length}
           </div>
-          <div className="setup-header-subtitle">One-time configuration</div>
         </div>
-        <h2 className="setup-title">{step.title}</h2>
-        {step.description && (
-          <p className="setup-description">{step.description}</p>
-        )}
+        <div className="setup-header-subtitle">One-time configuration</div>
+      </div>
+      <h2 className="setup-title">{step.title}</h2>
+      {step.description && (
+        <p className="setup-description">{step.description}</p>
+      )}
 
-        {isDolphinStep && validationStatus !== 'valid' && (
-          <div className="setup-dolphin-help">
-            <button
-              type="button"
-              className="setup-help-toggle"
-              onClick={() => setHelpExpanded(!helpExpanded)}
-            >
-              <span
-                className={`setup-help-arrow ${helpExpanded ? 'setup-help-arrow-open' : ''}`}
-              />
-              How to find the Playback build
-              {process.env.NODE_ENV === 'development' && (
-                <select
-                  className="setup-dev-platform-select"
-                  value={platformOverride}
-                  onChange={(e) => {
-                    e.stopPropagation()
-                    setPlatformOverride(e.target.value as Platform | '')
-                  }}
-                  onClick={(e) => e.stopPropagation()}
-                  title="DEV: Override OS for testing"
-                >
-                  <option value="">
-                    {detectedPlatform === 'win32'
-                      ? 'Windows'
-                      : detectedPlatform === 'darwin'
-                        ? 'macOS'
-                        : 'Linux'}{' '}
-                    (detected)
-                  </option>
-                  <option value="linux">Linux</option>
-                  <option value="win32">Windows</option>
-                  <option value="darwin">macOS</option>
-                </select>
-              )}
-            </button>
-            {helpExpanded && (
-              <div className="setup-help-body">
-                <p>
-                  You are looking for the playback build of Dolphin:{' '}
-                  <strong>{instructions.path.split(/[/\\]/).pop()}</strong>
-                </p>
-                <p>It&apos;s usually located at:</p>
-                <div className="setup-help-path-row">
-                  <code className="setup-help-path">
-                    {instructions.path
-                      .split(/(playback)/i)
-                      .map((part, i) =>
-                        part.toLowerCase() === 'playback' ? (
-                          <strong key={i}>{part}</strong>
-                        ) : (
-                          part
-                        ),
-                      )}
-                  </code>
-                  <button
-                    type="button"
-                    className="setup-open-folder-btn"
-                    onClick={() => {
-                      setFolderWarning('')
-                      ipcBridge.openDolphinFolder(
-                        instructions.folder,
-                        (result) => {
-                          if (!result.found) {
-                            setFolderWarning(
-                              'Folder not found. Make sure the Slippi Launcher has downloaded the Playback build.',
-                            )
-                          }
-                        },
-                      )
-                    }}
-                    title="Open folder in file explorer"
-                  >
-                    &#128193;
-                  </button>
-                </div>
-                {folderWarning && (
-                  <p className="setup-folder-warning">{folderWarning}</p>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-
-        <div className="setup-path-row">
-          <input
-            type="text"
-            className="setup-path-display"
-            value={currentValue}
-            placeholder={
-              isOutputStep
-                ? '~/Videos/Lunar Clipper (default)'
-                : 'No path selected'
-            }
-            onChange={(e) => {
-              const val = e.target.value
-              setConfig({ ...config, [step.key]: val })
-              ipcBridge.updateConfig({ key: step.key as string, value: val })
-              setError('')
-              setAutoDetected(false)
-              if (needsValidation) {
-                resetValidation()
-              }
-            }}
-            onBlur={() => {
-              if (needsValidation && currentValue) {
-                runValidation(step.key, currentValue)
-              }
-            }}
-          />
+      {isDolphinStep && validationStatus !== 'valid' && (
+        <div className="setup-dolphin-help">
           <button
             type="button"
-            className="setup-browse-btn"
-            onClick={handleBrowse}
-            disabled={isValidating}
+            className="setup-help-toggle"
+            onClick={() => setHelpExpanded(!helpExpanded)}
           >
-            Browse
-          </button>
-        </div>
-
-        {needsValidation && validationStatus !== 'idle' && (
-          <div
-            className={`setup-validation setup-validation-${validationStatus}`}
-          >
-            {validationStatus === 'validating' && (
-              <span className="setup-validation-spinner" />
+            <span
+              className={`setup-help-arrow ${helpExpanded ? 'setup-help-arrow-open' : ''}`}
+            />
+            How to find the Playback build
+            {process.env.NODE_ENV === 'development' && (
+              <select
+                className="setup-dev-platform-select"
+                value={platformOverride}
+                onChange={(e) => {
+                  e.stopPropagation()
+                  setPlatformOverride(e.target.value as Platform | '')
+                }}
+                onClick={(e) => e.stopPropagation()}
+                title="DEV: Override OS for testing"
+              >
+                <option value="">
+                  {detectedPlatform === 'win32'
+                    ? 'Windows'
+                    : detectedPlatform === 'darwin'
+                      ? 'macOS'
+                      : 'Linux'}{' '}
+                  (detected)
+                </option>
+                <option value="linux">Linux</option>
+                <option value="win32">Windows</option>
+                <option value="darwin">macOS</option>
+              </select>
             )}
+          </button>
+          <button
+            type="button"
+            className="setup-help-toggle setup-help-link"
+            onClick={() => window.open(SLIPPI_DOWNLOADS_URL)}
+          >
+            Don&apos;t have Slippi? Get the Slippi Launcher
+          </button>
+          {helpExpanded && (
+            <div className="setup-help-body">
+              <p>
+                You are looking for the playback build of Dolphin:{' '}
+                <strong>{instructions.path.split(/[/\\]/).pop()}</strong>
+              </p>
+              <p>It&apos;s usually located at:</p>
+              <div className="setup-help-path-row">
+                <code className="setup-help-path">
+                  {instructions.path
+                    .split(/(playback)/i)
+                    .map((part, i) =>
+                      part.toLowerCase() === 'playback' ? (
+                        <strong key={i}>{part}</strong>
+                      ) : (
+                        part
+                      ),
+                    )}
+                </code>
+                <button
+                  type="button"
+                  className="setup-open-folder-btn"
+                  onClick={() => {
+                    setFolderWarning('')
+                    ipcBridge.openDolphinFolder(
+                      instructions.folder,
+                      (result) => {
+                        if (!result.found) {
+                          setFolderWarning(
+                            'Folder not found. Make sure the Slippi Launcher has downloaded the Playback build.',
+                          )
+                        }
+                      },
+                    )
+                  }}
+                  title="Open folder in file explorer"
+                >
+                  &#128193;
+                </button>
+              </div>
+              {folderWarning && (
+                <p className="setup-folder-warning">{folderWarning}</p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="setup-path-row">
+        <input
+          type="text"
+          className="setup-path-display"
+          value={currentValue}
+          placeholder={
+            isOutputStep
+              ? '~/Videos/Lunar Clipper (default)'
+              : 'No path selected'
+          }
+          onChange={(e) => {
+            const val = e.target.value
+            setConfig({ ...config, [step.key]: val })
+            ipcBridge.updateConfig({ key: step.key as string, value: val })
+            setError('')
+            setAutoDetected(false)
+            if (needsValidation) {
+              resetValidation()
+            }
+          }}
+          onBlur={() => {
+            if (needsValidation && currentValue) {
+              runValidation(step.key, currentValue)
+            }
+          }}
+        />
+        <button
+          type="button"
+          className="setup-browse-btn"
+          onClick={handleBrowse}
+          disabled={isValidating}
+        >
+          Browse
+        </button>
+        {isOutputStep && currentValue && (
+          <button
+            type="button"
+            className="setup-browse-btn setup-folder-btn"
+            onClick={() => ipcBridge.openFolder(currentValue, { create: true })}
+            title="Open this folder"
+            aria-label="Open this folder"
+          >
+            <FaFolderOpen aria-hidden />
+          </button>
+        )}
+      </div>
+
+      {needsValidation && validationStatus !== 'idle' && (
+        <div
+          className={`setup-validation setup-validation-${validationStatus}`}
+        >
+          {validationStatus === 'validating' && (
+            <span className="setup-validation-spinner" />
+          )}
+          {validationStatus === 'valid' ? (
+            <>
+              <FaThumbsUp className="setup-validation-thumb" aria-hidden />
+              <span>
+                <strong>Good to proceed</strong>
+                <span className="setup-validation-detail">
+                  {autoDetected && isDolphinStep
+                    ? 'Playback Dolphin was found automatically.'
+                    : validationMessage}
+                </span>
+                {validationWarning && (
+                  <span className="setup-validation-detail">
+                    ⚠ {validationWarning}
+                  </span>
+                )}
+              </span>
+            </>
+          ) : (
             <span>
               {validationStatus === 'validating'
                 ? isDolphinStep
                   ? 'Verifying this is the Playback build...'
                   : 'Verifying ISO...'
-                : autoDetected && validationStatus === 'valid' && isDolphinStep
-                  ? 'Playback Dolphin was automatically found. You can continue.'
-                  : validationMessage}
+                : validationMessage}
             </span>
-          </div>
-        )}
-
-        {error && <div className="setup-error">{error}</div>}
-
-        <div className="setup-actions">
-          {stepIndex > 0 ? (
-            <button
-              type="button"
-              className="setup-back-btn"
-              onClick={handleBack}
-            >
-              Back
-            </button>
-          ) : (
-            <div />
           )}
-          <button
-            type="button"
-            className={`setup-next-btn${!canProceed ? ' setup-next-btn-disabled' : ''}`}
-            onClick={handleNext}
-            disabled={isValidating}
-          >
-            {isLast && isOutputStep && !currentValue
-              ? 'Use Default'
-              : isLast
-                ? 'Finish'
-                : 'Next'}
-          </button>
         </div>
+      )}
+
+      {error && <div className="setup-error">{error}</div>}
+
+      <div className="setup-actions">
+        {stepIndex > 0 ? (
+          <button type="button" className="setup-back-btn" onClick={handleBack}>
+            Back
+          </button>
+        ) : (
+          <div />
+        )}
+        <button
+          type="button"
+          className={`setup-next-btn${!canProceed ? ' setup-next-btn-disabled' : ''}`}
+          onClick={handleNext}
+          disabled={isValidating}
+        >
+          {isLast && isOutputStep && !currentValue
+            ? 'Use Default'
+            : isLast
+              ? 'Finish'
+              : 'Next'}
+        </button>
       </div>
-    </div>
+    </Modal>
   )
 }

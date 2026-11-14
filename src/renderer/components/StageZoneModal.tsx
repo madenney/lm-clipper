@@ -1,8 +1,16 @@
 /* eslint-disable jsx-a11y/no-static-element-interactions */
 /* eslint-disable jsx-a11y/click-events-have-key-events */
-import { useState, useRef, useEffect, useMemo, useCallback } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
+import Modal from './Modal'
 import stageGeometry, { ZONE_STAGE_IDS } from '../../constants/stageGeometry'
 import { StageZoneBox } from '../../constants/types'
+import {
+  useZoneViewport,
+  drawBackdropAndGrid,
+  drawBlastBorder,
+  drawAxes,
+  drawStagePlatforms,
+} from './zoneEditor'
 import '../styles/StageZoneModal.css'
 
 type Target = string
@@ -21,8 +29,6 @@ interface StageZoneModalProps {
   onApply: (_zones: ZoneMap) => void
   onClose: () => void
 }
-
-const PAD = 28
 
 type ModeConfig = {
   targets: [Target, Target]
@@ -142,69 +148,24 @@ export default function StageZoneModal({
     stageGeometry[initialStageId] ? initialStageId : ZONE_STAGE_IDS[0],
   )
   const [target, setTarget] = useState<Target>(cfg.targets[0])
-  const canvasRef = useRef<HTMLCanvasElement>(null)
   const interactionRef = useRef<Interaction | null>(null)
-  const spaceRef = useRef(false)
-  const [cursor, setCursor] = useState('crosshair')
   const [tick, setTick] = useState(0)
   const forceRender = () => setTick((n) => n + 1)
 
-  // Canvas buffer size tracks the available drawing area (1:1 with CSS px so
-  // mouse mapping stays exact). Measured from the wrapper via ResizeObserver.
-  const wrapRef = useRef<HTMLDivElement>(null)
-  const [size, setSize] = useState({ w: 900, h: 620 })
-  useEffect(() => {
-    const el = wrapRef.current
-    if (!el) return undefined
-    const ro = new ResizeObserver((entries) => {
-      const r = entries[0].contentRect
-      setSize({
-        w: Math.max(300, Math.floor(r.width)),
-        h: Math.max(200, Math.floor(r.height)),
-      })
-    })
-    ro.observe(el)
-    return () => ro.disconnect()
-  }, [])
-  const CANVAS_W = size.w
-  const CANVAS_H = size.h
-
-  const geo = stageGeometry[stageId]
-
-  // ---- Camera (zoom + pan) ----------------------------------------------
-  // Camera maps world → screen as: sx = ox + wx*scale, sy = oy - wy*scale.
-  const computeFit = (g: typeof geo, w: number, h: number) => {
-    const bz = g.blastzone
-    const worldXMin = bz.left - 10
-    const worldXMax = bz.right + 10
-    const worldYMin = bz.bottom - 10
-    const worldYMax = bz.top + 10
-    const worldW = worldXMax - worldXMin
-    const worldH = worldYMax - worldYMin
-    const scale = Math.min((w - PAD * 2) / worldW, (h - PAD * 2) / worldH)
-    const cx = (worldXMin + worldXMax) / 2
-    const cy = (worldYMin + worldYMax) / 2
-    return { scale, ox: w / 2 - cx * scale, oy: h / 2 + cy * scale }
-  }
-
-  const [camera, setCamera] = useState(() => computeFit(geo, size.w, size.h))
-
-  // Refit when the stage or canvas size changes.
-  useEffect(() => {
-    setCamera(computeFit(geo, CANVAS_W, CANVAS_H))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stageId, CANVAS_W, CANVAS_H])
-
-  const transform = useMemo(() => {
-    const { scale, ox, oy } = camera
-    return {
-      scale,
-      toX: (wx: number) => ox + wx * scale,
-      toY: (wy: number) => oy - wy * scale,
-      fromX: (px: number) => (px - ox) / scale,
-      fromY: (py: number) => (oy - py) / scale,
-    }
-  }, [camera])
+  const {
+    canvasRef,
+    wrapRef,
+    spaceRef,
+    cursor,
+    setCursor,
+    CANVAS_W,
+    CANVAS_H,
+    geo,
+    camera,
+    setCamera,
+    transform,
+    resetView,
+  } = useZoneViewport(stageId, 'crosshair', onClose, interactionRef)
 
   const activeBox = zones[stageId]?.[target]
 
@@ -284,69 +245,15 @@ export default function StageZoneModal({
     if (!ctx) return
     const { toX, toY } = transform
 
-    ctx.clearRect(0, 0, CANVAS_W, CANVAS_H)
-    ctx.fillStyle = '#0f1117'
-    ctx.fillRect(0, 0, CANVAS_W, CANVAS_H)
-
-    // Grid every 50 world units
-    ctx.lineWidth = 1
-    ctx.strokeStyle = 'rgba(255,255,255,0.05)'
-    const bz = geo.blastzone
-    for (let gx = 0; gx <= bz.right; gx += 50) {
-      for (const sx of gx === 0 ? [0] : [gx, -gx]) {
-        ctx.beginPath()
-        ctx.moveTo(toX(sx), toY(bz.bottom))
-        ctx.lineTo(toX(sx), toY(bz.top))
-        ctx.stroke()
-      }
-    }
-    for (let gy = Math.ceil(bz.bottom / 50) * 50; gy <= bz.top; gy += 50) {
-      ctx.beginPath()
-      ctx.moveTo(toX(bz.left), toY(gy))
-      ctx.lineTo(toX(bz.right), toY(gy))
-      ctx.stroke()
-    }
-
+    drawBackdropAndGrid(ctx, transform, geo, CANVAS_W, CANVAS_H)
     // Blast zone border
-    ctx.strokeStyle = 'rgba(255,80,80,0.55)'
-    ctx.setLineDash([5, 4])
-    ctx.lineWidth = 1.5
-    ctx.strokeRect(
-      toX(bz.left),
-      toY(bz.top),
-      (bz.right - bz.left) * transform.scale,
-      (bz.top - bz.bottom) * transform.scale,
-    )
-    ctx.setLineDash([])
+    drawBlastBorder(ctx, transform, geo)
 
     // Axes (x=0, y=0)
-    ctx.strokeStyle = 'rgba(255,255,255,0.18)'
-    ctx.lineWidth = 1
-    ctx.beginPath()
-    ctx.moveTo(toX(0), toY(bz.bottom))
-    ctx.lineTo(toX(0), toY(bz.top))
-    ctx.moveTo(toX(bz.left), toY(0))
-    ctx.lineTo(toX(bz.right), toY(0))
-    ctx.stroke()
+    drawAxes(ctx, transform, geo)
 
     // Ground platform
-    const drawPlat = (
-      xMin: number,
-      xMax: number,
-      y: number,
-      thickness: number,
-    ) => {
-      ctx.fillStyle = '#3a4150'
-      ctx.strokeStyle = '#5a6377'
-      ctx.lineWidth = 1
-      const px = toX(xMin)
-      const py = toY(y)
-      const pw = (xMax - xMin) * transform.scale
-      ctx.fillRect(px, py, pw, thickness)
-      ctx.strokeRect(px, py, pw, thickness)
-    }
-    drawPlat(geo.ground.xMin, geo.ground.xMax, geo.ground.y, 7)
-    for (const plat of geo.platforms) drawPlat(plat.xMin, plat.xMax, plat.y, 4)
+    drawStagePlatforms(ctx, transform, geo)
 
     // Ledge markers
     ctx.fillStyle = '#7ec8e3'
@@ -605,63 +512,6 @@ export default function StageZoneModal({
     writeBox(it.target, applyResize(it.orig, it.handle, it.curWX, it.curWY))
   }
 
-  const resetView = () => setCamera(computeFit(geo, CANVAS_W, CANVAS_H))
-
-  // Close on Escape; Space holds pan mode
-  useEffect(() => {
-    const down = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onClose()
-        return
-      }
-      if (e.code === 'Space') {
-        const tag = (e.target as HTMLElement)?.tagName
-        if (tag === 'INPUT' || tag === 'TEXTAREA') return
-        e.preventDefault()
-        spaceRef.current = true
-        if (!interactionRef.current) setCursor('grab')
-      }
-    }
-    const up = (e: KeyboardEvent) => {
-      if (e.code === 'Space') {
-        spaceRef.current = false
-        if (!interactionRef.current) setCursor('crosshair')
-      }
-    }
-    window.addEventListener('keydown', down)
-    window.addEventListener('keyup', up)
-    return () => {
-      window.removeEventListener('keydown', down)
-      window.removeEventListener('keyup', up)
-    }
-  }, [onClose])
-
-  // Wheel to zoom toward the cursor (native listener so we can preventDefault).
-  useEffect(() => {
-    const canvas = canvasRef.current
-    if (!canvas) return undefined
-    const onWheel = (e: WheelEvent) => {
-      e.preventDefault()
-      const rect = canvas.getBoundingClientRect()
-      const px = ((e.clientX - rect.left) / rect.width) * CANVAS_W
-      const py = ((e.clientY - rect.top) / rect.height) * CANVAS_H
-      setCamera((c) => {
-        const factor = Math.exp(-e.deltaY * 0.0015)
-        const newScale = Math.min(Math.max(c.scale * factor, 0.05), 100)
-        // Keep the world point under the cursor fixed.
-        const wx = (px - c.ox) / c.scale
-        const wy = (c.oy - py) / c.scale
-        return {
-          scale: newScale,
-          ox: px - wx * newScale,
-          oy: py + wy * newScale,
-        }
-      })
-    }
-    canvas.addEventListener('wheel', onWheel, { passive: false })
-    return () => canvas.removeEventListener('wheel', onWheel)
-  }, [CANVAS_W, CANVAS_H])
-
   const patchBox = (field: keyof StageZoneBox, raw: string) => {
     if (raw !== '' && !/^-?\d*$/.test(raw)) return
     const n = parseInt(raw, 10)
@@ -694,161 +544,170 @@ export default function StageZoneModal({
   const zonedStageCount = ZONE_STAGE_IDS.filter(stageHasBox).length
 
   return (
-    <div className="szm-overlay" onClick={onClose}>
-      <div className="szm-modal" onClick={(e) => e.stopPropagation()}>
-        <div className="szm-header">
-          <span className="szm-title">{cfg.title}</span>
-          <button type="button" className="szm-close" onClick={onClose}>
-            &times;
-          </button>
+    <Modal
+      overlayClassName="szm-overlay"
+      className="szm-modal"
+      initialFocus="box"
+      onClose={onClose}
+      label={cfg.title}
+    >
+      <div className="szm-header">
+        <span className="szm-title">{cfg.title}</span>
+        <button
+          type="button"
+          className="szm-close"
+          onClick={onClose}
+          aria-label="Close"
+        >
+          &times;
+        </button>
+      </div>
+
+      <div className="szm-body">
+        {/* Stage tabs */}
+        <div className="szm-stage-tabs">
+          {ZONE_STAGE_IDS.map((sid) => {
+            const has = stageHasBox(sid)
+            return (
+              <button
+                key={sid}
+                type="button"
+                className={`szm-stage-tab${sid === stageId ? ' szm-stage-tab-active' : ''}${has ? ' szm-stage-tab-set' : ''}`}
+                onClick={() => setStageId(sid)}
+              >
+                {stageGeometry[sid].name}
+                {has && <span className="szm-stage-dot" />}
+              </button>
+            )
+          })}
         </div>
 
-        <div className="szm-body">
-          {/* Stage tabs */}
-          <div className="szm-stage-tabs">
-            {ZONE_STAGE_IDS.map((sid) => {
-              const has = stageHasBox(sid)
-              return (
-                <button
-                  key={sid}
-                  type="button"
-                  className={`szm-stage-tab${sid === stageId ? ' szm-stage-tab-active' : ''}${has ? ' szm-stage-tab-set' : ''}`}
-                  onClick={() => setStageId(sid)}
-                >
-                  {stageGeometry[sid].name}
-                  {has && <span className="szm-stage-dot" />}
-                </button>
-              )
-            })}
+        <div className="szm-main">
+          <div className="szm-canvas-wrap" ref={wrapRef}>
+            <canvas
+              ref={canvasRef}
+              width={CANVAS_W}
+              height={CANVAS_H}
+              className="szm-canvas"
+              style={{ cursor }}
+              onMouseDown={onMouseDown}
+              onMouseMove={onMouseMove}
+              onMouseUp={commitInteraction}
+              onMouseLeave={commitInteraction}
+              onDoubleClick={resetView}
+              onContextMenu={(e) => e.preventDefault()}
+            />
           </div>
 
-          <div className="szm-main">
-            <div className="szm-canvas-wrap" ref={wrapRef}>
-              <canvas
-                ref={canvasRef}
-                width={CANVAS_W}
-                height={CANVAS_H}
-                className="szm-canvas"
-                style={{ cursor }}
-                onMouseDown={onMouseDown}
-                onMouseMove={onMouseMove}
-                onMouseUp={commitInteraction}
-                onMouseLeave={commitInteraction}
-                onDoubleClick={resetView}
-                onContextMenu={(e) => e.preventDefault()}
-              />
+          <div className="szm-side">
+            {/* Player target toggle */}
+            <div className="szm-target-toggle">
+              {cfg.targets.map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  className={`szm-target-btn${t === target ? ' szm-target-btn-active' : ''}`}
+                  style={
+                    t === target
+                      ? {
+                          borderColor: cfg.colors[t].stroke,
+                          color: cfg.colors[t].stroke,
+                        }
+                      : undefined
+                  }
+                  onClick={() => setTarget(t)}
+                >
+                  <span
+                    className="szm-swatch"
+                    style={{ background: cfg.colors[t].stroke }}
+                  />
+                  {targetLabel(t)}
+                </button>
+              ))}
             </div>
 
-            <div className="szm-side">
-              {/* Player target toggle */}
-              <div className="szm-target-toggle">
-                {cfg.targets.map((t) => (
-                  <button
-                    key={t}
-                    type="button"
-                    className={`szm-target-btn${t === target ? ' szm-target-btn-active' : ''}`}
-                    style={
-                      t === target
-                        ? {
-                            borderColor: cfg.colors[t].stroke,
-                            color: cfg.colors[t].stroke,
-                          }
-                        : undefined
-                    }
-                    onClick={() => setTarget(t)}
-                  >
-                    <span
-                      className="szm-swatch"
-                      style={{ background: cfg.colors[t].stroke }}
-                    />
-                    {targetLabel(t)}
-                  </button>
-                ))}
-              </div>
-
-              <div className="szm-hint">
-                Drag empty space to draw the {targetLabel(target)} zone. Drag a
-                box to move it, drag its handles to resize.
-                <br />
-                Scroll to zoom · Space-drag or middle-drag to pan · double-click
-                to reset view.
-              </div>
-
-              {/* Numeric readout / nudge */}
-              <div className="szm-coords">
-                {(
-                  [
-                    ['xMin', 'X min'],
-                    ['xMax', 'X max'],
-                    ['yMin', 'Y min'],
-                    ['yMax', 'Y max'],
-                  ] as [keyof StageZoneBox, string][]
-                ).map(([field, label]) => (
-                  <label key={field} className="szm-coord">
-                    <span>{label}</span>
-                    <input
-                      inputMode="numeric"
-                      value={activeBox ? String(activeBox[field]) : ''}
-                      placeholder="—"
-                      onChange={(e) => patchBox(field, e.target.value)}
-                    />
-                  </label>
-                ))}
-              </div>
-
-              <div className="szm-side-actions">
-                <button
-                  type="button"
-                  className="szm-btn"
-                  onClick={resetView}
-                  title="Reset zoom and pan to fit the stage"
-                >
-                  Reset view
-                </button>
-                <button
-                  type="button"
-                  className="szm-btn"
-                  disabled={!activeBox}
-                  onClick={() => setActiveBox(null)}
-                >
-                  Clear zone
-                </button>
-                <button
-                  type="button"
-                  className="szm-btn"
-                  disabled={!activeBox}
-                  onClick={applyToAllStages}
-                  title="Copy this box to every stage for this player"
-                >
-                  Apply to all stages
-                </button>
-              </div>
-
-              {geo.note && <div className="szm-note">⚠ {geo.note}</div>}
+            <div className="szm-hint">
+              Drag empty space to draw the {targetLabel(target)} zone. Drag a
+              box to move it, drag its handles to resize.
+              <br />
+              Scroll to zoom · Space-drag or middle-drag to pan · double-click
+              to reset view.
             </div>
-          </div>
-        </div>
 
-        <div className="szm-footer">
-          <span className="szm-footer-summary">
-            {zonedStageCount === 0
-              ? 'No zones set'
-              : `Zones set on ${zonedStageCount} stage${zonedStageCount === 1 ? '' : 's'}`}
-          </span>
-          <div className="szm-footer-actions">
-            <button type="button" className="szm-btn" onClick={onClose}>
-              Cancel
-            </button>
-            <button
-              type="button"
-              className="szm-btn szm-btn-primary"
-              onClick={() => onApply(zones)}
-            >
-              Apply
-            </button>
+            {/* Numeric readout / nudge */}
+            <div className="szm-coords">
+              {(
+                [
+                  ['xMin', 'X min'],
+                  ['xMax', 'X max'],
+                  ['yMin', 'Y min'],
+                  ['yMax', 'Y max'],
+                ] as [keyof StageZoneBox, string][]
+              ).map(([field, label]) => (
+                <label key={field} className="szm-coord">
+                  <span>{label}</span>
+                  <input
+                    inputMode="numeric"
+                    value={activeBox ? String(activeBox[field]) : ''}
+                    placeholder="—"
+                    onChange={(e) => patchBox(field, e.target.value)}
+                  />
+                </label>
+              ))}
+            </div>
+
+            <div className="szm-side-actions">
+              <button
+                type="button"
+                className="szm-btn"
+                onClick={resetView}
+                title="Reset zoom and pan to fit the stage"
+              >
+                Reset view
+              </button>
+              <button
+                type="button"
+                className="szm-btn"
+                disabled={!activeBox}
+                onClick={() => setActiveBox(null)}
+              >
+                Clear zone
+              </button>
+              <button
+                type="button"
+                className="szm-btn"
+                disabled={!activeBox}
+                onClick={applyToAllStages}
+                title="Copy this box to every stage for this player"
+              >
+                Apply to all stages
+              </button>
+            </div>
+
+            {geo.note && <div className="szm-note">⚠ {geo.note}</div>}
           </div>
         </div>
       </div>
-    </div>
+
+      <div className="szm-footer">
+        <span className="szm-footer-summary">
+          {zonedStageCount === 0
+            ? 'No zones set'
+            : `Zones set on ${zonedStageCount} stage${zonedStageCount === 1 ? '' : 's'}`}
+        </span>
+        <div className="szm-footer-actions">
+          <button type="button" className="szm-btn" onClick={onClose}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="szm-btn szm-btn-primary"
+            onClick={() => onApply(zones)}
+          >
+            Apply
+          </button>
+        </div>
+      </div>
+    </Modal>
   )
 }

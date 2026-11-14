@@ -4,9 +4,23 @@
     <meta charset="utf-8" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="script-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
+      content="script-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'self'"
     />
     <title>Lunar Clipper</title>
+    <script>
+      // Registered before any app code (including the dev error overlay), so
+      // the clip viewer's failed character loads (unhandled rejections from
+      // its own code) never reach it: they go to the Watch panel instead
+      // (components/Clip/ClipWatch.tsx listens for 'lunar-viewer-error').
+      window.addEventListener('unhandledrejection', function (e) {
+        var r = e.reason || {}
+        var where = String(r.message || '') + ' ' + String(r.stack || '')
+        if (!/slippi-viewer|unzip|zip data|fetchAnimations/i.test(where)) return
+        e.preventDefault()
+        e.stopImmediatePropagation()
+        window.dispatchEvent(new CustomEvent('lunar-viewer-error', { detail: String(r.message || r) }))
+      })
+    </script>
   </head>
   <body>
     <div id="root"></div>

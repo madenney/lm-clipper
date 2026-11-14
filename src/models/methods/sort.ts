@@ -98,6 +98,16 @@ export const sortOptions = [
 ]
 
 /**
+ * A combo's total damage, summed from its moves. The sort statement names its
+ * table `src`: inside json_each(...) an unqualified `JSON` is json_each's own
+ * hidden `json` column (empty), not the row's, which made every key 0 and the
+ * sort a silent no-op.
+ */
+const COMBO_DAMAGE =
+  `(SELECT COALESCE(SUM(CAST(json_extract(value, '$.damage') AS REAL)), 0) ` +
+  `FROM json_each(json_extract(src.JSON, '$.combo.moves')))`
+
+/**
  * Returns a SQL ORDER BY expression for the given sort option.
  * Used by Worker.ts to sort entirely in SQLite (no JS memory overhead).
  */
@@ -108,25 +118,29 @@ export function getSortOrderExpr(
   switch (sortFunction) {
     case 'chronological': {
       const dir = reverse ? 'DESC' : 'ASC'
-      return `CAST(json_extract(JSON, '$.startedAt') AS REAL) ${dir}`
+      // Clips of one game share startedAt: order them by where they are in it.
+      return (
+        `CAST(json_extract(JSON, '$.startedAt') AS REAL) ${dir}, ` +
+        `CAST(json_extract(JSON, '$.startFrame') AS INTEGER) ${dir}`
+      )
     }
     case 'dps': {
       // Default: highest DPS first (DESC), reverse: lowest first (ASC)
+      // A combo that never closed (endFrame 0: the game ended mid-combo) has
+      // no duration, so it ranks as 0 instead of dividing by a clamped 1 frame.
       const dir = reverse ? 'ASC' : 'DESC'
       return (
-        `(SELECT COALESCE(SUM(CAST(json_extract(value, '$.damage') AS REAL)), 0) ` +
-        `FROM json_each(json_extract(JSON, '$.combo.moves'))) * 1.0 ` +
-        `/ MAX(1, CAST(json_extract(JSON, '$.endFrame') AS INTEGER) ` +
-        `- CAST(json_extract(JSON, '$.startFrame') AS INTEGER)) ${dir}`
+        `CASE WHEN CAST(json_extract(src.JSON, '$.endFrame') AS INTEGER) ` +
+        `> CAST(json_extract(src.JSON, '$.startFrame') AS INTEGER) THEN ` +
+        `${COMBO_DAMAGE} * 1.0 / ` +
+        `(CAST(json_extract(src.JSON, '$.endFrame') AS INTEGER) ` +
+        `- CAST(json_extract(src.JSON, '$.startFrame') AS INTEGER)) ELSE 0 END ${dir}`
       )
     }
     case 'totalDamage': {
       // Default: highest damage first (DESC), reverse: lowest first (ASC)
       const dir = reverse ? 'ASC' : 'DESC'
-      return (
-        `(SELECT COALESCE(SUM(CAST(json_extract(value, '$.damage') AS REAL)), 0) ` +
-        `FROM json_each(json_extract(JSON, '$.combo.moves'))) ${dir}`
-      )
+      return `${COMBO_DAMAGE} ${dir}`
     }
     case 'moves': {
       // Default: fewest moves first (ASC), reverse: most first (DESC)

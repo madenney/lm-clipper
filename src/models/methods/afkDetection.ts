@@ -1,4 +1,4 @@
-import { SlippiGame } from '@slippi/slippi-js'
+import { SlippiGame } from '../../lib/slippiGame'
 import {
   ClipInterface,
   EventEmitterInterface,
@@ -21,10 +21,9 @@ export default (
     eventEmitter({ current: index, total: prevResults.length })
 
     const { path, comboee, startFrame, endFrame } = clip
-    const game = new SlippiGame(path)
     let frames
     try {
-      frames = game.getFrames()
+      frames = new SlippiGame(path).getFrames()
     } catch {
       return true
     }

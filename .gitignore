@@ -19,7 +19,6 @@ release/app/dist
 release/app/ffmpeg
 release/app/node_modules
 release/app/output
-release/app/package-lock.json
 .erb/dll
 
 .idea
@@ -38,3 +37,6 @@ build/
 test_replays/
 "[object Object]"
 TODO.md
+release/app/slpz
+
+.DS_Store

@@ -1,5 +1,5 @@
 /* eslint-disable eqeqeq */
-import { SlippiGame } from '@slippi/slippi-js'
+import { SlippiGame } from '../../lib/slippiGame'
 import {
   ClipInterface,
   EventEmitterInterface,
@@ -66,10 +66,9 @@ export default (
       return false
     const { moves } = combo
 
-    const game = new SlippiGame(path)
     let frames: Record<string, any>
     try {
-      frames = game.getFrames()
+      frames = new SlippiGame(path).getFrames()
     } catch (e) {
       console.warn('Broken file:', path)
       return false

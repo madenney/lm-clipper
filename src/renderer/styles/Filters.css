@@ -1338,6 +1338,14 @@
   align-items: center;
   justify-content: center;
   background: rgba(0, 0, 0, 0.35);
+  /* Its own colours, so the dialog looks the same opened outside .filters
+     (the tray's warning before deleting replays). */
+  font-family: 'Space Grotesk', 'Sora', sans-serif;
+  --filter-card: #1e2126;
+  --filter-card-strong: #262a31;
+  --filter-border: #3b4048;
+  --filter-muted: #a7adb7;
+  --filter-accent: #e4e7ec;
 }
 
 .filter-warn-modal {
@@ -1508,19 +1516,13 @@
   }
 }
 
-/* Resume button */
-
-.filter-resume-wrap {
-  display: inline-flex;
-}
+/* Resume button (with Restart = the Run button next to it) */
 
 .filter-button-resume {
   border-color: #3a6b3a;
-  color: #80d080;
-  border-top-right-radius: 0;
-  border-bottom-right-radius: 0;
+  color: #8fd59d;
   min-width: 0;
-  padding: 0 10px;
+  padding: 0 12px;
 }
 
 .filter-button-resume:hover {
@@ -1528,26 +1530,130 @@
   border-color: #4a8b4a;
 }
 
-.filter-resume-dismiss {
-  height: 28px;
-  width: 24px;
-  padding: 0;
-  border: 1px solid #6b3a3a;
-  border-left: none;
-  border-radius: 0 8px 8px 0;
-  background: rgba(0, 0, 0, 0.1);
-  color: #e06060;
+/* Longer run messages ("Run failed — see the console…", "10 games skipped…"):
+   a calm note on its own row, sentence case, instead of the short uppercase
+   pill (which wrapped into a blob). Red when it is a failure. */
+.filterMsg--note {
+  flex: 1 0 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(201, 169, 87, 0.35);
+  background: rgba(201, 169, 87, 0.1);
+  color: #e6d9a8;
   font-size: 12px;
-  line-height: 1;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
+  line-height: 1.4;
+  letter-spacing: 0.01em;
+  text-transform: none;
 }
 
-.filter-resume-progress {
-  margin-left: 6px;
-  opacity: 0.7;
+.filterMsg--note.filterMsg--bad {
+  border-color: rgba(229, 85, 85, 0.4);
+  background: rgba(229, 85, 85, 0.1);
+  color: #f0b3b3;
+}
+
+.filterMsg--note .filterMsg-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.filterMsg--note .filterMsg-dismiss {
+  flex: 0 0 auto;
+  font-size: 12px;
+  padding: 1px 2px;
+}
+
+/* Stopped or failed step: Resume / Keep results / Restart stay on ONE row
+   (wrapping put the last button over the message), and the meta row gives up the
+   space it reserves for the buttons so the note can use the full width. */
+.filter-resumable .filter-actions {
+  flex-wrap: nowrap;
+  gap: 6px;
+}
+
+.filter-resumable .filter-actions .filter-button {
+  min-width: 0;
+  padding: 0 10px;
+  letter-spacing: 0.04em;
+}
+
+.filter-resumable .filter-meta {
+  padding-right: 0;
+}
+
+/* The "stopped at" line is drawn just under the meta row: leave it room. */
+.filter-resumable .filterMsg--note {
+  margin-top: 16px;
+}
+
+/* In a narrow panel the three buttons would run over the title: give them
+   their own row above it instead. (Only stopped/failed cards are containers.) */
+.filter-resumable {
+  container-type: inline-size;
+}
+
+@container (max-width: 410px) {
+  .filter-resumable .filter-main {
+    padding-top: 38px;
+  }
+
+  .filter-resumable .filter-actions {
+    left: 16px;
+    right: 12px;
+    justify-content: flex-start;
+  }
+
+  /* The title no longer shares its row with the buttons (it carries an inline
+     right padding for them), and the buttons stay on one line. */
+  .filter-resumable .filter-title {
+    padding-right: 0 !important;
+  }
+
+  .filter-resumable .filter-actions .filter-button {
+    padding: 0 8px;
+    font-size: 11px;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+  }
+}
+
+/* Keep results: accept a stopped or failed run's results as they are. */
+.filter-button-keep {
+  border-color: #3b5a85;
+  color: #9dc1f0;
+  min-width: 0;
+  padding: 0 12px;
+}
+
+.filter-button-keep:hover {
+  background: rgba(70, 120, 190, 0.2);
+  border-color: #4d76ad;
+}
+
+/* "stopped at 1,000/1,811": its own line, left-aligned under the result
+   count (it sits in .filter-meta), laid over the row's existing space below
+   so the row keeps its height. */
+.filter-meta {
+  position: relative;
+}
+
+.filter-stopped-at {
+  position: absolute;
+  left: 0;
+  top: calc(100% + 1px);
+  max-width: 100%;
+  font-size: 11.5px;
+  line-height: 14px;
+  color: #c9a957;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
 }
 
 .filter-progress-pill {
@@ -1555,11 +1661,6 @@
   letter-spacing: 0.08em;
   opacity: 0.7;
   margin-right: 10px;
-}
-
-.filter-resume-dismiss:hover {
-  background: rgba(160, 50, 50, 0.2);
-  border-color: #8b4a4a;
 }
 
 /* Branching: per-filter input source selector */
@@ -1666,4 +1767,229 @@
   box-shadow:
     0 24px 80px rgba(0, 0, 0, 0.7),
     0 0 0 1px rgba(214, 84, 84, 0.35);
+}
+
+/* In place of Run on a "Lunar Database clips" filter (its clips are added). */
+.filter-source-note {
+  font-size: 11px;
+  color: var(--filter-warn);
+  padding: 4px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  white-space: nowrap;
+}
+
+/* AI Filter (AiFilterControls): describe -> ask your AI -> paste answer. */
+.ai-filter {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 4px;
+}
+
+.ai-filter-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.ai-filter-num {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: rgba(165, 140, 255, 0.18);
+  color: #c4b5ff;
+  font-size: 11px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+
+.ai-filter-label {
+  font-size: 12.5px;
+  color: #c9ced6;
+}
+
+.ai-filter-request {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 52px;
+  resize: vertical;
+  padding: 8px;
+  border-radius: 6px;
+  border: 1px solid #30353c;
+  background: #121417;
+  color: #f5f6f8;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.ai-filter-request:focus {
+  outline: none;
+  border-color: #a58cff;
+}
+
+.ai-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.ai-filter-btn {
+  text-transform: none;
+  letter-spacing: 0.01em;
+}
+
+.ai-filter-btn--quiet {
+  border-color: transparent;
+  background: transparent;
+  color: #aab0ba;
+}
+
+.ai-filter-ready {
+  font-size: 12px;
+  color: #7fd39a;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ai-filter-waiting {
+  font-size: 12px;
+  color: #777;
+}
+
+.ai-filter-clear {
+  background: none;
+  border: none;
+  padding: 0;
+  color: #888;
+  font: inherit;
+  font-size: 11.5px;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.ai-filter-note {
+  font-size: 12px;
+  color: #c4b5ff;
+}
+
+.ai-filter-help {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 1px solid #3a3f47;
+  background: transparent;
+  color: #c4b5ff;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.ai-filter-help:hover {
+  border-color: #a58cff;
+  background: rgba(165, 140, 255, 0.12);
+}
+
+.ai-filter-bad {
+  font-size: 12px;
+  color: #f0a07b;
+}
+
+.ai-filter .ai-filter-request {
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 12px;
+}
+
+/* Scrollbars inside filter cards (AI Filter response box and other text
+   areas) like the rest of the app: thin, no track, dark thumb. */
+.filters textarea::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.filters textarea::-webkit-scrollbar-track,
+.filters textarea::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+.filters textarea::-webkit-scrollbar-thumb {
+  background: #3a3a3a;
+  border-radius: 3px;
+}
+
+.filters textarea::-webkit-scrollbar-thumb:hover {
+  background: #505050;
+}
+
+.filters textarea::-webkit-scrollbar-button {
+  display: none;
+}
+
+.ai-filter-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.ai-filter-status-actions {
+  display: flex;
+  gap: 4px;
+}
+
+/* A step waiting its turn in a run: a quiet label where Run/Stop would be. */
+.filter-queued {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 8px;
+  font-size: 12px;
+  color: #8a909a;
+  font-style: italic;
+}
+
+.filter-parser-note-main strong {
+  display: block;
+  font-weight: 600;
+  color: #e6f7fa;
+  font-variant-numeric: tabular-nums;
+}
+
+.filter-parser-note-sub {
+  display: block;
+  margin-top: 2px;
+  color: #9fc9d0;
+}
+
+/* Copy prompt: the first thing to do in an AI Filter, so the green action.
+   Doubled class + the compact scope so it beats .filters--compact .filter-button. */
+.filter-button.ai-filter-btn--primary,
+.filters--compact .filter-button.ai-filter-btn--primary {
+  border-color: #3a9956;
+  background: linear-gradient(180deg, #2d7d46 0%, #1f5c32 100%);
+  color: #fff;
+  font-weight: 600;
+  box-shadow: 0 0 0 1px rgba(58, 153, 86, 0.25), 0 0 12px rgba(58, 153, 86, 0.25);
+}
+
+.filter-button.ai-filter-btn--primary:hover:not(:disabled),
+.filters--compact .filter-button.ai-filter-btn--primary:hover:not(:disabled) {
+  background: linear-gradient(180deg, #349950 0%, #267a3d 100%);
+  border-color: #46b066;
+  color: #fff;
+}
+
+/* A locked step (FilterInterface.locked): fixed results, no settings to change. */
+.filter-locked-note {
+  margin: 6px 0 2px;
+  font-size: 12px;
+  color: #9aa3ad;
 }

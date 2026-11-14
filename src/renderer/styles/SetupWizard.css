@@ -314,3 +314,50 @@
 .setup-next-btn:hover {
   background: #35a05a;
 }
+
+.setup-validation-thumb {
+  flex: none;
+  font-size: 1.25em;
+  animation: setup-thumb-pop 420ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+.setup-validation-detail {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.85em;
+  opacity: 0.75;
+}
+
+@keyframes setup-thumb-pop {
+  from {
+    transform: scale(0.3) rotate(-25deg);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1) rotate(0);
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .setup-validation-thumb {
+    animation: none;
+  }
+}
+
+.setup-folder-btn {
+  padding: 11px 14px;
+  font-size: 17px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+}
+
+/* "Get the Slippi Launcher" under the Playback Dolphin help. */
+.setup-help-link {
+  margin-top: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #8fc7ff;
+  text-decoration: underline;
+}

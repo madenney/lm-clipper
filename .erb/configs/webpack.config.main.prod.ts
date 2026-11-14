@@ -16,7 +16,8 @@ checkNodeEnv('production');
 deleteSourceMaps();
 
 const configuration: webpack.Configuration = {
-  devtool: 'source-map',
+  // Line numbers for stack traces (source-map-support) without shipping the sources.
+  devtool: 'nosources-source-map',
 
   mode: 'production',
 

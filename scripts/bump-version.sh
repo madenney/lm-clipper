@@ -29,4 +29,6 @@ npm version "$VERSION" --no-git-tag-version
 cd "$ROOT_DIR/release/app"
 npm version "$VERSION" --no-git-tag-version
 
-echo "Version updated to $VERSION in both package.json files."
+echo "Version updated to $VERSION in both package.json files (and their lockfiles)."
+echo "Next: add the $VERSION entry to src/constants/changelog.ts (today's date), then:"
+echo "  npm run check:metadata   # everything agrees"

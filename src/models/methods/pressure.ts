@@ -1,5 +1,6 @@
 /* eslint-disable eqeqeq */
-import { SlippiGame, StockType } from '@slippi/slippi-js'
+import { StockType } from '@slippi/slippi-js'
+import { SlippiGame } from '../../lib/slippiGame'
 import { computeStocks } from '../../lib/slippiStocks'
 import matchesAny from './matchesAny'
 import { matchesPlayer } from '../../lib/filterHelpers'

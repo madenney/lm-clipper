@@ -92,7 +92,7 @@ by `index` (record order), which is also the auto-concat order.
     {
       "playerIndex": 0, "port": 1,
       "characterId": 9, "characterName": "Marth", "characterColor": 3,
-      "displayName": "type !HelpM2K", "connectCode": "KOTU#737", "nametag": ""
+      "displayName": "SomePlayer", "connectCode": "ABC#123", "nametag": ""
     }
     /* ... */
   ],

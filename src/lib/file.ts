@@ -1,4 +1,4 @@
-import { promises as fsPromises } from 'fs'
+import { promises as fsPromises, Dirent, Stats } from 'fs'
 import path from 'path'
 
 type StreamOptions = {
@@ -8,6 +8,34 @@ type StreamOptions = {
 const normalizeExtensions = (extensions: string[]) =>
   new Set(extensions.map((ext) => ext.toLowerCase()))
 
+export type EntryKind = 'file' | 'dir' | 'skip'
+
+// On Windows, directory listings report EVERY reparse point as a symlink,
+// including OneDrive / cloud-synced files and folders (Documents\Slippi is
+// often OneDrive-backed), so trusting the Dirent alone silently skipped them.
+// When the listing says neither file nor folder, ask lstat, which only calls
+// real symlinks and junctions links. Those stay skipped (no loops, no
+// escaping the dropped folder).
+function kindFromStats(stats: Stats): EntryKind {
+  if (stats.isSymbolicLink()) return 'skip'
+  if (stats.isDirectory()) return 'dir'
+  if (stats.isFile()) return 'file'
+  return 'skip'
+}
+
+export async function entryKind(
+  entry: Dirent,
+  fullPath: string,
+): Promise<EntryKind> {
+  if (entry.isDirectory()) return 'dir'
+  if (entry.isFile()) return 'file'
+  try {
+    return kindFromStats(await fsPromises.lstat(fullPath))
+  } catch {
+    return 'skip'
+  }
+}
+
 async function* streamFilePathsByExtension(
   _paths: string | string[],
   extensions: string[],
@@ -16,6 +44,9 @@ async function* streamFilePathsByExtension(
   const paths = Array.isArray(_paths) ? _paths : [_paths]
   const extSet = normalizeExtensions(extensions)
   const stack = [...paths]
+  // Paths the user picked or dropped are followed even if they are links;
+  // only links found inside a folder are skipped.
+  const chosen = new Set(paths)
 
   while (stack.length > 0) {
     if (options.signal?.aborted) return
@@ -24,7 +55,9 @@ async function* streamFilePathsByExtension(
 
     let stats
     try {
-      stats = await fsPromises.lstat(currentPath)
+      stats = chosen.has(currentPath)
+        ? await fsPromises.stat(currentPath)
+        : await fsPromises.lstat(currentPath)
     } catch (error) {
       continue
     }
@@ -46,9 +79,11 @@ async function* streamFilePathsByExtension(
           }
 
           const nextPath = path.resolve(currentPath, entry.name)
-          if (entry.isDirectory()) {
+          // eslint-disable-next-line no-await-in-loop
+          const kind = await entryKind(entry, nextPath)
+          if (kind === 'dir') {
             stack.push(nextPath)
-          } else if (entry.isFile()) {
+          } else if (kind === 'file') {
             const ext = path.extname(entry.name).toLowerCase()
             if (extSet.has(ext)) yield nextPath
           }

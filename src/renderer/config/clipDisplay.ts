@@ -2,10 +2,14 @@
  * Clip Display Configuration
  *
  * Controls how clips are rendered across the 4 display modes:
- * - full:  DOM, scrollable, full detail
- * - mode2: DOM, no scroll, compact with buttons/text
- * - mode3: GPU, stage + character icons
- * - mode4: GPU, colored squares only
+ * - full:  the single card (DOM)
+ * - mode2: DOM grid, 120-299 px: cards that lead with what the step found
+ *          (hits + damage, edgeguard score, the game's players), a strength
+ *          meter, a kill badge and Play/Record in the corner on hover
+ * - mode3: GPU, 2-119 px: the grid's card look (stage art + both character
+ *          icons) down to ~24 px, then stage colour + icon, then squares
+ * - mode4: GPU, below 2 px: several clips per pixel
+ * (docs/tray-v2.md; the GPU view is components/Tray/OverviewCanvas.tsx)
  */
 
 export type ClipMode = 'full' | 'mode2' | 'mode3' | 'mode4'
@@ -14,20 +18,34 @@ export const clipDisplayConfig = {
   // Zoom size thresholds (px) for mode transitions
   thresholds: {
     full: 300, // >= 300px = full mode (DOM, scrollable)
-    mode2: 5, // >= 5px = mode 2 (DOM grid)
+    // >= 120px = mode 2 (DOM grid); below, the GPU view draws the tiles (a zoom
+    // step there is one draw; DOM cards at 40-45 px cost ~150 ms a step)
+    mode2: 120,
     mode3: 2, // >= 2px = mode 3 (GPU)
     // below 2px = mode 4 (GPU micro)
   },
 
   // Hard limits
   limits: {
-    maxDomElements: 15000, // Force GPU if more than this visible
+    // Most elements the DOM grid builds (tiles + placeholder blocks), whatever
+    // the screen size: enforced by lib/domGrid.ts.
+    maxDomElements: 15000,
   },
 
-  // Feature visibility by minimum clip size (px)
+  // Feature visibility by minimum clip size (px). The DOM grid starts at
+  // thresholds.mode2, so the card always has its lead line and buttons; more
+  // lines join as it grows (Clip.tsx).
   features: {
-    buttons: { minSize: 80 },
-    text: { minSize: 80 },
+    buttons: { minSize: 120 },
+    // The GPU view's hover Play/Record (components/Tray/OverviewCanvas.tsx):
+    // a DOM overlay on the hovered tile from this size up, scaled with the tile.
+    gpuButtons: { minSize: 40 },
+    // Lead line + length: "5 hits · 48%   4.1s".
+    text: { minSize: 120 },
+    // Second line: "85% → 117% · Up-air", edgeguard facts, a game's date.
+    detail: { minSize: 165 },
+    // Third line: the players (in the tooltip below this).
+    names: { minSize: 220 },
     charIcons: { minSize: 30 },
     borders: { minSize: 20 },
     gaps: { minSize: 15 },
@@ -39,7 +57,7 @@ export const clipDisplayConfig = {
     minGap: 2, // minimum gap in px
     borderWidth: 1, // border width in px
     infoMaxHeight: 0.4, // info overlay max height as fraction
-    borderColor: '#ffffff',
+    borderColor: '#2f3a34',
     borderColorFull: '#2a2a2a',
     backgroundColor: '#000000',
     backgroundColorFull: '#131313',
@@ -58,24 +76,21 @@ export const clipDisplayConfig = {
 } as const
 
 /**
- * Determine the display mode based on zoom size and visible count
+ * Determine the display mode from the zoom size. The DOM grid caps its own
+ * element count (limits.maxDomElements), so the screen size doesn't matter.
  */
-export const getClipMode = (
-  zoomSize: number,
-  visibleCount: number,
-): ClipMode => {
-  const { thresholds, limits } = clipDisplayConfig
+export const getClipMode = (zoomSize: number): ClipMode => {
+  const { thresholds } = clipDisplayConfig
 
   if (zoomSize >= thresholds.full) {
     return 'full'
   }
 
-  // Use DOM mode2 if zoom is large enough AND under the element limit
-  if (zoomSize >= thresholds.mode2 && visibleCount <= limits.maxDomElements) {
+  if (zoomSize >= thresholds.mode2) {
     return 'mode2'
   }
 
-  // GPU modes - either zoom is small or too many elements
+  // GPU modes
   if (zoomSize >= thresholds.mode3) {
     return 'mode3'
   }

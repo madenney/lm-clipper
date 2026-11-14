@@ -45,3 +45,31 @@
   pointer-events: none;
   box-shadow: 0 0 8px rgba(74, 157, 91, 0.6);
 }
+
+/* Grid positions whose rows haven't loaded yet (scrolled past the loaded window):
+   one block per stretch, masked into tiles of --tile every --cell. */
+.dom-placeholder {
+  background: linear-gradient(90deg, #1a1a1d 0%, #222226 50%, #1a1a1d 100%);
+  background-size: 200% 100%;
+  animation: dom-placeholder-shimmer 1.2s linear infinite;
+  mask-image:
+    linear-gradient(to right, #000 var(--tile), transparent var(--tile)),
+    linear-gradient(to bottom, #000 var(--tile), transparent var(--tile));
+  mask-size: var(--cell) var(--cell);
+  mask-composite: intersect;
+}
+
+@keyframes dom-placeholder-shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dom-placeholder {
+    animation: none;
+  }
+}

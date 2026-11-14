@@ -1,0 +1,37 @@
+/* A long path cut in the middle: the start shrinks first (with …), then the
+   folder above the last part, and the last part only when nothing else is
+   left to give. */
+.path-box {
+  display: flex;
+  align-items: baseline;
+  min-width: 0;
+  white-space: pre;
+  overflow: hidden;
+  cursor: default;
+}
+
+.path-box-head,
+.path-box-parent,
+.path-box-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.path-box-head {
+  flex: 0 1000000 auto;
+  min-width: 2.5em;
+}
+
+.path-box-parent {
+  flex: 0 1000 auto;
+  min-width: 2.5em;
+}
+
+.path-box-name {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.path-box--empty {
+  color: #666;
+}

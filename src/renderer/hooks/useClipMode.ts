@@ -1,7 +1,7 @@
 /**
  * useClipMode Hook
  *
- * Determines the current clip display mode based on zoom size and visible count.
+ * Determines the current clip display mode based on zoom size.
  * Returns mode and related display settings.
  */
 
@@ -77,67 +77,77 @@ const calculateLayout = (
   return { columns, visibleCount }
 }
 
-export const useClipMode = ({
+/** The mode and layout for a zoom size and tray (pure, see useClipMode). */
+export const clipModeFor = ({
   zoomSize,
   totalClips,
   trayWidth,
   trayHeight,
 }: UseClipModeParams): ClipModeResult => {
-  return useMemo(() => {
-    // Feature visibility first - determines if we show gaps
-    const showButtons = isFeatureVisible('buttons', zoomSize)
-    const showText = isFeatureVisible('text', zoomSize)
-    const showCharIcons = isFeatureVisible('charIcons', zoomSize)
-    const showBorders = isFeatureVisible('borders', zoomSize)
-    const showGaps = isFeatureVisible('gaps', zoomSize)
+  // Feature visibility first - determines if we show gaps
+  const showButtons = isFeatureVisible('buttons', zoomSize)
+  const showText = isFeatureVisible('text', zoomSize)
+  const showCharIcons = isFeatureVisible('charIcons', zoomSize)
+  const showBorders = isFeatureVisible('borders', zoomSize)
+  const showGaps = isFeatureVisible('gaps', zoomSize)
 
-    // Calculate gap - only if gaps are enabled
-    const gap = showGaps ? getGapSize(zoomSize) : 0
+  // Calculate gap - only if gaps are enabled
+  const gap = showGaps ? getGapSize(zoomSize) : 0
 
-    // Calculate layout with the actual gap that will be used
-    const { columns, visibleCount } = calculateLayout(
-      zoomSize,
-      gap,
-      trayWidth,
-      trayHeight,
-      totalClips,
-    )
+  // Calculate layout with the actual gap that will be used
+  const { columns, visibleCount } = calculateLayout(
+    zoomSize,
+    gap,
+    trayWidth,
+    trayHeight,
+    totalClips,
+  )
 
-    // Determine mode
-    const mode = getClipMode(zoomSize, visibleCount)
+  // Determine mode
+  const mode = getClipMode(zoomSize)
 
-    // Mode flags
-    const isDom = isDomMode(mode)
-    const isGpu = isGpuMode(mode)
-    const canScroll = isScrollable(mode)
+  // Mode flags
+  const isDom = isDomMode(mode)
+  const isGpu = isGpuMode(mode)
+  const canScroll = isScrollable(mode)
 
-    // In full mode, clip fills the tray with padding
-    const padding = gap
-    const availableWidth = Math.max(0, trayWidth - padding * 2)
-    const effectiveClipSize = mode === 'full' ? availableWidth : zoomSize
-    const fullPadding = 16
-    const clipHeight =
-      mode === 'full'
-        ? Math.max(0, trayHeight - fullPadding * 2)
-        : effectiveClipSize
+  // In full mode, clip fills the tray with padding
+  const padding = gap
+  const availableWidth = Math.max(0, trayWidth - padding * 2)
+  const effectiveClipSize = mode === 'full' ? availableWidth : zoomSize
+  const fullPadding = 16
+  const clipHeight =
+    mode === 'full'
+      ? Math.max(0, trayHeight - fullPadding * 2)
+      : effectiveClipSize
 
-    return {
-      mode,
-      isDom,
-      isGpu,
-      canScroll,
-      clipSize: effectiveClipSize,
-      clipHeight,
-      gap,
-      columns,
-      visibleCount,
-      showButtons,
-      showText,
-      showCharIcons,
-      showBorders,
-      showGaps,
-    }
-  }, [zoomSize, totalClips, trayWidth, trayHeight])
+  return {
+    mode,
+    isDom,
+    isGpu,
+    canScroll,
+    clipSize: effectiveClipSize,
+    clipHeight,
+    gap,
+    columns,
+    visibleCount,
+    showButtons,
+    showText,
+    showCharIcons,
+    showBorders,
+    showGaps,
+  }
 }
+
+export const useClipMode = ({
+  zoomSize,
+  totalClips,
+  trayWidth,
+  trayHeight,
+}: UseClipModeParams): ClipModeResult =>
+  useMemo(
+    () => clipModeFor({ zoomSize, totalClips, trayWidth, trayHeight }),
+    [zoomSize, totalClips, trayWidth, trayHeight],
+  )
 
 export default useClipMode

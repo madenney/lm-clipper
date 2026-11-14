@@ -19,13 +19,15 @@ const actionStates = [
   },
   {
     id: 101,
-    name: 'Shine',
+    // States 341+ are per character; these ids are Fox/Falco's (and Jigglypuff's
+    // for Rest). The name says so; the filter does not check the character.
+    name: 'Shine (Fox/Falco)',
     shortName: 'Shine',
     actionStateID: shineStates,
   },
   {
     id: 102,
-    name: 'Rest',
+    name: 'Rest (Jigglypuff)',
     shortName: 'Rest',
     actionStateID: [369, 370, 371, 372],
   },

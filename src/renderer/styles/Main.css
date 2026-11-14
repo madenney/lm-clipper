@@ -1,15 +1,13 @@
-
-
 .main {
   color: white;
-  background-color: #181818	;
+  background-color: #181818;
   border: solid white 0px;
   position: absolute;
   top: 0;
   left: 0;
   width: 100%;
   height: 100%;
-  overflow: hidden; 
+  overflow: hidden;
   padding: 0px;
 }
 
@@ -100,7 +98,7 @@
 
 .mid {
   display: flex;
-  height: calc(100% - 100px - 56px);
+  height: calc(100% - 64px);
   width: 100%;
   overflow: hidden;
   position: relative;
@@ -121,7 +119,6 @@
   flex-shrink: 0; /* Prevent the divider from shrinking */
   z-index: 1;
 }
-
 
 .footer {
   border-top: 1px solid #333;
@@ -221,7 +218,7 @@
   cursor: pointer;
 }
 
-.footer-toggle input[type="checkbox"] {
+.footer-toggle input[type='checkbox'] {
   width: 15px;
   height: 15px;
   accent-color: #4a9d5b;
@@ -509,6 +506,12 @@
   border-radius: 5px;
   transition: background 100ms ease;
   min-width: 0;
+  /* A real button now (keyboard reachable), drawn like the old div. */
+  background: none;
+  border: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
 }
 
 .footer-output:hover {
@@ -546,7 +549,9 @@
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  transition: color 100ms ease, background 100ms ease;
+  transition:
+    color 100ms ease,
+    background 100ms ease;
 }
 
 .footer-output-dismiss:hover {
@@ -563,10 +568,18 @@
 }
 
 @keyframes dots {
-  0% { content: ''; }
-  25% { content: '.'; }
-  50% { content: '..'; }
-  75% { content: '...'; }
+  0% {
+    content: '';
+  }
+  25% {
+    content: '.';
+  }
+  50% {
+    content: '..';
+  }
+  75% {
+    content: '...';
+  }
 }
 
 .footer-gen-label {
@@ -590,7 +603,10 @@
   cursor: pointer;
   white-space: nowrap;
   flex-shrink: 0;
-  transition: color 100ms ease, border-color 100ms ease, background 100ms ease;
+  transition:
+    color 100ms ease,
+    border-color 100ms ease,
+    background 100ms ease;
 }
 
 .footer-setting-btn:hover {
@@ -612,7 +628,9 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  transition: color 100ms ease, border-color 100ms ease;
+  transition:
+    color 100ms ease,
+    border-color 100ms ease;
   position: relative;
 }
 
@@ -632,8 +650,8 @@
   top: -5px;
   right: -5px;
   font-size: 9px;
-  background: #444;
-  color: #ccc;
+  background: #6b5214;
+  color: #f0d080;
   border-radius: 8px;
   padding: 0 4px;
   min-width: 14px;
@@ -659,7 +677,7 @@
 
 .footer-console {
   position: absolute;
-  bottom: 56px;
+  bottom: 0;
   left: 0;
   right: 0;
   background: #141414;
@@ -684,7 +702,7 @@
 .footer-console-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 10px;
   padding: 6px 12px;
   border-bottom: 1px solid #2a2a2a;
   flex-shrink: 0;
@@ -702,6 +720,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
+  margin-left: auto;
 }
 
 .footer-console-clear {
@@ -712,7 +731,9 @@
   font-size: 11px;
   cursor: pointer;
   padding: 2px 8px;
-  transition: color 100ms ease, border-color 100ms ease;
+  transition:
+    color 100ms ease,
+    border-color 100ms ease;
 }
 
 .footer-console-clear:hover {
@@ -775,8 +796,7 @@
 /* Console Workers Zone */
 
 .console-workers {
-  padding: 4px 12px;
-  border-bottom: 1px solid #2a2a2a;
+  padding: 2px 0 0;
   font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
   font-size: 11px;
   flex-shrink: 0;
@@ -836,7 +856,7 @@
   flex-direction: column;
   align-items: center;
   gap: 28px;
-  max-width: 400px;
+  max-width: 540px;
   width: 100%;
   margin-bottom: 20vh;
 }
@@ -846,11 +866,6 @@
   font-weight: 600;
   color: #e0e0e0;
   letter-spacing: 0.04em;
-}
-
-/* Two-column Start screen (brand on top, Start/Recent | Getting started) */
-.empty-state-inner--wide {
-  max-width: 880px;
 }
 
 .empty-state-brand {
@@ -866,53 +881,137 @@
   object-fit: contain;
 }
 
-.empty-state-columns {
-  display: flex;
-  gap: 0;
-  align-items: flex-start;
-  justify-content: center;
-  width: 100%;
-}
-
-.empty-state-col {
+/* The one primary action (import) and its quiet alternative. */
+.empty-state-primary {
   display: flex;
   flex-direction: column;
-}
-
-.empty-state-col--start {
-  flex: 0 0 340px;
-  width: 340px;
-  gap: 18px;
-}
-
-.empty-state-col--gs {
-  flex: 0 1 440px;
-  padding-left: 44px;
-  border-left: 1px solid #242424;
-}
-
-.empty-state-section-title {
-  font-size: 12px;
-  font-weight: 500;
-  color: #888;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  margin-bottom: 10px;
-}
-
-.empty-state-gs-toggle {
-  display: flex;
   align-items: center;
-  gap: 8px;
-  margin-top: 16px;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.empty-state-lead {
+  font-size: 15px;
+  color: #bbb;
+}
+
+.empty-state-quiet {
   font-size: 12.5px;
+  color: #777;
+}
+
+.empty-state-or {
+  font-size: 12px;
+  color: #666;
+  margin-top: 4px;
+}
+
+/* The other ways in: Lunar Database, choose replays, empty project. */
+.empty-state-options {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+  justify-content: center;
+}
+
+.empty-state-option {
+  flex: 1 1 0;
+  max-width: 170px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 14px 10px 12px;
+  background: #212121;
+  border: 1px solid #353535;
+  border-radius: 8px;
+  color: #ddd;
+  font: inherit;
+  cursor: pointer;
+  transition: all 120ms ease;
+}
+
+.empty-state-option:hover {
+  background: #272b28;
+  border-color: #3a9956;
+}
+
+.empty-state-option-icon {
+  display: flex;
+  font-size: 18px;
+  color: #6fbf87;
+}
+
+.empty-state-option-label {
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.empty-state-option-hint {
+  font-size: 11.5px;
   color: #888;
+  line-height: 1.3;
+}
+
+.empty-state-link {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  font-size: 12.5px;
+  color: #999;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: #555;
+  text-underline-offset: 3px;
+}
+
+.empty-state-link:hover {
+  color: #ddd;
+}
+
+/* Settings on the start screen: a quiet gear, top right. */
+.empty-state-settings {
+  position: fixed;
+  top: 14px;
+  right: 18px;
+  z-index: 5;
+  display: flex;
+  padding: 6px;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  color: #8a8a8a;
+  font-size: 22px;
   cursor: pointer;
 }
 
-.empty-state-actions {
-  display: flex;
-  gap: 12px;
+.empty-state-settings:hover {
+  color: #e8e8e8;
+  background: #262626;
+}
+
+/* Opens the Slippi replay folder it found (next to "Found N replays"). */
+.empty-state-folder {
+  display: inline-flex;
+  vertical-align: -2px;
+  margin-left: 8px;
+  padding: 2px;
+  background: none;
+  border: none;
+  color: #e3b341;
+  font-size: 15px;
+  cursor: pointer;
+}
+
+.empty-state-folder:hover {
+  color: #f5cf6a;
+}
+
+.empty-state-link--corner {
+  position: fixed;
+  right: 20px;
+  bottom: 16px;
 }
 
 .empty-state-btn {
@@ -939,23 +1038,22 @@
   transform: translateY(1px);
 }
 
-.empty-state-btn--secondary {
-  background: linear-gradient(180deg, #333 0%, #252525 100%);
-  border: 1px solid #444;
-}
-
-.empty-state-btn--secondary:hover {
-  background: linear-gradient(180deg, #3a3a3a 0%, #2e2e2e 100%);
-  border-color: #555;
-}
-
-.empty-state-btn--secondary:active {
-  background: linear-gradient(180deg, #252525 0%, #1e1e1e 100%);
-}
-
 .empty-state-recent {
   width: 100%;
   margin-top: 8px;
+}
+
+.empty-state-recent-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 0 12px;
+  margin-bottom: 8px;
+}
+
+.empty-state-recent-actions {
+  display: flex;
+  gap: 14px;
 }
 
 .empty-state-recent-title {
@@ -964,7 +1062,6 @@
   color: #888;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  margin-bottom: 8px;
 }
 
 .empty-state-recent-list {
@@ -1022,8 +1119,12 @@
 }
 
 @keyframes videoDoneIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 .video-done-modal {
@@ -1038,8 +1139,14 @@
 }
 
 @keyframes videoDoneSlide {
-  from { opacity: 0; transform: translateY(-8px) scale(0.98); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 .video-done-header {
@@ -1118,7 +1225,9 @@
   color: #d0d0d0;
   font-size: 13px;
   cursor: pointer;
-  transition: background 120ms, border-color 120ms;
+  transition:
+    background 120ms,
+    border-color 120ms;
 }
 
 .video-done-btn:hover {
@@ -1153,4 +1262,433 @@
 
 .video-done-auto-open:hover {
   color: #aaa;
+}
+
+/* First screen, scaled up (user, 2026-10-04): everything a size bigger. */
+.empty-state-inner {
+  max-width: 760px;
+  gap: 36px;
+}
+
+.empty-state-logo {
+  width: 58px;
+  height: 58px;
+}
+
+.empty-state-brand {
+  gap: 14px;
+}
+
+.empty-state-title {
+  font-size: 40px;
+}
+
+.empty-state-primary {
+  gap: 16px;
+}
+
+.empty-state-lead {
+  font-size: 19px;
+}
+
+.empty-state-folder {
+  font-size: 19px;
+  margin-left: 10px;
+}
+
+.empty-state-btn {
+  font-size: 17px;
+  padding: 14px 36px;
+  border-radius: 8px;
+}
+
+.empty-state-or {
+  font-size: 14px;
+}
+
+.empty-state-options {
+  gap: 14px;
+}
+
+.empty-state-option {
+  max-width: 230px;
+  gap: 8px;
+  padding: 22px 16px 18px;
+  border-radius: 10px;
+}
+
+.empty-state-option-icon {
+  font-size: 26px;
+}
+
+.empty-state-option-label {
+  font-size: 17px;
+}
+
+.empty-state-option-hint {
+  font-size: 13.5px;
+}
+
+.empty-state-quiet {
+  font-size: 14.5px;
+}
+
+/* Just the moon, centred and higher up (user, 2026-10-04): no title text. */
+.empty-state-inner {
+  margin-bottom: 26vh;
+}
+
+.empty-state-logo {
+  width: 104px;
+  height: 104px;
+}
+
+.empty-state-brand {
+  justify-content: center;
+  margin-bottom: 18px;
+}
+
+.empty-state-logo-link {
+  display: block;
+  border-radius: 50%;
+  transition: transform 150ms ease, filter 150ms ease;
+}
+
+.empty-state-logo-link:hover {
+  transform: scale(1.04);
+  filter: brightness(1.15);
+}
+
+/* Other options as stacked rows (user, 2026-10-04): one bordered list,
+   icon · label · arrow, labels never wrap. Overrides the card styles above. */
+.empty-state-options {
+  flex-direction: column;
+  gap: 0;
+  width: 100%;
+  max-width: 440px;
+  border: 1px solid #353535;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #1e1e1e;
+}
+
+.empty-state-option {
+  flex-direction: row;
+  align-items: center;
+  gap: 14px;
+  max-width: none;
+  width: 100%;
+  padding: 15px 18px;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  text-align: left;
+}
+
+.empty-state-option + .empty-state-option {
+  border-top: 1px solid #2c2c2c;
+}
+
+.empty-state-option:hover {
+  background: #232a25;
+  border-color: #2c2c2c;
+}
+
+.empty-state-option-icon {
+  width: 22px;
+  justify-content: center;
+  font-size: 19px;
+}
+
+.empty-state-option-label {
+  flex: 1;
+  font-size: 16px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.empty-state-option-go {
+  color: #555;
+  font-size: 17px;
+  transition:
+    transform 120ms ease,
+    color 120ms ease;
+}
+
+.empty-state-option:hover .empty-state-option-go {
+  color: #6fbf87;
+  transform: translateX(3px);
+}
+
+/* ---- First screen as one card (user, 2026-10-04) ------------------------
+   The main way in is the highlighted top row with its own button; the other
+   ways in are rows below it. One sans-serif font throughout. */
+.empty-state {
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+
+.start-card {
+  width: 100%;
+  max-width: 520px;
+  border: 1px solid #333;
+  border-radius: 14px;
+  overflow: hidden;
+  background: #1c1c1c;
+  box-shadow: 0 12px 40px -18px rgba(0, 0, 0, 0.7);
+}
+
+.start-primary {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 22px 20px;
+  background: linear-gradient(180deg, #1f2a22 0%, #1b231d 100%);
+  border-bottom: 1px solid #2c3a30;
+}
+
+.start-primary-icon {
+  flex: none;
+  width: 46px;
+  height: 46px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 21px;
+  color: #6fbf87;
+  background: rgba(111, 191, 135, 0.14);
+}
+
+.start-primary-icon--slippi {
+  color: #e3b341;
+  background: rgba(227, 179, 65, 0.14);
+}
+
+.start-primary-text {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+}
+
+.start-primary-title {
+  font-size: 18px;
+  font-weight: 650;
+  color: #f0f0f0;
+}
+
+.start-primary-sub {
+  margin-top: 3px;
+  font-size: 13.5px;
+  color: #98a29b;
+  line-height: 1.4;
+}
+
+.start-primary-link {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: #b9c4bc;
+  text-decoration: underline;
+  text-decoration-color: #4b5a50;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.start-primary-link:hover {
+  color: #fff;
+}
+
+.start-primary-btn {
+  flex: none;
+  padding: 11px 24px;
+  border: 1px solid #3a9956;
+  border-radius: 8px;
+  background: linear-gradient(180deg, #2d7d46 0%, #1f5c32 100%);
+  color: #fff;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 650;
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+  transition: background 120ms ease;
+}
+
+.start-primary-btn:hover {
+  background: linear-gradient(180deg, #349950 0%, #267a3d 100%);
+}
+
+/* The rows below sit inside the card: no box of their own. */
+.start-card .empty-state-options {
+  max-width: none;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+}
+
+.start-card .empty-state-option {
+  padding: 15px 20px;
+  font-family: inherit;
+}
+
+.start-card .empty-state-option-icon {
+  width: 46px;
+  font-size: 17px;
+}
+
+.start-card .empty-state-option-label {
+  font-size: 15px;
+  font-weight: 550;
+  color: #d8d8d8;
+}
+
+.empty-state-quiet {
+  margin-top: 6px;
+}
+
+/* Performance setting past what this computer runs well (lib/performanceWarnings). */
+.footer-setting-warning {
+  color: #e0a63a;
+  font-size: 14px;
+  line-height: 1;
+  cursor: help;
+}
+
+/* A recording that stopped on its own, or a Dolphin error, kept until dismissed. */
+.footer-notice-text {
+  max-width: 460px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Console toolbar */
+
+.console-levels {
+  display: flex;
+  border: 1px solid #333;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.console-level {
+  background: none;
+  border: none;
+  border-right: 1px solid #333;
+  color: #888;
+  font-size: 11px;
+  padding: 2px 8px;
+  cursor: pointer;
+}
+
+.console-level:last-child {
+  border-right: none;
+}
+
+.console-level:hover {
+  color: #ccc;
+}
+
+.console-level.is-on {
+  background: #26302a;
+  color: #9fdc9f;
+}
+
+.console-search {
+  width: 140px;
+  background: #1c1c1c;
+  border: 1px solid #333;
+  border-radius: 4px;
+  color: #ccc;
+  font-size: 11px;
+  padding: 2px 8px;
+}
+
+.console-search:focus {
+  outline: none;
+  border-color: #4a9d5b;
+}
+
+.footer-console-clear:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* Running operations (more than one can run at once) */
+
+.console-ops {
+  flex-shrink: 0;
+  max-height: 45%;
+  overflow-y: auto;
+  border-bottom: 1px solid #2a2a2a;
+}
+
+.console-op {
+  padding: 5px 12px;
+}
+
+.console-op + .console-op {
+  border-top: 1px solid #222;
+}
+
+.console-op-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 12px;
+}
+
+.console-op-label {
+  color: #d0d0d0;
+  font-weight: 600;
+}
+
+.console-op-time {
+  margin-left: auto;
+  color: #666;
+  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+  font-size: 11px;
+}
+
+.console-op-bar {
+  height: 3px;
+  margin: 4px 0;
+  background: #262626;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.console-op-bar-fill {
+  height: 100%;
+  background: #4a9d5b;
+  transition: width 300ms ease;
+}
+
+.console-jump {
+  position: absolute;
+  right: 20px;
+  bottom: 12px;
+  background: #26302a;
+  border: 1px solid #3c5a43;
+  border-radius: 12px;
+  color: #9fdc9f;
+  font-size: 11px;
+  padding: 3px 10px;
+  cursor: pointer;
+}
+
+.console-jump:hover {
+  background: #2e3b32;
+}
+
+/* The console draws its last 400 lines; older ones come on request. */
+.console-jump.console-earlier {
+  position: static;
+  display: block;
+  margin: 4px auto 6px;
+}
+
+/* The start screen while the Slippi folder is still being searched. */
+.start-primary--checking {
+  opacity: 0.85;
 }

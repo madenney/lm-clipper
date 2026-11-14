@@ -4,7 +4,7 @@ import {
   EventEmitterInterface,
   CustomParams,
 } from 'constants/types'
-import { SlippiGame } from '@slippi/slippi-js'
+import { SlippiGame } from '../../lib/slippiGame'
 
 export interface CustomResult {
   clips: ClipInterface[]
@@ -82,7 +82,8 @@ export default (
   }
 
   // Global input size (full row count of the filter's input), threaded in by
-  // Worker.ts. The worker hands custom code only a 1000-row CHUNK at a time, so
+  // Worker.ts. The worker hands custom code a small batch at a time (25 rows,
+  // or one game when the input is whole games), so
   // `clips.length` is NOT the dataset size — `total` is, letting global ops like
   // random sampling stay correct (e.g. keep each item with probability
   // count/total). Falls back to the chunk size if unset.
@@ -111,7 +112,13 @@ export default (
       console: fakeConsole,
     }
     vm.createContext(sandbox)
-    const result = script.runInNewContext(sandbox, { timeout: 300000 })
+    // A real run may take a while; the editor's test run passes a shorter limit.
+    const timeout =
+      typeof (params as any).__timeoutMs === 'number' &&
+      (params as any).__timeoutMs > 0
+        ? (params as any).__timeoutMs
+        : 300000
+    const result = script.runInNewContext(sandbox, { timeout })
     if (!Array.isArray(result)) {
       throw new Error(`Custom code must return an array, got ${typeof result}`)
     }

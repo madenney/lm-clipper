@@ -110,7 +110,7 @@ Request-response with requestId tracking. Renderer calls `ipcBridge.someMethod(c
 - `.erb/configs/` - Webpack configs (main, renderer, preload)
 - `src/constants/` - Types, character/stage data, filter configs
 - `src/lib/` - Shared utilities (file streaming, etc.)
-- `release/app/` - Packaged app deps, bundled binaries (sqlite3, ffmpeg)
+- `release/app/` - Packaged app deps (locked in its package-lock.json); the bundled ffmpeg and slpz are fetched/built here by `npm run fetch:ffmpeg` / `npm run build:slpz` (docs/packaging.md)
 
 ## External Dependencies
 

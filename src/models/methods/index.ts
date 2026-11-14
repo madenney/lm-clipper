@@ -40,6 +40,8 @@ const methods: Record<string, FilterMethod> = {
   trim,
   koDirection,
   custom,
+  // AI Filter: code from the user's own ChatGPT / Claude, run like Custom Code.
+  aiFilter: custom,
   edgeguard,
   edgeguardFilter,
   highlight,

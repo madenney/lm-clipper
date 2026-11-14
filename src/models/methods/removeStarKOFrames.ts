@@ -1,7 +1,7 @@
 /* eslint-disable eqeqeq */
 /* eslint-disable no-plusplus */
 /* eslint-disable no-underscore-dangle */
-import { SlippiGame } from '@slippi/slippi-js'
+import { SlippiGame } from '../../lib/slippiGame'
 import {
   ClipInterface,
   EventEmitterInterface,
@@ -26,10 +26,9 @@ export default (
 
     if (!comboee) return clip
 
-    const game = new SlippiGame(path)
     let frames
     try {
-      frames = game.getFrames()
+      frames = new SlippiGame(path).getFrames()
     } catch (e) {
       console.warn('Broken file:', path)
       return clip

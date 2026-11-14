@@ -189,3 +189,34 @@ describe('validInputsFor', () => {
     expect(inputs).not.toContain('c') // later
   })
 })
+
+describe('locked steps (never reset by a run above them)', () => {
+  // Game Filter, then two steps reading straight from the replay pool, one of
+  // them locked, and a user step under the locked one.
+  const filters = [
+    { id: 'game' },
+    { id: 'combos', inputId: 'files', locked: true },
+    { id: 'under', inputId: 'combos' },
+    { id: 'other', inputId: 'files' },
+  ]
+
+  it('stops at a locked step: neither it nor what reads from it is reset', () => {
+    // Linear (branching off): a straight chain game → combos (locked) → under →
+    // other, so the chain stops at the locked step and nothing below it resets.
+    expect([...getDescendantIds(filters, 'game', false)]).toEqual([])
+    // Without the lock the whole chain would reset.
+    const unlocked = filters.map((f) => ({ ...f, locked: false }))
+    expect([...getDescendantIds(unlocked, 'game', false)].sort()).toEqual([
+      'combos',
+      'other',
+      'under',
+    ])
+    // Branching on: the branches read from the pool, so the Game Filter resets nothing.
+    expect([...getDescendantIds(filters, 'game', true)]).toEqual([])
+  })
+
+  it("still resets what's under a locked step when that step's own child runs", () => {
+    expect([...getDescendantIds(filters, 'under', true)]).toEqual([])
+    expect([...getDescendantIds(filters, 'combos', true)]).toEqual(['under'])
+  })
+})

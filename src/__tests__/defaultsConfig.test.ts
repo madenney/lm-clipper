@@ -76,7 +76,7 @@ describe('default config — sane default values', () => {
   })
 
   it('slpzMode is one of the allowed modes', () => {
-    expect(['ask', 'extract', 'replace']).toContain(config.slpzMode)
+    expect(['ask', 'extract', 'replace', 'keep']).toContain(config.slpzMode)
   })
 
   it('ships built-in custom filters (a non-empty array)', () => {

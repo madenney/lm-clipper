@@ -1,138 +1,214 @@
 name: Release
 
+# A tag builds the installers and puts them on a DRAFT release. Nothing reaches installed
+# apps (the updater and the website's download link read published releases only) until a
+# person has tried the installers and clicks Publish. Steps: RELEASING.md.
 on:
   push:
     tags:
       - 'v*'
 
+# Read-only by default; only the last job may write (it creates the draft).
 permissions:
-  contents: write
+  contents: read
 
+# Third-party actions are pinned to a commit; runners are pinned to an image so a build does
+# not change under us. Node 22 is what Electron 35 runs and what the .slpz codec needs.
 jobs:
-  build:
-    strategy:
-      matrix:
-        include:
-          - os: ubuntu-latest
-            platform: linux
-          - os: windows-latest
-            platform: win
-
-    runs-on: ${{ matrix.os }}
-
+  # The tag, both package.json files, the lockfiles and the changelog must agree.
+  verify:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    outputs:
+      prerelease: ${{ steps.kind.outputs.prerelease }}
+      channel: ${{ steps.kind.outputs.channel }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: 20
-          cache: npm
+          node-version: 22
 
-      - name: Determine update channel
-        id: channel
-        shell: bash
+      - name: Tag, versions, lockfiles and changelog agree
+        run: node .erb/scripts/check-release-metadata.js "$GITHUB_REF_NAME"
+
+      # Any "-" in the tag is a prerelease (v3.0.0-beta.1, v3.0.0-rc.1); its channel is the
+      # first part of the suffix. The app reads "beta" and "latest" (RELEASING.md).
+      - name: Release kind
+        id: kind
         run: |
-          if [[ "${{ github.ref_name }}" == *-beta* ]]; then
-            echo "channel=beta" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          tag="$GITHUB_REF_NAME"
+          if [[ "$tag" == *-* ]]; then
+            suffix="${tag#*-}"
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+            echo "channel=${suffix%%.*}" >> "$GITHUB_OUTPUT"
           else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
             echo "channel=latest" >> "$GITHUB_OUTPUT"
           fi
+
+  # The same gates as CI, so a tag on a red commit builds nothing.
+  test:
+    needs: verify
+    runs-on: ubuntu-22.04
+    timeout-minutes: 40
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
 
       - name: Install dependencies
         run: npm ci
 
-      # Both ffmpeg hosts are third-party and rate-limit cloud runner IPs, and
-      # they answer a throttled request with a small HTML page rather than an
-      # HTTP error — so a bare download "succeeds" and the extract step blows
-      # up on garbage (this sank the v2.0.0-beta.6 build). Retry with backoff,
-      # and validate the archive's magic bytes before trusting it.
-      - name: Download ffmpeg (Linux)
-        if: matrix.platform == 'linux'
-        run: |
-          set -euo pipefail
-          mkdir -p release/app/ffmpeg
-          url=https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz
-          ok=
-          for attempt in 1 2 3 4 5; do
-            rm -f /tmp/ffmpeg.tar.xz
-            if curl -fL --connect-timeout 20 --max-time 600 -o /tmp/ffmpeg.tar.xz "$url" \
-               && [ -s /tmp/ffmpeg.tar.xz ] \
-               && file -b /tmp/ffmpeg.tar.xz | grep -qi 'XZ compressed'; then
-              ok=1
-              break
-            fi
-            size=$(wc -c < /tmp/ffmpeg.tar.xz 2>/dev/null || echo 0)
-            echo "ffmpeg download attempt $attempt failed (got $size bytes)"
-            sleep $((attempt * 15))
-          done
-          if [ -z "$ok" ]; then
-            echo "::error::ffmpeg download failed after 5 attempts: $url"
-            exit 1
-          fi
-          tar -xf /tmp/ffmpeg.tar.xz -C /tmp
-          cp /tmp/ffmpeg-*-amd64-static/ffmpeg release/app/ffmpeg/ffmpeg-linux-x64
-          chmod +x release/app/ffmpeg/ffmpeg-linux-x64
+      - name: Lint
+        run: npm run lint
 
-      - name: Download ffmpeg (Windows)
-        if: matrix.platform == 'win'
-        shell: pwsh
+      - name: Typecheck (ratchet)
+        run: npm run typecheck:ratchet
+
+      - name: Build slpz (for the tests that use it)
+        run: node .erb/scripts/build-slpz.js linux x64
+
+      - name: Test
+        run: npm test
+        env:
+          CI: true
+
+      - name: Audit (production deps)
+        run: npm audit --omit=dev --audit-level=high
+
+  build:
+    needs: [verify, test]
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            platform: linux
+            arch: x64
+          - os: windows-2022
+            platform: win
+            arch: x64
+          # macOS is off until there is an Apple Developer account (RELEASING.md):
+          # an unsigned Mac app can't auto-update and has never been built on the
+          # runners, and one failing leg would hold back the whole release. To turn
+          # it back on, add one native leg per CPU (not universal), so native
+          # modules (better-sqlite3, @napi-rs/canvas) and the helper binaries match:
+          #   - { os: macos-15, platform: mac, arch: arm64 }
+          #   - { os: macos-15-intel, platform: mac, arch: x64 }
+
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+
+      # release/app/package-lock.json is committed: the native modules and the updater that
+      # ship are the locked, tested versions, and install-app-deps (run by this) leaves
+      # the lock untouched. A change would mean the lock is out of date.
+      - name: Install dependencies
+        run: npm ci
+
+      - name: release/app lockfile is in sync
+        shell: bash
+        run: git diff --exit-code -- release/app/package-lock.json release/app/package.json
+
+      # ffmpeg: a versioned file with a pinned sha256 (.erb/ffmpeg-pins.json); a download
+      # that does not match fails the build. The hosts rate-limit cloud runners, so the
+      # script retries with backoff. Optional repository variable FFMPEG_MIRROR_BASE: a
+      # URL prefix holding copies of the same files.
+      - name: Fetch ffmpeg (pinned)
+        shell: bash
+        env:
+          FFMPEG_MIRROR_BASE: ${{ vars.FFMPEG_MIRROR_BASE }}
+        run: node .erb/scripts/fetch-ffmpeg.js ${{ matrix.platform }} ${{ matrix.arch }}
+
+      # slpz is built from crates.io (version and --locked in .erb/scripts/build-slpz.js)
+      # on the runner itself, the same on every platform.
+      - name: Build slpz
+        shell: bash
+        env:
+          MACOSX_DEPLOYMENT_TARGET: '12.0'
         run: |
-          $ErrorActionPreference = 'Stop'
-          New-Item -ItemType Directory -Force -Path release/app/ffmpeg | Out-Null
-          $url = 'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip'
-          $zip = "$env:TEMP\ffmpeg.zip"
-          $ok = $false
-          foreach ($attempt in 1..5) {
-            Remove-Item $zip -Force -ErrorAction SilentlyContinue
-            try {
-              Invoke-WebRequest -Uri $url -OutFile $zip -TimeoutSec 600 -UseBasicParsing
-              # "PK" magic marks a real zip; a throttling page will not have it.
-              $head = New-Object byte[] 2
-              $fs = [System.IO.File]::OpenRead($zip)
-              try { $null = $fs.Read($head, 0, 2) } finally { $fs.Close() }
-              if ($head[0] -eq 0x50 -and $head[1] -eq 0x4B) { $ok = $true; break }
-              Write-Host "attempt ${attempt}: not a zip ($((Get-Item $zip).Length) bytes)"
-            } catch {
-              Write-Host "attempt ${attempt}: $_"
-            }
-            Start-Sleep -Seconds ($attempt * 15)
-          }
-          if (-not $ok) {
-            Write-Host "::error::ffmpeg download failed after 5 attempts: $url"
-            exit 1
-          }
-          Expand-Archive -Path $zip -DestinationPath "$env:TEMP\ffmpeg" -Force
-          $ffmpegExe = Get-ChildItem -Path "$env:TEMP\ffmpeg" -Recurse -Filter "ffmpeg.exe" | Select-Object -First 1
-          Copy-Item $ffmpegExe.FullName -Destination "release/app/ffmpeg/ffmpeg-win32-x64.exe"
+          cargo --version
+          node .erb/scripts/build-slpz.js ${{ matrix.platform }} ${{ matrix.arch }}
 
       # Fail fast if any binary bundled via electron-builder extraResources is
-      # missing or empty (e.g. an ffmpeg download silently failed), instead of
-      # shipping an installer with no ffmpeg. Also log the ffmpeg sha256 so a
-      # supply-chain change in the rolling upstream URLs is visible in the logs.
+      # missing, empty or built for the wrong OS/CPU (e.g. an ffmpeg download
+      # silently failed), instead of shipping an installer with no ffmpeg.
+      # The same check runs again as electron-builder's beforePack hook. Then
+      # run ffmpeg: it must decode what Dolphin dumps (UT Video, FFV1, MPEG-4)
+      # and encode H.264/AAC. Also log sha256 so what shipped is on record.
       - name: Verify bundled binaries
         shell: bash
         run: |
           set -euo pipefail
-          if [ "${{ matrix.platform }}" = "win" ]; then
-            ffmpeg=release/app/ffmpeg/ffmpeg-win32-x64.exe
-            slpz=release/app/slpz/slpz-win32-x64.exe
-          else
-            ffmpeg=release/app/ffmpeg/ffmpeg-linux-x64
-            slpz=release/app/slpz/slpz-linux-x64
-          fi
-          for f in "$ffmpeg" "$slpz"; do
-            if [ ! -s "$f" ]; then
-              echo "::error::Required bundled binary missing or empty: $f"
+          node .erb/scripts/check-bundled-binaries.js ${{ matrix.platform }} ${{ matrix.arch }}
+          case "${{ matrix.platform }}" in
+            win)   ffmpeg=release/app/ffmpeg/ffmpeg-win32-x64.exe; slpz=release/app/slpz/slpz-win32-x64.exe ;;
+            linux) ffmpeg=release/app/ffmpeg/ffmpeg-linux-x64;     slpz=release/app/slpz/slpz-linux-x64 ;;
+            mac)   ffmpeg=release/app/ffmpeg/ffmpeg-darwin-${{ matrix.arch }}; slpz=release/app/slpz/slpz-darwin-${{ matrix.arch }} ;;
+          esac
+          "$ffmpeg" -hide_banner -version | head -n 1
+          decoders=$("$ffmpeg" -hide_banner -decoders)
+          encoders=$("$ffmpeg" -hide_banner -encoders)
+          for c in utvideo ffv1 mpeg4; do
+            echo "$decoders" | grep -qE "^ [A-Z.]{6} $c " || { echo "::error::$ffmpeg has no $c decoder"; exit 1; }
+          done
+          for c in libx264 aac; do
+            echo "$encoders" | grep -qE "^ [A-Z.]{6} $c " || { echo "::error::$ffmpeg has no $c encoder"; exit 1; }
+          done
+          if [ "${{ matrix.platform }}" = "mac" ]; then
+            # Must not depend on Homebrew/MacPorts libraries users won't have.
+            if otool -L "$ffmpeg" "$slpz" | grep -E '/(usr/local|opt/homebrew|opt/local)/'; then
+              echo "::error::bundled binary links a non-system library"
               exit 1
             fi
-          done
+            lipo -archs "$ffmpeg"; lipo -archs "$slpz"
+          fi
+          if [ "${{ matrix.platform }}" = "linux" ]; then
+            # The oldest glibc this build still runs on: Ubuntu 22.04 / Debian 12 and newer.
+            need=$(objdump -T "$slpz" "$ffmpeg" 2>/dev/null | grep -o 'GLIBC_[0-9.]*' | sed 's/GLIBC_//' | sort -V | tail -n 1)
+            echo "glibc needed by the helpers: ${need:-none}"
+            if [ -n "$need" ] && [ "$(printf '%s\n' "$need" 2.35 | sort -V | tail -n 1)" != "2.35" ]; then
+              echo "::error::a helper binary needs glibc $need (this release supports 2.35 and newer)"
+              exit 1
+            fi
+          fi
           echo "ffmpeg sha256: $(sha256sum "$ffmpeg" 2>/dev/null || shasum -a 256 "$ffmpeg")"
+          echo "slpz sha256: $(sha256sum "$slpz" 2>/dev/null || shasum -a 256 "$slpz")"
+          # slpz must actually run here and give back the same replay, with the
+          # arguments Clipper's import uses (-d -q -o <out> <in>).
+          "$slpz" -x -q -o "$RUNNER_TEMP/check.slpz" assets/test.slp
+          "$slpz" -d -q -o "$RUNNER_TEMP/check.slp" "$RUNNER_TEMP/check.slpz"
+          cmp assets/test.slp "$RUNNER_TEMP/check.slp" || { echo "::error::$slpz did not round-trip a replay"; exit 1; }
 
       - name: Build
         run: npm run build
 
+      # Windows signing is optional until a certificate exists. With the secrets and variable
+      # below set, electron-builder signs the installer and the app exe, and the update
+      # check then verifies the publisher: publisherName must match the certificate exactly.
+      #   secrets.WIN_CSC_LINK (base64 .pfx or a file URL), secrets.WIN_CSC_KEY_PASSWORD,
+      #   vars.WIN_PUBLISHER_NAME (the certificate's subject name).
+      # Never set WIN_PUBLISHER_NAME without signing: the updater would then refuse every
+      # unsigned update. The helper exes (ffmpeg, slpz, the hidden launcher) are signed
+      # by the same certificate once it exists: see docs/packaging.md.
       - name: Package
         # Force bash on all platforms: PowerShell mis-tokenizes the dotted
         # `-c.publish.channel=...` arg into `-c` + a bogus file path, which
@@ -140,66 +216,140 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npx electron-builder --publish never --${{ matrix.platform }} -c.publish.channel=${{ steps.channel.outputs.channel }}
+          WIN_PUBLISHER_NAME: ${{ vars.WIN_PUBLISHER_NAME }}
+          # Signing: optional, per platform. Without them the build is unsigned.
+          CSC_LINK: ${{ (matrix.platform == 'mac' && secrets.MAC_CSC_LINK) || (matrix.platform == 'win' && secrets.WIN_CSC_LINK) || '' }}
+          CSC_KEY_PASSWORD: ${{ (matrix.platform == 'mac' && secrets.MAC_CSC_KEY_PASSWORD) || (matrix.platform == 'win' && secrets.WIN_CSC_KEY_PASSWORD) || '' }}
+          APPLE_ID: ${{ matrix.platform == 'mac' && secrets.APPLE_ID || '' }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ matrix.platform == 'mac' && secrets.APPLE_APP_SPECIFIC_PASSWORD || '' }}
+          APPLE_TEAM_ID: ${{ matrix.platform == 'mac' && secrets.APPLE_TEAM_ID || '' }}
+        run: |
+          set -euo pipefail
+          for v in CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do
+            [ -n "${!v:-}" ] || unset "$v"
+          done
+          extra=()
+          if [ "${{ matrix.platform }}" = "mac" ] && [ -z "${CSC_LINK:-}" ]; then
+            echo "No MAC_CSC_LINK secret: building an unsigned macOS app."
+            export CSC_IDENTITY_AUTO_DISCOVERY=false
+          fi
+          if [ "${{ matrix.platform }}" = "win" ]; then
+            if [ -n "${CSC_LINK:-}" ]; then
+              [ -n "${WIN_PUBLISHER_NAME:-}" ] || { echo "::error::WIN_CSC_LINK is set but the repository variable WIN_PUBLISHER_NAME is not"; exit 1; }
+              extra+=("-c.win.signtoolOptions.publisherName=${WIN_PUBLISHER_NAME}")
+            else
+              echo "::warning::No WIN_CSC_LINK secret: the Windows installer is UNSIGNED (SmartScreen will warn; updates are checked by the sha512 in latest.yml only)."
+              export CSC_IDENTITY_AUTO_DISCOVERY=false
+            fi
+          fi
+          npx electron-builder --publish never --${{ matrix.platform }} --${{ matrix.arch }} -c.publish.channel=${{ needs.verify.outputs.channel }} "${extra[@]}"
 
-      - name: Generate checksums (Linux)
-        if: matrix.platform == 'linux'
+      - name: Mac update files per architecture
+        if: matrix.platform == 'mac'
         run: |
           cd release/build
-          sha256sum *.AppImage > SHA256SUMS-linux.txt || true
-          sha256sum *.deb >> SHA256SUMS-linux.txt || true
-
-      - name: Generate checksums (Windows)
-        if: matrix.platform == 'win'
-        shell: pwsh
-        run: |
-          cd release/build
-          Get-ChildItem -Filter *.exe | ForEach-Object {
-            $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash
-            "$hash  $($_.Name)" | Out-File -Append SHA256SUMS-win.txt -Encoding ascii
-          }
+          # Each arch's job writes its own latest-mac.yml; keep them apart so
+          # they can be merged (.erb/scripts/merge-mac-update-yml.js).
+          for f in *-mac.yml; do
+            if [ -e "$f" ]; then mv "$f" "${f%.yml}-${{ matrix.arch }}.yml"; fi
+          done
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: release-${{ matrix.platform }}
+          name: release-${{ matrix.platform }}-${{ matrix.arch }}
+          if-no-files-found: error
           path: |
             release/build/*.AppImage
             release/build/*.deb
             release/build/*.exe
+            release/build/*.dmg
+            release/build/*.zip
             release/build/*.yml
+            !release/build/builder-debug.yml
             release/build/*.blockmap
-            release/build/SHA256SUMS-*.txt
 
+  # Creates the DRAFT release: the only job with write access.
   release:
-    needs: build
-    runs-on: ubuntu-latest
+    needs: [verify, build]
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
     steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           path: artifacts
           merge-multiple: true
 
-      - name: Determine prerelease
-        id: pre
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+
+      # The arm64 and x64 mac jobs each wrote latest-mac-<arch>.yml; merge them
+      # into the one latest-mac.yml electron-updater reads.
+      - name: Merge macOS update files
+        run: node .erb/scripts/merge-mac-update-yml.js artifacts
+
+      # electron-builder writes only the file of the channel it built (latest*.yml for a
+      # stable release). Beta users read beta*.yml and otherwise rely on electron-updater
+      # falling back to latest.yml, so a stable release also carries copies under the beta
+      # names: a beta user moves forward to it without depending on that fallback.
+      - name: Beta channel copies of a stable release's update files
+        if: needs.verify.outputs.prerelease == 'false'
         run: |
-          if [[ "${{ github.ref_name }}" == *-beta* ]]; then
-            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          cd artifacts
+          shopt -s nullglob
+          for f in latest.yml latest-linux.yml latest-mac.yml; do
+            [ -f "$f" ] && cp "$f" "${f/latest/beta}"
+          done
+          ls -1 *.yml
+
+      # One list of every installer's SHA-256, published with the release (the installers
+      # are unsigned until a certificate exists: this is how a download is checked).
+      - name: Checksums
+        run: |
+          set -euo pipefail
+          cd artifacts
+          shopt -s nullglob
+          files=(*.exe *.AppImage *.deb *.dmg *.zip)
+          [ "${#files[@]}" -gt 0 ] || { echo "::error::no installers to checksum"; exit 1; }
+          sha256sum "${files[@]}" > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      # Release notes: docs/release-notes/<tag>.md when it exists (start from TEMPLATE.md),
+      # otherwise GitHub's generated notes. Written before publishing either way.
+      - name: Release notes
+        id: notes
+        run: |
+          if [ -f "docs/release-notes/${GITHUB_REF_NAME}.md" ]; then
+            echo "path=docs/release-notes/${GITHUB_REF_NAME}.md" >> "$GITHUB_OUTPUT"
+            echo "generate=false" >> "$GITHUB_OUTPUT"
           else
-            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::No docs/release-notes/${GITHUB_REF_NAME}.md: the draft has generated notes. Write the real ones before publishing."
+            echo "path=" >> "$GITHUB_OUTPUT"
+            echo "generate=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+      - name: Create draft GitHub Release
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
-          draft: false
-          prerelease: ${{ steps.pre.outputs.prerelease }}
-          generate_release_notes: true
+          draft: true
+          prerelease: ${{ needs.verify.outputs.prerelease }}
+          body_path: ${{ steps.notes.outputs.path }}
+          generate_release_notes: ${{ steps.notes.outputs.generate }}
           files: |
-            artifacts/**/*.AppImage
-            artifacts/**/*.deb
-            artifacts/**/*.exe
-            artifacts/**/*.yml
-            artifacts/**/*.blockmap
-            artifacts/**/SHA256SUMS-*.txt
+            artifacts/*.AppImage
+            artifacts/*.deb
+            artifacts/*.exe
+            artifacts/*.dmg
+            artifacts/*.zip
+            artifacts/*.yml
+            artifacts/*.blockmap
+            artifacts/SHA256SUMS.txt

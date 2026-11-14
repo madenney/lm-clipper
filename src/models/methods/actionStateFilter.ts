@@ -1,7 +1,7 @@
 /* eslint-disable eqeqeq */
 /* eslint-disable no-plusplus */
 /* eslint-disable no-underscore-dangle */
-import { SlippiGame } from '@slippi/slippi-js'
+import { SlippiGame } from '../../lib/slippiGame'
 import { actionStates } from '../../constants/actionStates'
 import { GAME_START_FRAME } from '../../constants/frames'
 import {
@@ -9,6 +9,7 @@ import {
   EventEmitterInterface,
   ActionStateFilterParams,
 } from '../../constants/types'
+import { maxOf } from '../../lib/filterHelpers'
 
 const resolveStates = (
   ids: (string | number)[] | undefined,
@@ -60,12 +61,18 @@ export default (
       comboeeMinY = '',
       comboeeMaxY = '',
     } = params
-    const game = new SlippiGame(path)
     let frames
     let lastFrame
     try {
+      const game = new SlippiGame(path)
       frames = game.getFrames()
       lastFrame = game.getMetadata()?.lastFrame ?? 0
+      // Ranked and anonymised replays carry no metadata: the loops below are
+      // bounded by lastFrame, so with 0 they never ran (nothing found, and every
+      // game kept with Exclude). Use the last frame actually present instead
+      // (launch review FLT-5).
+      if (!lastFrame || lastFrame <= 0)
+        lastFrame = maxOf(Object.keys(frames).map(Number))
     } catch (e) {
       return false
     }

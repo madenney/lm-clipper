@@ -1,0 +1,224 @@
+/* Same behaviour as the website's database search; colours come from these
+   variables (website defaults), restyled to match the Lunar Database panel. */
+.search-box {
+  position: relative;
+  --sb-bg: #141414;
+  --sb-border: #444;
+  --sb-focus: #888;
+  --sb-radius: 4px;
+  --sb-text: #fff;
+  --sb-drop-bg: #1a1a1a;
+  --sb-hover: #2a2a2a;
+  --sb-group: #777;
+  --sb-code: #ccc;
+  --sb-muted: #888;
+  --sb-count: #555;
+}
+
+.database-panel .search-box {
+  --sb-bg: #101613;
+  --sb-border: #3c4b41;
+  --sb-focus: #79b08b;
+  --sb-radius: 5px;
+  --sb-text: #e3ece6;
+  --sb-drop-bg: #171b1d;
+  --sb-hover: #233029;
+  --sb-group: #8da596;
+  --sb-code: #e3ece6;
+  --sb-muted: #9fb1a6;
+  --sb-count: #7f9488;
+}
+
+.search-box-control {
+  background: var(--sb-bg);
+  border: 1px solid var(--sb-border);
+  border-radius: var(--sb-radius);
+  color: var(--sb-text);
+  padding: 0 8px;
+  height: 38px;
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 5px;
+  cursor: text;
+  box-sizing: border-box;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.search-box-control:focus-within {
+  border-color: var(--sb-focus);
+}
+
+.search-chip {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(91, 168, 240, 0.14);
+  border: 1px solid rgba(91, 168, 240, 0.35);
+  border-radius: 6px;
+  padding: 2px 4px 2px 8px;
+  font-size: 13.5px;
+  font-weight: 500;
+  color: #cfe4fb;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.search-chip--tournament {
+  background: rgba(240, 184, 91, 0.13);
+  border-color: rgba(240, 184, 91, 0.38);
+  color: #f6dfb6;
+}
+
+.search-box .search-box-control button.search-chip-x {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: none;
+  border: none;
+  color: #8fbdf0;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0;
+}
+
+.search-box .search-box-control button.search-chip-x:hover {
+  background: rgba(91, 168, 240, 0.28);
+  color: #fff;
+}
+
+.search-box .search-box-control input.search-box-input {
+  background: none;
+  border: none;
+  color: var(--sb-text);
+  font-size: 15px;
+  outline: none;
+  padding: 2px 4px;
+  flex: 1;
+  min-width: 60px;
+  height: auto;
+  width: auto;
+  border-radius: 0;
+}
+
+.search-box-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  min-width: 340px;
+  z-index: 50;
+  background: var(--sb-drop-bg);
+  border: 1px solid var(--sb-border);
+  border-top: none;
+  border-radius: 0 0 var(--sb-radius) var(--sb-radius);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 380px;
+  overflow-y: auto;
+}
+
+.search-box-group {
+  padding: 6px 10px 3px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--sb-group);
+  cursor: default;
+}
+
+.search-box-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.search-box-item:hover,
+.search-box-item.active {
+  background: var(--sb-hover);
+}
+
+.search-box-code {
+  color: var(--sb-code);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.search-box-name {
+  color: var(--sb-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.search-box-count {
+  color: var(--sb-count);
+  font-size: 12px;
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+.search-box .search-box-dropdown button.search-box-link {
+  font: inherit;
+  font-size: 11.5px;
+  color: #64b5f6;
+  background: none;
+  border: 1px solid rgba(100, 181, 246, 0.35);
+  border-radius: 999px;
+  padding: 0 8px;
+  margin-left: 8px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.search-box .search-box-dropdown button.search-box-link:hover {
+  background: rgba(100, 181, 246, 0.12);
+}
+
+.search-box-none {
+  padding: 9px 10px;
+  color: #666;
+  font-size: 13px;
+  font-style: italic;
+}
+
+/* The player's name next to the code on a chip. */
+.search-chip-name {
+  opacity: 0.7;
+  font-weight: 400;
+}
+
+/* In the Lunar Database panel: its green accent for players and links;
+   tournaments stay gold so the two kinds of chip read apart. */
+.database-panel .search-chip {
+  background: rgba(150, 213, 167, 0.13);
+  border-color: rgba(150, 213, 167, 0.4);
+  color: #d6f0de;
+}
+
+.database-panel .search-chip--tournament {
+  background: rgba(240, 184, 91, 0.13);
+  border-color: rgba(240, 184, 91, 0.38);
+  color: #f6dfb6;
+}
+
+.database-panel .search-box .search-box-control button.search-chip-x {
+  color: #9bd8aa;
+}
+
+.database-panel .search-box .search-box-dropdown button.search-box-link {
+  color: #9bd8aa;
+  border-color: rgba(155, 216, 170, 0.4);
+}

@@ -1,0 +1,14 @@
+/* One plain sentence about what the tray shows (TrayNote.tsx): no box, centred under the filters. */
+.tray-note {
+  direction: ltr;
+  margin: 22px 14px 0;
+  text-align: center;
+  font-size: 16px;
+  line-height: 1.5;
+  color: #9aa0aa;
+}
+
+.tray-note b {
+  font-weight: 600;
+  color: #d5d9df;
+}

@@ -1,0 +1,41 @@
+{
+  "comment": "The ffmpeg builds Clipper ships, pinned to an exact versioned file and its sha256. Read by .erb/scripts/fetch-ffmpeg.js (CI and local packaging) and written into THIRD_PARTY_NOTICES.md. All four are GPL builds (libx264), which is why the notice offers the source. To change one: download the new file, check it against the publisher's own checksum, put the new version, url and sha256 here, run the codec check (npm run fetch:ffmpeg, then the 'Verify bundled binaries' CI step), and update THIRD_PARTY_NOTICES.md. Pins checked 2026-11-10: gyan.dev and johnvansickle.com publish the checksums noted in 'verifiedAgainst'; the macOS pins are the ones the release workflow already carried.",
+  "linux-x64": {
+    "version": "7.0.2",
+    "url": "https://johnvansickle.com/ffmpeg/releases/ffmpeg-7.0.2-amd64-static.tar.xz",
+    "sha256": "abda8d77ce8309141f83ab8edf0596834087c52467f6badf376a6a2a4c87cf67",
+    "archive": "tar.xz",
+    "member": "ffmpeg-7.0.2-amd64-static/ffmpeg",
+    "license": "GPL-3.0-or-later",
+    "source": "https://johnvansickle.com/ffmpeg/release-source/ffmpeg-7.0.2.tar.xz",
+    "verifiedAgainst": "md5 7fa72b652e19bf84c9461e332ea1cdf3, published as ffmpeg-release-amd64-static.tar.xz.md5 when 7.0.2 was the release"
+  },
+  "win32-x64": {
+    "version": "9.0.2",
+    "url": "https://github.com/GyanD/codexffmpeg/releases/download/9.0.2/ffmpeg-9.0.2-essentials_build.zip",
+    "sha256": "60f467265b1e312373dbcd92200c2618a74850f98d3d078e94296bb3fa2047ba",
+    "archive": "zip",
+    "member": "ffmpeg-9.0.2-essentials_build/bin/ffmpeg.exe",
+    "license": "GPL-3.0-or-later",
+    "source": "https://ffmpeg.org/releases/ffmpeg-9.0.2.tar.xz",
+    "verifiedAgainst": "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip.sha256 (same value, 9.0.2 being the release); build details at https://www.gyan.dev/ffmpeg/builds/"
+  },
+  "darwin-arm64": {
+    "version": "8.0",
+    "url": "https://www.osxexperts.net/ffmpeg80arm.zip",
+    "sha256": "0d4efcaf6a098430a708e0af694a84792938921fa126162787ae98c6151d7a95",
+    "archive": "zip",
+    "member": "ffmpeg",
+    "license": "GPL-3.0-or-later",
+    "source": "https://ffmpeg.org/releases/ffmpeg-8.0.tar.xz"
+  },
+  "darwin-x64": {
+    "version": "8.0",
+    "url": "https://www.osxexperts.net/ffmpeg80intel.zip",
+    "sha256": "2d24d22db78c87f394a5822867acd5c5dc5e762cd261a44bd26923f3a5af3e07",
+    "archive": "zip",
+    "member": "ffmpeg",
+    "license": "GPL-3.0-or-later",
+    "source": "https://ffmpeg.org/releases/ffmpeg-8.0.tar.xz"
+  }
+}

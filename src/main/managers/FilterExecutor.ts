@@ -2,29 +2,47 @@ import { BrowserWindow, IpcMainEvent } from 'electron'
 import { ArchiveInterface, ConfigInterface } from '../../constants/types'
 import Archive from '../../models/Archive'
 import Filter from '../../models/Filter'
-import { getMetaData } from '../db'
-import { track } from '../telemetry'
 import {
+  getMetaData,
   getTableCountAsync,
   deleteFilterRunAsync,
   updateFilterRunProgressAsync,
 } from '../dbAsync'
+import { track } from '../telemetry'
 import { RequestEnvelope, unpackRequest, reply } from '../ipcUtils'
 import { resolveInputId, getDescendantIds } from '../../lib/filterGraph'
+import {
+  UNAPPROVED_CODE_MESSAGE,
+  unapprovedCodeHash,
+} from '../customCodeApproval'
+import { holdAwake } from '../powerSave'
 import type ConsoleManager from './ConsoleManager'
 
 export default class FilterExecutor {
   private mainWindow: BrowserWindow
   private getArchive: () => ArchiveInterface | null
   private setArchive: (_archive: ArchiveInterface | null) => void
-  private getArchiveVersion: () => number
   private getConfig: () => ConfigInterface
+  private getLibraryFolder?: () => string
   private consoleManager: ConsoleManager
+  /** The running filter's entry in the console's status zone. */
+  private filterConsoleId: number | undefined
 
   runningFilterControllers: Map<string, AbortController>
-  runningFilterIndices: Set<number>
+  // Running filters by id. Positions are computed only when broadcasting, so
+  // removing or reordering filters mid-run can't point the UI at the wrong card.
+  runningFilterIds: Set<string>
+  // Resolves when a filter's run has fully finished (results saved, reply
+  // sent). Lets edits wait for a stopped run instead of racing its cleanup.
+  private runDone = new Map<string, Promise<void>>()
   filterCancelIds: Set<string>
+  // Runs told to stop that haven't finished winding down yet. They stay in
+  // runningFilterIds (the screen shows "Stopping…") until their workers exit
+  // and their partial results and resume point are saved.
+  stoppingIds: Set<string> = new Set()
   activeFilter: Filter | null
+
+  private onFilterDone?: (_filterId: string) => void
 
   // Async mutex for serializing filter completion metadata updates
   private _completionLocked = false
@@ -35,20 +53,24 @@ export default class FilterExecutor {
     deps: {
       getArchive: () => ArchiveInterface | null
       setArchive: (_archive: ArchiveInterface | null) => void
-      getArchiveVersion: () => number
       getConfig: () => ConfigInterface
       consoleManager: ConsoleManager
+      /** The replay library, whose detector cache the parsers use. */
+      getLibraryFolder?: () => string
+      /** A run finished (not stopped) and its results are saved. */
+      onFilterDone?: (_filterId: string) => void
     },
   ) {
+    this.onFilterDone = deps.onFilterDone
     this.mainWindow = mainWindow
     this.getArchive = deps.getArchive
     this.setArchive = deps.setArchive
-    this.getArchiveVersion = deps.getArchiveVersion
     this.getConfig = deps.getConfig
+    this.getLibraryFolder = deps.getLibraryFolder
     this.consoleManager = deps.consoleManager
 
     this.runningFilterControllers = new Map()
-    this.runningFilterIndices = new Set()
+    this.runningFilterIds = new Set()
     this.filterCancelIds = new Set()
     this.activeFilter = null
   }
@@ -79,12 +101,62 @@ export default class FilterExecutor {
     this.mainWindow.webContents.send(channel, payload)
   }
 
-  private broadcastRunningFilters() {
+  broadcastRunningFilters() {
+    const filters = this.getArchive()?.filters ?? []
+    const ids = Array.from(this.runningFilterIds)
     this.send('currentlyRunningFilter', {
-      running: Array.from(this.runningFilterIndices),
+      running: ids
+        .map((id) => filters.findIndex((f) => f.id === id))
+        .filter((i) => i >= 0),
+      runningIds: ids,
+      stoppingIds: Array.from(this.stoppingIds).filter((id) =>
+        this.runningFilterIds.has(id),
+      ),
     })
   }
 
+  isRunning(filterId: string) {
+    return this.runningFilterIds.has(filterId)
+  }
+
+  /**
+   * Cancel runs (partial results are dropped) and wait until each has fully
+   * finished. Call before changing a filter, its inputs or the filter list, so
+   * a run's cleanup can't overwrite the change afterwards. With no ids, every
+   * running filter.
+   */
+  async stopAndWait(filterIds?: Iterable<string>) {
+    const ids = filterIds
+      ? Array.from(filterIds).filter((id) => this.runningFilterIds.has(id))
+      : Array.from(this.runningFilterIds)
+    if (ids.length === 0) return
+    for (const id of ids) {
+      this.filterCancelIds.add(id)
+      this.stoppingIds.add(id)
+      this.runningFilterControllers.get(id)?.abort()
+    }
+    this.broadcastRunningFilters()
+    await Promise.all(ids.map((id) => this.runDone.get(id)))
+  }
+
+  private trackRun(filterId: string, run: Promise<unknown>) {
+    const done = run.then(
+      () => undefined,
+      () => undefined,
+    )
+    this.runDone.set(filterId, done)
+    done.then(() => {
+      if (this.runDone.get(filterId) === done) this.runDone.delete(filterId)
+    })
+    return run
+  }
+
+  /**
+   * One run, start to finish. Always ends with exactly one reply and the
+   * filter no longer shown running, whatever fails along the way (a thrown
+   * database error used to leave the card "running" with no reply, and the
+   * renderer never times a run out).
+   */
   async _executeFilter(
     event: IpcMainEvent,
     requestId: string | undefined,
@@ -92,26 +164,105 @@ export default class FilterExecutor {
     filterId: string,
     resume: boolean,
   ) {
+    // A run of this filter that is still going or still stopping finishes
+    // first (saving its own partial results); this run then starts clean, so
+    // two runs never write the same table at once. Read before trackRun
+    // registers this run.
+    const previous = this.runDone.get(filterId)
+    const previousController = this.runningFilterControllers.get(filterId)
+    if (previousController) {
+      this.stoppingIds.add(filterId)
+      previousController.abort()
+      this.broadcastRunningFilters()
+    }
+    if (previous) await previous
+
+    let replied = false
+    const sendReply = (data: unknown) => {
+      if (replied) return
+      replied = true
+      reply(event, replyChannel, requestId, data)
+    }
+    let own: AbortController | null = null
+    // A long run: the computer must not sleep under it.
+    const letSleep = holdAwake('filter')
+    try {
+      await this._runFilterBody(sendReply, filterId, resume, (c) => {
+        own = c
+      })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      console.error('[FilterExecutor] run failed unexpectedly:', error)
+      try {
+        this.consoleManager.pushConsoleLog('error', `Run failed: ${message}`)
+        this.consoleManager.stopConsole(this.filterConsoleId)
+        this.filterConsoleId = undefined
+      } catch (_) {
+        // the console is best effort
+      }
+      if (own && this.runningFilterControllers.get(filterId) === own) {
+        this.runningFilterControllers.delete(filterId)
+        this.runningFilterIds.delete(filterId)
+        this.stoppingIds.delete(filterId)
+        this.filterCancelIds.delete(filterId)
+      }
+      this.activeFilter = null
+      this.broadcastRunningFilters()
+      let metadata: any = null
+      try {
+        const path = this.getArchive()?.path
+        if (path) metadata = await getMetaData(path)
+      } catch (_) {
+        metadata = null
+      }
+      sendReply(
+        metadata
+          ? {
+              ...metadata,
+              filterMessage: {
+                [filterId]: 'Run failed — see the console for details',
+              },
+            }
+          : { error: `Run failed: ${message}` },
+      )
+    } finally {
+      letSleep()
+    }
+  }
+
+  private async _runFilterBody(
+    sendReply: (_data: unknown) => void,
+    filterId: string,
+    resume: boolean,
+    onController: (_c: AbortController) => void,
+  ) {
     const archive = this.getArchive()
     if (!archive) {
-      return reply(event, replyChannel, requestId, {
-        error: 'archive undefined',
-      })
+      return sendReply({ error: 'archive undefined' })
     }
 
     const filterJSON = archive.filters.find((filter) => filter.id === filterId)
     if (!filterJSON) {
-      return reply(event, replyChannel, requestId, {
-        error: `no filter with id: '${filterId}' found`,
-      })
+      return sendReply({ error: `no filter with id: '${filterId}' found` })
+    }
+
+    // Custom code runs with the user's full privileges: it only runs when the
+    // user approved exactly this code (the renderer asks; main refuses
+    // otherwise, so a renderer bug or Run All cannot start unapproved code).
+    if (unapprovedCodeHash(filterJSON, this.getConfig()) !== null) {
+      return sendReply({ error: UNAPPROVED_CODE_MESSAGE })
+    }
+
+    // A locked step's results are fixed (types.ts): running it (one Run, Run
+    // all) is a no-op that leaves the project as it is.
+    if (filterJSON.locked) {
+      return sendReply(await getMetaData(archive.path))
     }
 
     const filterIndex = archive.filters.indexOf(filterJSON)
     const filter = new Filter(filterJSON)
     if (!filter.run3) {
-      return reply(event, replyChannel, requestId, {
-        error: `filter creation error: '${filterId}'`,
-      })
+      return sendReply({ error: `filter creation error: '${filterId}'` })
     }
 
     const branchingOn = this.getConfig().branchingEnabled === true
@@ -121,27 +272,31 @@ export default class FilterExecutor {
       branchingOn,
     )
 
-    // If this filter is already running, abort it first
-    const existingController = this.runningFilterControllers.get(filterId)
-    if (existingController) {
-      existingController.abort()
-      this.runningFilterControllers.delete(filterId)
-    }
+    // Registered before the first await: a second Run click arriving while this
+    // one waits on the database must see this run and stop it, not start beside
+    // it and drop the same table twice (launch review FLT-21).
+    const abortController = new AbortController()
+    this.runningFilterControllers.set(filterId, abortController)
+    this.runningFilterIds.add(filterId)
+    this.stoppingIds.delete(filterId)
+    onController(abortController)
+    this.broadcastRunningFilters()
 
     // Fresh run: delete any existing run record (via DbWorker for WAL consistency)
     if (!resume) {
       await deleteFilterRunAsync(archive.path, filterId)
     }
-
-    const abortController = new AbortController()
-    this.runningFilterControllers.set(filterId, abortController)
-    this.runningFilterIndices.add(filterIndex)
-    this.broadcastRunningFilters()
+    // What this run computes. If the saved params differ when it finishes, the
+    // results belong to old settings and must not be marked done.
+    const paramsAtStart = JSON.stringify(filterJSON.params ?? null)
 
     const config = this.getConfig()
     const numFilterThreads = config.numFilterThreads || 1
     this.activeFilter = filter
-    this.consoleManager.startConsole('filter', filterJSON.label)
+    this.filterConsoleId = this.consoleManager.startConsole(
+      'filter',
+      filterJSON.label,
+    )
 
     const filterResult = await filter.run3(
       archive.path,
@@ -162,15 +317,19 @@ export default class FilterExecutor {
         })
       },
       abortController.signal,
-      resume
-        ? {
-            resume: true,
-            resumeFromProgress: filterJSON.resumeProgress?.processed,
-          }
-        : undefined,
+      {
+        ...(resume
+          ? {
+              resume: true,
+              resumeFromProgress: filterJSON.resumeProgress?.processed,
+            }
+          : {}),
+        libraryFolder: this.getLibraryFolder?.(),
+      },
     )
     const {
       terminated,
+      failed: runFailed = false,
       errors: filterErrors,
       logs: filterLogs,
       lastProgress,
@@ -205,6 +364,8 @@ export default class FilterExecutor {
       }
     }
 
+    // Games left out because they couldn't be read: a note, not a failed run.
+    let skippedNote = ''
     if (missing > 0 || corrupt > 0) {
       const parts: string[] = []
       if (missing > 0)
@@ -213,10 +374,12 @@ export default class FilterExecutor {
         )
       if (corrupt > 0) parts.push(`${corrupt.toLocaleString()} unreadable`)
       const eg = examples.length > 0 ? ` e.g. ${examples[0]}` : ''
+      // Missing files may mean an unmounted drive: that one stays an error.
       this.consoleManager.pushConsoleLog(
-        'error',
+        missing > 0 ? 'error' : 'warn',
         `[${filterJSON.label}] ${parts.join(', ')} — skipped.${eg}`,
       )
+      skippedNote = `${(missing + corrupt).toLocaleString()} ${missing + corrupt === 1 ? 'game' : 'games'} skipped (couldn’t be read)`
     }
 
     this.consoleManager.pushConsoleLog(
@@ -225,7 +388,8 @@ export default class FilterExecutor {
         ? `${filterJSON.label} cancelled`
         : `${filterJSON.label} complete`,
     )
-    this.consoleManager.stopConsole()
+    this.consoleManager.stopConsole(this.filterConsoleId)
+    this.filterConsoleId = undefined
     if (!terminated) {
       let resultCount: number | null = null
       try {
@@ -264,26 +428,51 @@ export default class FilterExecutor {
       }
     }
 
-    // Clean up this filter's controller
-    this.runningFilterControllers.delete(filterId)
-    this.runningFilterIndices.delete(filterIndex)
+    // Clean up this run's controller — only if it is still ours. A second Run
+    // click aborts this run and registers its own controller under the same
+    // id; deleting that would leave the new run unstoppable and shown idle.
+    const stillOurs =
+      this.runningFilterControllers.get(filterId) === abortController
+    if (stillOurs) {
+      this.runningFilterControllers.delete(filterId)
+      this.runningFilterIds.delete(filterId)
+      this.stoppingIds.delete(filterId)
+    } else {
+      // Superseded by a newer run of the same filter: that run owns the output
+      // table and run record now. Touch nothing; just answer this request.
+      this.filterCancelIds.delete(filterId)
+      const metadata = await getMetaData(archive.path)
+      return sendReply(metadata)
+    }
 
     if (terminated && this.filterCancelIds.has(filterId)) {
       // Cancel: drop partial results, reset filter, delete run record
       this.filterCancelIds.delete(filterId)
       await deleteFilterRunAsync(archive.path, filterId)
-      if (archive.resetFiltersFrom) {
-        await archive.resetFiltersFrom(filterIndex, branchingOn)
+      // Reset on the CURRENT project state, found by id: the archive captured
+      // at run start may be stale (other runs finished since), and saving it
+      // would overwrite newer filter settings.
+      const current = this.getArchive() ?? archive
+      const currentIndex = current.filters.findIndex((f) => f.id === filterId)
+      if (currentIndex >= 0 && current.resetFiltersFrom) {
+        await current.resetFiltersFrom(currentIndex, branchingOn)
       }
       const metadata = await getMetaData(archive.path)
       this.setArchive(new Archive(metadata))
       this.broadcastRunningFilters()
-      return reply(event, replyChannel, requestId, metadata)
+      return sendReply(metadata)
     }
 
     // Stop: keep partial results AND run record (so resume is available)
     // Normal completion: keep results, delete run record
-    const wasStopped = terminated
+    // Failed (a worker crashed, or a resume could not start): like a stop —
+    // partial results are kept but never marked done (Run All does the same).
+    const failed = runFailed || filterErrors.length > 0
+    if (failed && !filterMessage) {
+      filterMessage = 'Run failed — see the console for details'
+    }
+    if (!failed && !filterMessage && skippedNote) filterMessage = skippedNote
+    const wasStopped = terminated || failed
     if (wasStopped && lastProgress !== undefined) {
       // Save how far we got so the resume button can show it
       await updateFilterRunProgressAsync(archive.path, filterId, lastProgress)
@@ -293,8 +482,10 @@ export default class FilterExecutor {
     this.filterCancelIds.delete(filterId)
     this.activeFilter = null
 
-    // Fire-and-forget: serialize completion via mutex, don't block IPC handler
-    this.withCompletionLock(async () => {
+    // Serialize completion via mutex. Awaited (it never blocks the thread) so
+    // this run's promise — see trackRun/stopAndWait — resolves only once its
+    // results are saved and the reply is sent.
+    await this.withCompletionLock(async () => {
       try {
         // Re-read archive from DB since another filter may have finished concurrently
         const freshArchive = this.getArchive()
@@ -316,8 +507,18 @@ export default class FilterExecutor {
             )
           }
         } else {
-          // Normal completion: mark processed, reset downstream
-          if (refreshedFilter) {
+          // Normal completion: mark processed, reset downstream — unless the
+          // filter was edited while it ran (results are for the old params).
+          const paramsChanged =
+            !!refreshedFilter &&
+            JSON.stringify(refreshedFilter.params ?? null) !== paramsAtStart
+          if (paramsChanged) {
+            this.consoleManager.pushConsoleLog(
+              'warn',
+              `[${filterJSON.label}] settings changed during the run — run it again`,
+            )
+          }
+          if (refreshedFilter && !paramsChanged) {
             refreshedFilter.isProcessed = true
             if (typeof durationMs === 'number') {
               refreshedFilter.lastRunMs = durationMs
@@ -368,20 +569,19 @@ export default class FilterExecutor {
         const replyData = filterMessage
           ? { ...metadata, filterMessage: { [filterId]: filterMessage } }
           : metadata
-        reply(event, replyChannel, requestId, replyData)
+        sendReply(replyData)
         this.broadcastRunningFilters()
+        if (!wasStopped && refreshedFilter) this.onFilterDone?.(filterId)
       } catch (error) {
         console.error('Error finalizing filter run:', error)
         try {
           const currentArchive = this.getArchive()
           const metadata = await getMetaData(currentArchive!.path)
           this.setArchive(new Archive(metadata))
-          reply(event, replyChannel, requestId, metadata)
+          sendReply(metadata)
         } catch (innerError) {
           console.error('Error reading metadata in recovery:', innerError)
-          reply(event, replyChannel, requestId, {
-            error: 'Filter completed but failed to read results',
-          })
+          sendReply({ error: 'Filter completed but failed to read results' })
         }
         this.broadcastRunningFilters()
       }
@@ -392,12 +592,18 @@ export default class FilterExecutor {
 
   async runFilter(event: IpcMainEvent, data: RequestEnvelope<string>) {
     const { requestId, payload } = unpackRequest<string>(data)
-    return this._executeFilter(event, requestId, 'runFilter', payload!, false)
+    return this.trackRun(
+      payload!,
+      this._executeFilter(event, requestId, 'runFilter', payload!, false),
+    )
   }
 
   async resumeFilter(event: IpcMainEvent, data: RequestEnvelope<string>) {
     const { requestId, payload } = unpackRequest<string>(data)
-    return this._executeFilter(event, requestId, 'resumeFilter', payload!, true)
+    return this.trackRun(
+      payload!,
+      this._executeFilter(event, requestId, 'resumeFilter', payload!, true),
+    )
   }
 
   async dismissFilterResume(
@@ -441,124 +647,57 @@ export default class FilterExecutor {
     }
   }
 
-  async runFilters(event: IpcMainEvent, data?: RequestEnvelope<null>) {
-    const { requestId } = unpackRequest<null>(data)
+  /**
+   * Accept a stopped or failed run's results as they are: the run record (and its
+   * Resume / Restart) goes away and the step counts as done. Only this filter's
+   * record and flags change; its result rows, and every other step, are untouched.
+   */
+  async keepFilterResults(event: IpcMainEvent, data: RequestEnvelope<string>) {
+    const { requestId, payload: filterId } = unpackRequest<string>(data)
     const archive = this.getArchive()
-    if (!archive || !archive.shallowCopy) {
-      return reply(event, 'runFilters', requestId, {
+    if (!archive || !filterId) {
+      return reply(event, 'keepFilterResults', requestId, {
         error: 'archive undefined',
       })
     }
-
-    const config = this.getConfig()
-    const numFilterThreads = config.numFilterThreads || 1
-    const branchingOn = config.branchingEnabled === true
-    const batchAbort = new AbortController()
-
-    for (let i = 0; i < archive.filters.length; i += 1) {
-      const filterJSON = archive.filters[i]
-      const prevResultsTableId = resolveInputId(archive.filters, i, branchingOn)
-      const filter = new Filter(filterJSON)
-      this.activeFilter = filter
-      this.consoleManager.startConsole('filter', filterJSON.label)
-
-      this.runningFilterControllers.set(filterJSON.id, batchAbort)
-      this.runningFilterIndices.add(i)
-      this.broadcastRunningFilters()
-
-      const filterResult = await filter.run3(
-        archive.path,
-        prevResultsTableId,
-        numFilterThreads,
-        (eventUpdate: { current: number; total: number }) => {
-          const { total, current } = eventUpdate
-          this.send('filterUpdate', {
-            filterId: filterJSON.id,
-            filterIndex: i,
-            total,
-            current,
-          })
-        },
-        batchAbort.signal,
-      )
-      const {
-        terminated,
-        errors: filterErrors,
-        logs: filterLogs,
-        durationMs,
-      } = filterResult
-
-      if (filterErrors.length > 0) {
-        this.send('filterError', {
-          filterId: filterJSON.id,
-          filterLabel: filterJSON.label,
-          errors: filterErrors,
-        })
-      }
-
-      if (filterLogs && filterLogs.length > 0) {
-        this.send('filterLogs', {
-          filterId: filterJSON.id,
-          filterLabel: filterJSON.label,
-          logs: filterLogs,
-        })
-      }
-
-      // A populated `errors` means a worker crashed / exited non-zero (see
-      // Filter.run3) — the filter's output table is only partially written.
-      // Treat it like a cancel: halt the batch and DON'T mark this (or anything
-      // downstream) processed, so the chain never reports success on truncated
-      // data.
-      const failed = filterErrors.length > 0
-      this.consoleManager.pushConsoleLog(
-        terminated || failed ? 'warn' : 'info',
-        // eslint-disable-next-line no-nested-ternary
-        terminated
-          ? `${filterJSON.label} cancelled`
-          : failed
-            ? `${filterJSON.label} failed — stopping Run All`
-            : `${filterJSON.label} complete`,
-      )
-      this.consoleManager.stopConsole()
-      if (!terminated && !failed) {
-        // Run All executes the same work as a single run, so it reports the
-        // same event — otherwise every filter run started from "Run All" (the
-        // common path) is invisible to telemetry.
-        let resultCount: number | null = null
-        try {
-          resultCount = await getTableCountAsync(archive.path, filterJSON.id)
-        } catch {
-          resultCount = null
-        }
-        track('filter_run', {
-          filterType: filterJSON.type,
-          durationMs: durationMs ?? 0,
-          resultCount,
-        })
-      }
-
-      this.runningFilterControllers.delete(filterJSON.id)
-      this.runningFilterIndices.delete(i)
-      this.broadcastRunningFilters()
-
-      if (terminated || batchAbort.signal.aborted || failed) {
-        if (archive.resetFiltersFrom) {
-          await archive.resetFiltersFrom(i, branchingOn)
-        }
-        break
-      }
-
-      filterJSON.isProcessed = true
-      filterJSON.results = 0
-      if (typeof durationMs === 'number') filterJSON.lastRunMs = durationMs
+    if (this.runningFilterControllers.has(filterId)) {
+      return reply(event, 'keepFilterResults', requestId, {
+        error: 'That step is still running.',
+      })
     }
-
-    if (archive.saveMetaData) await archive.saveMetaData()
-
-    const metadata = await getMetaData(archive.path)
-    this.setArchive(new Archive(metadata))
-
-    return reply(event, 'runFilters', requestId, metadata)
+    try {
+      let kept = 0
+      let label = ''
+      let stoppedAt = ''
+      const metadata = await this.withCompletionLock(async () => {
+        const fresh = new Archive(await getMetaData(archive.path))
+        const filter = fresh.filters.find((f) => f.id === filterId)
+        if (!filter) throw new Error('Step not found')
+        label = filter.label
+        if (filter.resumeProgress)
+          stoppedAt = ` (stopped at ${filter.resumeProgress.processed.toLocaleString()} of ${filter.resumeProgress.totalInput.toLocaleString()})`
+        kept = await getTableCountAsync(fresh.path, filterId)
+        filter.isProcessed = true
+        filter.results = kept
+        // Mark it done first: if this fails nothing else has changed.
+        if (fresh.saveMetaData) await fresh.saveMetaData()
+        await deleteFilterRunAsync(fresh.path, filterId)
+        this.setArchive(fresh)
+        return getMetaData(fresh.path)
+      })
+      this.consoleManager.pushConsoleLog(
+        'info',
+        `[${label}] kept ${kept.toLocaleString()} results${stoppedAt}`,
+      )
+      this.setArchive(new Archive(metadata))
+      this.broadcastRunningFilters()
+      return reply(event, 'keepFilterResults', requestId, metadata)
+    } catch (error) {
+      console.error('[keepFilterResults] error:', error)
+      return reply(event, 'keepFilterResults', requestId, {
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
   }
 
   async cancelRunningFilters(
@@ -566,41 +705,38 @@ export default class FilterExecutor {
     data?: RequestEnvelope<null>,
   ) {
     const { requestId } = unpackRequest<null>(data)
+    // Each run finishes its own cleanup (drops partial results for a cancel);
+    // until then it stays tracked and shows as stopping.
     for (const [filterId, controller] of this.runningFilterControllers) {
       this.filterCancelIds.add(filterId)
+      this.stoppingIds.add(filterId)
       controller.abort()
     }
-    this.runningFilterControllers.clear()
-    this.runningFilterIndices.clear()
     this.broadcastRunningFilters()
     return reply(event, 'cancelRunningFilters', requestId)
   }
 
   async stopRunningFilters(event: IpcMainEvent, data?: RequestEnvelope<null>) {
     const { requestId } = unpackRequest<null>(data)
-    for (const controller of this.runningFilterControllers.values()) {
+    for (const [filterId, controller] of this.runningFilterControllers) {
+      this.stoppingIds.add(filterId)
       controller.abort()
     }
-    this.runningFilterControllers.clear()
-    this.runningFilterIndices.clear()
     this.broadcastRunningFilters()
     return reply(event, 'stopRunningFilters', requestId)
   }
 
   async stopFilter(event: IpcMainEvent, data: RequestEnvelope<string>) {
     const { requestId, payload: filterId } = unpackRequest<string>(data)
+    // Stop keeps partial results and the resume point. The run stays tracked
+    // ("Stopping…") until its workers have exited and those are saved:
+    // forgetting it here made its cleanup think a newer run had replaced it,
+    // so nothing was saved and a quick Run could overlap the dying workers.
     if (filterId) {
       const controller = this.runningFilterControllers.get(filterId)
       if (controller) {
+        this.stoppingIds.add(filterId)
         controller.abort()
-        this.runningFilterControllers.delete(filterId)
-      }
-      const archive = this.getArchive()
-      if (archive) {
-        const filterIndex = archive.filters.findIndex((f) => f.id === filterId)
-        if (filterIndex >= 0) {
-          this.runningFilterIndices.delete(filterIndex)
-        }
       }
       this.broadcastRunningFilters()
     }
@@ -613,8 +749,10 @@ export default class FilterExecutor {
       this.filterCancelIds.add(filterId)
       const controller = this.runningFilterControllers.get(filterId)
       if (controller) {
+        this.stoppingIds.add(filterId)
         controller.abort()
       }
+      this.broadcastRunningFilters()
     }
     return reply(event, 'cancelFilter', requestId)
   }
@@ -624,8 +762,9 @@ export default class FilterExecutor {
       controller.abort()
     }
     this.runningFilterControllers.clear()
-    this.runningFilterIndices.clear()
+    this.runningFilterIds.clear()
     this.filterCancelIds.clear()
+    this.stoppingIds.clear()
     this.activeFilter = null
   }
 }

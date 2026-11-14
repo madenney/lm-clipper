@@ -11,7 +11,13 @@ import {
   DEFAULT_OFFSTAGE_BUFFER,
 } from '../../constants/stageGeometry'
 import StageZoneModal from './StageZoneModal'
+import AiFilterControls from './AiFilterControls'
+import { useFiltersStyle } from '../lib/filtersStyle'
 import EdgeguardZoneModal from './EdgeguardZoneModal'
+import CharacterSelect from './CharacterSelect'
+import StageSelect from './StageSelect'
+import { sortedCharacters } from '../../constants/characters'
+import { legalStages } from '../../constants/stages'
 
 export function DeferredInput({
   value,
@@ -165,6 +171,106 @@ function SelectChips({
   )
 }
 
+type MultiPos = {
+  top: number
+  left: number
+  width: number
+  maxHeight: number
+  flip: boolean
+}
+
+// Fixed-position dropdown menu (with a click-away backdrop) for multi-selects.
+function MultiMenu({
+  pos,
+  onClose,
+  children,
+}: {
+  pos: MultiPos
+  onClose: () => void
+  children: React.ReactNode
+}) {
+  // Keyboard: the menu's rows are plain divs with click handlers (in several places), so give
+  // them option roles here, once; arrows move between them, Enter or Space picks, Esc closes,
+  // and focus goes back to the control that opened it.
+  const menuRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const before = document.activeElement as HTMLElement | null
+    menuRef.current?.focus()
+    return () => {
+      if (before && before.isConnected) before.focus()
+    }
+  }, [])
+  useEffect(() => {
+    const items =
+      menuRef.current?.querySelectorAll<HTMLElement>('.filter-multi-item')
+    items?.forEach((item) => {
+      item.setAttribute('role', 'option')
+      item.setAttribute('tabindex', '-1')
+      item.setAttribute(
+        'aria-selected',
+        String(item.classList.contains('filter-multi-item-checked')),
+      )
+    })
+  })
+  const onMenuKey = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === 'Escape') {
+      e.preventDefault()
+      e.stopPropagation()
+      onClose()
+      return
+    }
+    const items = Array.from(
+      menuRef.current?.querySelectorAll<HTMLElement>('.filter-multi-item') ??
+        [],
+    )
+    const at = items.indexOf(document.activeElement as HTMLElement)
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault()
+      const next = e.key === 'ArrowDown' ? at + 1 : at <= 0 ? 0 : at - 1
+      items[Math.max(0, Math.min(items.length - 1, next))]?.focus()
+    } else if (e.key === 'Home' || e.key === 'End') {
+      e.preventDefault()
+      items[e.key === 'Home' ? 0 : items.length - 1]?.focus()
+    } else if ((e.key === 'Enter' || e.key === ' ') && at >= 0) {
+      e.preventDefault()
+      items[at].click()
+    } else if (e.key === 'Tab') {
+      onClose()
+    }
+  }
+
+  return (
+    <>
+      <div
+        className="filter-multi-backdrop"
+        onClick={(e) => {
+          e.stopPropagation()
+          onClose()
+        }}
+      />
+      <div
+        ref={menuRef}
+        className="filter-multi-menu"
+        role="listbox"
+        aria-multiselectable="true"
+        tabIndex={-1}
+        onKeyDown={onMenuKey}
+        style={{
+          position: 'fixed',
+          ...(pos.flip
+            ? { bottom: window.innerHeight - pos.top }
+            : { top: pos.top }),
+          left: pos.left,
+          width: pos.width,
+          maxHeight: pos.maxHeight,
+        }}
+      >
+        {children}
+      </div>
+    </>
+  )
+}
+
 const positionPresets = [
   { label: 'First move', value: '0' },
   { label: 'Second move', value: '1' },
@@ -191,10 +297,33 @@ type FilterControlsProps = {
   codesLoading: boolean
   hasParser: boolean
   hasEdgeguardParser: boolean
+  /** The step before this one (the AI Filter's prompt describes its rows). */
+  previousType?: string
+  /** Opens the filter's code in the editor (AI Filter's Edit code). */
+  onEditCode?: () => void
   onUpdate: (
     _newFilter: ShallowFilterInterface,
     _previousFilter: ShallowFilterInterface,
   ) => void
+}
+
+/** Compact look: setting names in plain words and sentence case ("Comboer CC"
+ *  -> "Player code", "Comboee Char" -> "Opponent character"). */
+const WORDS: Record<string, string> = {
+  comboer: 'player',
+  attacker: 'player',
+  comboee: 'opponent',
+  victim: 'opponent',
+  cc: 'code',
+  char: 'character',
+  files: 'replays',
+}
+export function plainLabel(name: string): string {
+  const out = name
+    .split(' ')
+    .map((w) => WORDS[w.toLowerCase()] ?? w.toLowerCase())
+    .join(' ')
+  return out.charAt(0).toUpperCase() + out.slice(1)
 }
 
 export default function FilterControls({
@@ -205,16 +334,13 @@ export default function FilterControls({
   codesLoading,
   hasParser,
   hasEdgeguardParser,
+  previousType,
+  onEditCode,
   onUpdate,
 }: FilterControlsProps) {
+  const nameOf = useFiltersStyle() === 'compact' ? plainLabel : (n: string) => n
   const [multiOpen, setMultiOpen] = useState<string | null>(null)
-  const [multiPos, setMultiPos] = useState<{
-    top: number
-    left: number
-    width: number
-    maxHeight: number
-    flip: boolean
-  } | null>(null)
+  const [multiPos, setMultiPos] = useState<MultiPos | null>(null)
   const [multiSearch, setMultiSearch] = useState('')
   const [expandedNthRows, setExpandedNthRows] = useState<Set<string>>(new Set())
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
@@ -222,22 +348,57 @@ export default function FilterControls({
   const [edgeRectModalOpen, setEdgeRectModalOpen] = useState(false)
 
   const filteredNames = useMemo(() => {
-    if (namesLoading || (!multiSearch && !multiOpen)) return namesList
+    // Defensive: the prop should always be an array, but never let a bad value
+    // crash the render (see filteredNames.filter usage below).
+    const list = Array.isArray(namesList) ? namesList : []
+    if (namesLoading || (!multiSearch && !multiOpen)) return list
     const searchLower = multiSearch.toLowerCase()
     return searchLower
-      ? namesList.filter((n) => n.name.toLowerCase().includes(searchLower))
-      : namesList
+      ? list.filter((n) => n.name.toLowerCase().includes(searchLower))
+      : list
   }, [namesList, namesLoading, multiSearch, multiOpen])
 
   const filteredCodes = useMemo(() => {
-    if (codesLoading || (!multiSearch && !multiOpen)) return connectCodesList
+    const list = Array.isArray(connectCodesList) ? connectCodesList : []
+    if (codesLoading || (!multiSearch && !multiOpen)) return list
     const searchLower = multiSearch.toLowerCase()
     return searchLower
-      ? connectCodesList.filter((n) =>
-          n.name.toLowerCase().includes(searchLower),
-        )
-      : connectCodesList
+      ? list.filter((n) => n.name.toLowerCase().includes(searchLower))
+      : list
   }, [connectCodesList, codesLoading, multiSearch, multiOpen])
+
+  function closeMulti() {
+    setMultiOpen(null)
+    setMultiPos(null)
+  }
+
+  // Open (or close, when already open) the multi-select menu under `e`'s element.
+  function toggleMulti(
+    e: React.MouseEvent<HTMLElement>,
+    key: string,
+    isOpen: boolean,
+    maxMenuHeight: number,
+    clearSearch = false,
+  ) {
+    e.stopPropagation()
+    if (isOpen) {
+      closeMulti()
+      return
+    }
+    if (clearSearch) setMultiSearch('')
+    const rect = e.currentTarget.getBoundingClientRect()
+    const spaceBelow = window.innerHeight - rect.bottom - 28
+    const spaceAbove = rect.top - 28
+    const flip = spaceBelow < 120 && spaceAbove > spaceBelow
+    setMultiPos({
+      top: flip ? rect.top - 4 : rect.bottom + 4,
+      left: rect.left,
+      width: Math.max(rect.width, 160),
+      maxHeight: Math.min(maxMenuHeight, flip ? spaceAbove : spaceBelow),
+      flip,
+    })
+    setMultiOpen(key)
+  }
 
   function updateFilter(
     newFilter: ShallowFilterInterface,
@@ -283,85 +444,45 @@ export default function FilterControls({
         <button
           type="button"
           className="filter-multi-select"
-          onClick={(e) => {
-            e.stopPropagation()
-            if (isOpen) {
-              setMultiOpen(null)
-              setMultiPos(null)
-            } else {
-              const rect = e.currentTarget.getBoundingClientRect()
-              const spaceBelow = window.innerHeight - rect.bottom - 28
-              const spaceAbove = rect.top - 28
-              const flip = spaceBelow < 120 && spaceAbove > spaceBelow
-              setMultiPos({
-                top: flip ? rect.top - 4 : rect.bottom + 4,
-                left: rect.left,
-                width: Math.max(rect.width, 160),
-                maxHeight: Math.min(240, flip ? spaceAbove : spaceBelow),
-                flip,
-              })
-              setMultiOpen(key)
-            }
-          }}
+          onClick={(e) => toggleMulti(e, key, isOpen, 240)}
         >
           {label}
         </button>
         {isOpen && multiPos && (
-          <>
-            <div
-              className="filter-multi-backdrop"
-              onClick={(e) => {
-                e.stopPropagation()
-                setMultiOpen(null)
-                setMultiPos(null)
-              }}
-            />
-            <div
-              className="filter-multi-menu"
-              style={{
-                position: 'fixed',
-                ...(multiPos.flip
-                  ? { bottom: window.innerHeight - multiPos.top }
-                  : { top: multiPos.top }),
-                left: multiPos.left,
-                width: multiPos.width,
-                maxHeight: multiPos.maxHeight,
-              }}
-            >
-              {allPosOptions.map((p) => {
-                const checked = selectedSet.has(p.value)
-                return (
-                  <div
-                    key={p.value}
-                    className={`filter-multi-item${checked ? ' filter-multi-item-checked' : ''}`}
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      let next: string[]
-                      if (p.value === '__custom__') {
-                        next = checked ? [] : ['__custom__']
-                      } else {
-                        const withoutCustom = currentValues.filter(
-                          (v: string) => v !== '__custom__',
-                        )
-                        next = checked
-                          ? withoutCustom.filter((v: string) => v !== p.value)
-                          : [...withoutCustom, p.value]
-                      }
-                      const filterClone = cloneDeep(f)
-                      filterClone.params[nthMovesOption.id][index].n =
-                        next.join(',')
-                      updateFilter(filterClone, f)
-                    }}
-                  >
-                    <span className="filter-multi-check">
-                      {checked ? '\u2714' : ''}
-                    </span>
-                    <span>{p.label}</span>
-                  </div>
-                )
-              })}
-            </div>
-          </>
+          <MultiMenu pos={multiPos} onClose={() => closeMulti()}>
+            {allPosOptions.map((p) => {
+              const checked = selectedSet.has(p.value)
+              return (
+                <div
+                  key={p.value}
+                  className={`filter-multi-item${checked ? ' filter-multi-item-checked' : ''}`}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    let next: string[]
+                    if (p.value === '__custom__') {
+                      next = checked ? [] : ['__custom__']
+                    } else {
+                      const withoutCustom = currentValues.filter(
+                        (v: string) => v !== '__custom__',
+                      )
+                      next = checked
+                        ? withoutCustom.filter((v: string) => v !== p.value)
+                        : [...withoutCustom, p.value]
+                    }
+                    const filterClone = cloneDeep(f)
+                    filterClone.params[nthMovesOption.id][index].n =
+                      next.join(',')
+                    updateFilter(filterClone, f)
+                  }}
+                >
+                  <span className="filter-multi-check">
+                    {checked ? '\u2714' : ''}
+                  </span>
+                  <span>{p.label}</span>
+                </div>
+              )
+            })}
+          </MultiMenu>
         )}
       </div>
     )
@@ -374,6 +495,42 @@ export default function FilterControls({
     selected: any[],
     onChange: (_next: any[]) => void,
   ) {
+    if (options === sortedCharacters) {
+      const ids = Array.isArray(selected)
+        ? selected
+        : selected
+          ? [selected]
+          : []
+      return (
+        <CharacterSelect
+          mode="multi"
+          selectAll
+          value={ids.map(String)}
+          onChange={(next) => onChange(next.map(Number))}
+          anyLabel="Any"
+          ariaLabel="Characters"
+          className="char-select-filter"
+        />
+      )
+    }
+    if (options === legalStages) {
+      const ids = Array.isArray(selected)
+        ? selected
+        : selected
+          ? [selected]
+          : []
+      return (
+        <StageSelect
+          mode="multi"
+          selectAll
+          value={ids.map(String)}
+          onChange={(next) => onChange(next.map(Number))}
+          anyLabel="Any"
+          ariaLabel="Stages"
+          className="char-select-filter"
+        />
+      )
+    }
     const key = `${filterId}:${optionId}`
     const isOpen = multiOpen === key
     const selectedSet = new Set(
@@ -406,119 +563,77 @@ export default function FilterControls({
               ;(e.currentTarget as HTMLElement).click()
             }
           }}
-          onClick={(e) => {
-            e.stopPropagation()
-            if (isOpen) {
-              setMultiOpen(null)
-              setMultiPos(null)
-            } else {
-              const rect = e.currentTarget.getBoundingClientRect()
-              const spaceBelow = window.innerHeight - rect.bottom - 28
-              const spaceAbove = rect.top - 28
-              const flip = spaceBelow < 120 && spaceAbove > spaceBelow
-              setMultiPos({
-                top: flip ? rect.top - 4 : rect.bottom + 4,
-                left: rect.left,
-                width: Math.max(rect.width, 160),
-                maxHeight: Math.min(240, flip ? spaceAbove : spaceBelow),
-                flip,
-              })
-              setMultiOpen(key)
-            }
-          }}
+          onClick={(e) => toggleMulti(e, key, isOpen, 240)}
         >
           <SelectChips chips={chips} placeholder="Any" onRemove={removeChip} />
         </div>
         {isOpen && multiPos && (
-          <>
+          <MultiMenu pos={multiPos} onClose={() => closeMulti()}>
             <div
-              className="filter-multi-backdrop"
+              className={`filter-multi-item filter-multi-item-all${options.every((o: any) => selectedSet.has(String(o.id))) ? ' filter-multi-item-checked' : ''}`}
               onClick={(e) => {
                 e.stopPropagation()
-                setMultiOpen(null)
-                setMultiPos(null)
-              }}
-            />
-            <div
-              className="filter-multi-menu"
-              style={{
-                position: 'fixed',
-                ...(multiPos.flip
-                  ? { bottom: window.innerHeight - multiPos.top }
-                  : { top: multiPos.top }),
-                left: multiPos.left,
-                width: multiPos.width,
-                maxHeight: multiPos.maxHeight,
+                if (options.every((o: any) => selectedSet.has(String(o.id)))) {
+                  onChange([])
+                } else {
+                  onChange(options.map((o: any) => o.id))
+                }
               }}
             >
-              <div
-                className={`filter-multi-item filter-multi-item-all${options.every((o: any) => selectedSet.has(String(o.id))) ? ' filter-multi-item-checked' : ''}`}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  if (
-                    options.every((o: any) => selectedSet.has(String(o.id)))
-                  ) {
-                    onChange([])
-                  } else {
-                    onChange(options.map((o: any) => o.id))
-                  }
-                }}
-              >
-                <span className="filter-multi-check">
-                  {selectedSet.size === options.length ? '\u2714' : ''}
-                </span>
-                <span>Select All</span>
-              </div>
-              {(() => {
-                const groups: { name: string; ids: (string | number)[] }[] = []
-                const seen = new Map<string, number>()
-                for (const o of options) {
-                  const name = o.name || o.shortName
-                  if (seen.has(name)) {
-                    groups[seen.get(name)!].ids.push(o.id)
-                  } else {
-                    seen.set(name, groups.length)
-                    groups.push({ name, ids: [o.id] })
-                  }
-                }
-                const parseId = (v: string) => {
-                  const n = Number(v)
-                  return Number.isNaN(n) ? v : n
-                }
-                return groups.map((group) => {
-                  const allChecked = group.ids.every((id) =>
-                    selectedSet.has(String(id)),
-                  )
-                  return (
-                    <div
-                      key={group.ids.join(',')}
-                      className={`filter-multi-item${allChecked ? ' filter-multi-item-checked' : ''}`}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        const groupStrs = new Set(group.ids.map(String))
-                        const next = allChecked
-                          ? [...selectedSet]
-                              .filter((v) => !groupStrs.has(v))
-                              .map(parseId)
-                          : [
-                              ...new Set([
-                                ...selectedSet,
-                                ...group.ids.map(String),
-                              ]),
-                            ].map(parseId)
-                        onChange(next)
-                      }}
-                    >
-                      <span className="filter-multi-check">
-                        {allChecked ? '\u2714' : ''}
-                      </span>
-                      <span>{group.name}</span>
-                    </div>
-                  )
-                })
-              })()}
+              <span className="filter-multi-check">
+                {selectedSet.size === options.length ? '\u2714' : ''}
+              </span>
+              <span>Select All</span>
             </div>
-          </>
+            {(() => {
+              const groups: { name: string; ids: (string | number)[] }[] = []
+              const seen = new Map<string, number>()
+              for (const o of options) {
+                const name = o.name || o.shortName
+                if (seen.has(name)) {
+                  groups[seen.get(name)!].ids.push(o.id)
+                } else {
+                  seen.set(name, groups.length)
+                  groups.push({ name, ids: [o.id] })
+                }
+              }
+              const parseId = (v: string) => {
+                const n = Number(v)
+                return Number.isNaN(n) ? v : n
+              }
+              return groups.map((group) => {
+                const allChecked = group.ids.every((id) =>
+                  selectedSet.has(String(id)),
+                )
+                return (
+                  <div
+                    key={group.ids.join(',')}
+                    className={`filter-multi-item${allChecked ? ' filter-multi-item-checked' : ''}`}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      const groupStrs = new Set(group.ids.map(String))
+                      const next = allChecked
+                        ? [...selectedSet]
+                            .filter((v) => !groupStrs.has(v))
+                            .map(parseId)
+                        : [
+                            ...new Set([
+                              ...selectedSet,
+                              ...group.ids.map(String),
+                            ]),
+                          ].map(parseId)
+                      onChange(next)
+                    }}
+                  >
+                    <span className="filter-multi-check">
+                      {allChecked ? '\u2714' : ''}
+                    </span>
+                    <span>{group.name}</span>
+                  </div>
+                )
+              })
+            })()}
+          </MultiMenu>
         )}
       </div>
     )
@@ -561,27 +676,7 @@ export default function FilterControls({
               ;(e.currentTarget as HTMLElement).click()
             }
           }}
-          onClick={(e) => {
-            e.stopPropagation()
-            if (isOpen) {
-              setMultiOpen(null)
-              setMultiPos(null)
-            } else {
-              setMultiSearch('')
-              const rect = e.currentTarget.getBoundingClientRect()
-              const spaceBelow = window.innerHeight - rect.bottom - 28
-              const spaceAbove = rect.top - 28
-              const flip = spaceBelow < 120 && spaceAbove > spaceBelow
-              setMultiPos({
-                top: flip ? rect.top - 4 : rect.bottom + 4,
-                left: rect.left,
-                width: Math.max(rect.width, 160),
-                maxHeight: Math.min(300, flip ? spaceAbove : spaceBelow),
-                flip,
-              })
-              setMultiOpen(key)
-            }
-          }}
+          onClick={(e) => toggleMulti(e, key, isOpen, 300, true)}
         >
           <SelectChips
             chips={selectedArr.map((v) => ({ value: v, label: v }))}
@@ -590,113 +685,90 @@ export default function FilterControls({
           />
         </div>
         {isOpen && multiPos && (
-          <>
-            <div
-              className="filter-multi-backdrop"
-              onClick={(e) => {
-                e.stopPropagation()
-                setMultiOpen(null)
-                setMultiPos(null)
-              }}
-            />
-            <div
-              className="filter-multi-menu"
-              style={{
-                position: 'fixed',
-                ...(multiPos.flip
-                  ? { bottom: window.innerHeight - multiPos.top }
-                  : { top: multiPos.top }),
-                left: multiPos.left,
-                width: multiPos.width,
-                maxHeight: multiPos.maxHeight,
-              }}
-            >
-              {namesLoading ? (
-                <div className="filter-multi-loading">
-                  <span className="filter-multi-spinner" />
-                  Loading names...
-                </div>
-              ) : namesList.length === 0 ? (
-                <div className="filter-multi-loading">No names found</div>
-              ) : (
-                <>
-                  <input
-                    className="filter-multi-search"
-                    placeholder="Search names..."
-                    value={multiSearch}
-                    autoFocus // eslint-disable-line jsx-a11y/no-autofocus
-                    onClick={(e) => e.stopPropagation()}
-                    onChange={(e) => setMultiSearch(e.target.value)}
-                  />
-                  {selectedRows.map((n) => (
+          <MultiMenu pos={multiPos} onClose={() => closeMulti()}>
+            {namesLoading ? (
+              <div className="filter-multi-loading">
+                <span className="filter-multi-spinner" />
+                Loading names...
+              </div>
+            ) : namesList.length === 0 ? (
+              <div className="filter-multi-loading">No names found</div>
+            ) : (
+              <>
+                <input
+                  className="filter-multi-search"
+                  placeholder="Search names..."
+                  value={multiSearch}
+                  autoFocus // eslint-disable-line jsx-a11y/no-autofocus
+                  onClick={(e) => e.stopPropagation()}
+                  onChange={(e) => setMultiSearch(e.target.value)}
+                />
+                {selectedRows.map((n) => (
+                  <div
+                    key={`sel-${n.name}`}
+                    className="filter-multi-item filter-multi-item-checked"
+                    title={`${n.name} — click to remove`}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onChange(selectedArr.filter((v) => v !== n.name))
+                    }}
+                  >
+                    <span className="filter-multi-check">{'\u2714'}</span>
+                    <span className="filter-multi-name">{n.name}</span>
+                    <span className="filter-autocomplete-count">{n.total}</span>
+                  </div>
+                ))}
+                {selectedRows.length > 0 && (
+                  <div className="filter-multi-divider">
+                    <span className="filter-multi-divider-line" />
+                    {selectedRows.length > 1 && (
+                      <button
+                        type="button"
+                        className="filter-multi-clear"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          onChange([])
+                        }}
+                      >
+                        Clear all
+                      </button>
+                    )}
+                    <span className="filter-multi-divider-line" />
+                  </div>
+                )}
+                {capped.map((n) => {
+                  const checked = selectedSet.has(n.name)
+                  return (
                     <div
-                      key={`sel-${n.name}`}
-                      className="filter-multi-item filter-multi-item-checked"
-                      title={`${n.name} — click to remove`}
+                      key={n.name}
+                      className={`filter-multi-item${checked ? ' filter-multi-item-checked' : ''}`}
+                      title={`${n.name} (${n.total.toLocaleString()})`}
                       onClick={(e) => {
                         e.stopPropagation()
-                        onChange(selectedArr.filter((v) => v !== n.name))
+                        const next = checked
+                          ? selectedArr.filter((v) => v !== n.name)
+                          : [...selectedArr, n.name]
+                        onChange(next)
                       }}
                     >
-                      <span className="filter-multi-check">{'\u2714'}</span>
+                      <span className="filter-multi-check">
+                        {checked ? '\u2714' : ''}
+                      </span>
                       <span className="filter-multi-name">{n.name}</span>
                       <span className="filter-autocomplete-count">
                         {n.total}
                       </span>
                     </div>
-                  ))}
-                  {selectedRows.length > 0 && (
-                    <div className="filter-multi-divider">
-                      <span className="filter-multi-divider-line" />
-                      {selectedRows.length > 1 && (
-                        <button
-                          type="button"
-                          className="filter-multi-clear"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            onChange([])
-                          }}
-                        >
-                          Clear all
-                        </button>
-                      )}
-                      <span className="filter-multi-divider-line" />
-                    </div>
-                  )}
-                  {capped.map((n) => {
-                    const checked = selectedSet.has(n.name)
-                    return (
-                      <div
-                        key={n.name}
-                        className={`filter-multi-item${checked ? ' filter-multi-item-checked' : ''}`}
-                        title={`${n.name} (${n.total.toLocaleString()})`}
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          const next = checked
-                            ? selectedArr.filter((v) => v !== n.name)
-                            : [...selectedArr, n.name]
-                          onChange(next)
-                        }}
-                      >
-                        <span className="filter-multi-check">
-                          {checked ? '\u2714' : ''}
-                        </span>
-                        <span className="filter-multi-name">{n.name}</span>
-                        <span className="filter-autocomplete-count">
-                          {n.total}
-                        </span>
-                      </div>
-                    )
-                  })}
-                  {remaining > 0 && (
-                    <div className="filter-multi-more">
-                      {remaining.toLocaleString()} more — type to narrow
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
-          </>
+                  )
+                })}
+                {remaining > 0 && (
+                  <div className="filter-multi-more">
+                    {remaining.toLocaleString()} more — type to narrow
+                  </div>
+                )}
+              </>
+            )}
+          </MultiMenu>
         )}
       </div>
     )
@@ -740,27 +812,7 @@ export default function FilterControls({
               ;(e.currentTarget as HTMLElement).click()
             }
           }}
-          onClick={(e) => {
-            e.stopPropagation()
-            if (isOpen) {
-              setMultiOpen(null)
-              setMultiPos(null)
-            } else {
-              setMultiSearch('')
-              const rect = e.currentTarget.getBoundingClientRect()
-              const spaceBelow = window.innerHeight - rect.bottom - 28
-              const spaceAbove = rect.top - 28
-              const flip = spaceBelow < 120 && spaceAbove > spaceBelow
-              setMultiPos({
-                top: flip ? rect.top - 4 : rect.bottom + 4,
-                left: rect.left,
-                width: Math.max(rect.width, 160),
-                maxHeight: Math.min(300, flip ? spaceAbove : spaceBelow),
-                flip,
-              })
-              setMultiOpen(key)
-            }
-          }}
+          onClick={(e) => toggleMulti(e, key, isOpen, 300, true)}
         >
           <SelectChips
             chips={selectedArr.map((v) => ({ value: v, label: v }))}
@@ -769,113 +821,90 @@ export default function FilterControls({
           />
         </div>
         {isOpen && multiPos && (
-          <>
-            <div
-              className="filter-multi-backdrop"
-              onClick={(e) => {
-                e.stopPropagation()
-                setMultiOpen(null)
-                setMultiPos(null)
-              }}
-            />
-            <div
-              className="filter-multi-menu"
-              style={{
-                position: 'fixed',
-                ...(multiPos.flip
-                  ? { bottom: window.innerHeight - multiPos.top }
-                  : { top: multiPos.top }),
-                left: multiPos.left,
-                width: multiPos.width,
-                maxHeight: multiPos.maxHeight,
-              }}
-            >
-              {codesLoading ? (
-                <div className="filter-multi-loading">
-                  <span className="filter-multi-spinner" />
-                  Loading codes...
-                </div>
-              ) : connectCodesList.length === 0 ? (
-                <div className="filter-multi-loading">No codes found</div>
-              ) : (
-                <>
-                  <input
-                    className="filter-multi-search"
-                    placeholder="Search codes..."
-                    value={multiSearch}
-                    autoFocus // eslint-disable-line jsx-a11y/no-autofocus
-                    onClick={(e) => e.stopPropagation()}
-                    onChange={(e) => setMultiSearch(e.target.value)}
-                  />
-                  {selectedRows.map((n) => (
+          <MultiMenu pos={multiPos} onClose={() => closeMulti()}>
+            {codesLoading ? (
+              <div className="filter-multi-loading">
+                <span className="filter-multi-spinner" />
+                Loading codes...
+              </div>
+            ) : connectCodesList.length === 0 ? (
+              <div className="filter-multi-loading">No codes found</div>
+            ) : (
+              <>
+                <input
+                  className="filter-multi-search"
+                  placeholder="Search codes..."
+                  value={multiSearch}
+                  autoFocus // eslint-disable-line jsx-a11y/no-autofocus
+                  onClick={(e) => e.stopPropagation()}
+                  onChange={(e) => setMultiSearch(e.target.value)}
+                />
+                {selectedRows.map((n) => (
+                  <div
+                    key={`sel-${n.name}`}
+                    className="filter-multi-item filter-multi-item-checked"
+                    title={`${n.name} — click to remove`}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onChange(selectedArr.filter((v) => v !== n.name))
+                    }}
+                  >
+                    <span className="filter-multi-check">{'\u2714'}</span>
+                    <span className="filter-multi-name">{n.name}</span>
+                    <span className="filter-autocomplete-count">{n.total}</span>
+                  </div>
+                ))}
+                {selectedRows.length > 0 && (
+                  <div className="filter-multi-divider">
+                    <span className="filter-multi-divider-line" />
+                    {selectedRows.length > 1 && (
+                      <button
+                        type="button"
+                        className="filter-multi-clear"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          onChange([])
+                        }}
+                      >
+                        Clear all
+                      </button>
+                    )}
+                    <span className="filter-multi-divider-line" />
+                  </div>
+                )}
+                {capped.map((n) => {
+                  const checked = selectedSet.has(n.name)
+                  return (
                     <div
-                      key={`sel-${n.name}`}
-                      className="filter-multi-item filter-multi-item-checked"
-                      title={`${n.name} — click to remove`}
+                      key={n.name}
+                      className={`filter-multi-item${checked ? ' filter-multi-item-checked' : ''}`}
+                      title={`${n.name} (${n.total.toLocaleString()})`}
                       onClick={(e) => {
                         e.stopPropagation()
-                        onChange(selectedArr.filter((v) => v !== n.name))
+                        const next = checked
+                          ? selectedArr.filter((v) => v !== n.name)
+                          : [...selectedArr, n.name]
+                        onChange(next)
                       }}
                     >
-                      <span className="filter-multi-check">{'\u2714'}</span>
+                      <span className="filter-multi-check">
+                        {checked ? '\u2714' : ''}
+                      </span>
                       <span className="filter-multi-name">{n.name}</span>
                       <span className="filter-autocomplete-count">
                         {n.total}
                       </span>
                     </div>
-                  ))}
-                  {selectedRows.length > 0 && (
-                    <div className="filter-multi-divider">
-                      <span className="filter-multi-divider-line" />
-                      {selectedRows.length > 1 && (
-                        <button
-                          type="button"
-                          className="filter-multi-clear"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            onChange([])
-                          }}
-                        >
-                          Clear all
-                        </button>
-                      )}
-                      <span className="filter-multi-divider-line" />
-                    </div>
-                  )}
-                  {capped.map((n) => {
-                    const checked = selectedSet.has(n.name)
-                    return (
-                      <div
-                        key={n.name}
-                        className={`filter-multi-item${checked ? ' filter-multi-item-checked' : ''}`}
-                        title={`${n.name} (${n.total.toLocaleString()})`}
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          const next = checked
-                            ? selectedArr.filter((v) => v !== n.name)
-                            : [...selectedArr, n.name]
-                          onChange(next)
-                        }}
-                      >
-                        <span className="filter-multi-check">
-                          {checked ? '\u2714' : ''}
-                        </span>
-                        <span className="filter-multi-name">{n.name}</span>
-                        <span className="filter-autocomplete-count">
-                          {n.total}
-                        </span>
-                      </div>
-                    )
-                  })}
-                  {remaining > 0 && (
-                    <div className="filter-multi-more">
-                      {remaining.toLocaleString()} more — type to narrow
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
-          </>
+                  )
+                })}
+                {remaining > 0 && (
+                  <div className="filter-multi-more">
+                    {remaining.toLocaleString()} more — type to narrow
+                  </div>
+                )}
+              </>
+            )}
+          </MultiMenu>
         )}
       </div>
     )
@@ -1102,6 +1131,17 @@ export default function FilterControls({
     )
   }
 
+  if (filter.type === 'aiFilter')
+    return (
+      <div className="filter-controls">
+        <AiFilterControls
+          filter={filter}
+          previousType={previousType}
+          onEditCode={onEditCode}
+          onUpdate={onUpdate}
+        />
+      </div>
+    )
   const filterConfig = filtersConfig.find((entry) => entry.id === filter.type)
   if (!filterConfig) return null
   if (!filterConfig.options || filterConfig.options.length === 0)
@@ -1331,95 +1371,47 @@ export default function FilterControls({
                       <button
                         type="button"
                         className="filter-multi-select"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          if (posIsOpen) {
-                            setMultiOpen(null)
-                            setMultiPos(null)
-                          } else {
-                            const rect = e.currentTarget.getBoundingClientRect()
-                            const spaceBelow =
-                              window.innerHeight - rect.bottom - 28
-                            const spaceAbove = rect.top - 28
-                            const flip =
-                              spaceBelow < 120 && spaceAbove > spaceBelow
-                            setMultiPos({
-                              top: flip ? rect.top - 4 : rect.bottom + 4,
-                              left: rect.left,
-                              width: Math.max(rect.width, 160),
-                              maxHeight: Math.min(
-                                240,
-                                flip ? spaceAbove : spaceBelow,
-                              ),
-                              flip,
-                            })
-                            setMultiOpen(posKey)
-                          }
-                        }}
+                        onClick={(e) => toggleMulti(e, posKey, posIsOpen, 240)}
                       >
                         {posLabel}
                       </button>
                       {posIsOpen && multiPos && (
-                        <>
-                          <div
-                            className="filter-multi-backdrop"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              setMultiOpen(null)
-                              setMultiPos(null)
-                            }}
-                          />
-                          <div
-                            className="filter-multi-menu"
-                            style={{
-                              position: 'fixed',
-                              ...(multiPos.flip
-                                ? {
-                                    bottom: window.innerHeight - multiPos.top,
-                                  }
-                                : { top: multiPos.top }),
-                              left: multiPos.left,
-                              width: multiPos.width,
-                              maxHeight: multiPos.maxHeight,
-                            }}
-                          >
-                            {posAllOptions.map((p) => {
-                              const checked = posSelectedSet.has(p.value)
-                              return (
-                                <div
-                                  key={p.value}
-                                  className={`filter-multi-item${checked ? ' filter-multi-item-checked' : ''}`}
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    let next: string[]
-                                    if (p.value === '__custom__') {
-                                      next = checked ? [] : ['__custom__']
-                                    } else {
-                                      const withoutCustom =
-                                        posCurrentValues.filter(
-                                          (v: string) => v !== '__custom__',
+                        <MultiMenu pos={multiPos} onClose={() => closeMulti()}>
+                          {posAllOptions.map((p) => {
+                            const checked = posSelectedSet.has(p.value)
+                            return (
+                              <div
+                                key={p.value}
+                                className={`filter-multi-item${checked ? ' filter-multi-item-checked' : ''}`}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  let next: string[]
+                                  if (p.value === '__custom__') {
+                                    next = checked ? [] : ['__custom__']
+                                  } else {
+                                    const withoutCustom =
+                                      posCurrentValues.filter(
+                                        (v: string) => v !== '__custom__',
+                                      )
+                                    next = checked
+                                      ? withoutCustom.filter(
+                                          (v: string) => v !== p.value,
                                         )
-                                      next = checked
-                                        ? withoutCustom.filter(
-                                            (v: string) => v !== p.value,
-                                          )
-                                        : [...withoutCustom, p.value]
-                                    }
-                                    const filterClone = cloneDeep(filter)
-                                    filterClone.params[option.id] =
-                                      next.join(',')
-                                    updateFilter(filterClone, filter)
-                                  }}
-                                >
-                                  <span className="filter-multi-check">
-                                    {checked ? '\u2714' : ''}
-                                  </span>
-                                  <span>{p.label}</span>
-                                </div>
-                              )
-                            })}
-                          </div>
-                        </>
+                                      : [...withoutCustom, p.value]
+                                  }
+                                  const filterClone = cloneDeep(filter)
+                                  filterClone.params[option.id] = next.join(',')
+                                  updateFilter(filterClone, filter)
+                                }}
+                              >
+                                <span className="filter-multi-check">
+                                  {checked ? '\u2714' : ''}
+                                </span>
+                                <span>{p.label}</span>
+                              </div>
+                            )
+                          })}
+                        </MultiMenu>
                       )}
                     </div>
                     {posHasCustom && (
@@ -1516,7 +1508,7 @@ export default function FilterControls({
                         ? 'Player 1 Custom IDs'
                         : !hasParser && option.id === 'comboeeCustomIds'
                           ? 'Player 2 Custom IDs'
-                          : option.name}
+                          : nameOf(option.name)}
                 </span>
                 {input}
               </Wrapper>
@@ -1595,7 +1587,7 @@ export default function FilterControls({
                           ? option.name.replace('Comboer', 'Player 1')
                           : !hasParser && option.id.startsWith('comboee')
                             ? option.name.replace('Comboee', 'Player 2')
-                            : option.name}
+                            : nameOf(option.name)}
                       </span>
                       <input
                         className="filter-control-input"

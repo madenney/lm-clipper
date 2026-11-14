@@ -63,6 +63,9 @@ module.exports = {
     // Constructor naming (slippi-js uses lowercase constructors)
     'new-cap': 'off',
 
+    // TypeScript optional parameters after defaulted ones are normal
+    'default-param-last': 'off',
+
     // Allow unused vars prefixed with _ (common convention for intentionally unused params)
     'no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
   },
@@ -80,6 +83,17 @@ module.exports = {
       },
       rules: {
         'no-restricted-globals': 'off',
+      },
+    },
+    {
+      // Tests: throwaway promises, closures in loops and the like are fine
+      files: ['src/**/__tests__/**'],
+      rules: {
+        'no-loop-func': 'off',
+        // itWithSlpz is `it`, or `it.skip` when the slpz binary is not built
+        'jest/no-standalone-expect': ['error', { additionalTestBlockFunctions: ['itWithSlpz'] }],
+        'promise/param-names': 'off',
+        'no-promise-executor-return': 'off',
       },
     },
     {

@@ -35,3 +35,6 @@ scripts
 
 # ESLint config file (not included in tsconfig)
 .eslintrc.js
+
+# Generated copies of packages/* (npm run sync-packages): edit the package, never these
+src/vendor

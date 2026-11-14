@@ -1,0 +1,74 @@
+/* Floats over the top of the workspace, so the fixed-height layout below it
+   doesn't move. */
+.missing-bar {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: calc(100% - 40px);
+  padding: 7px 8px 7px 14px;
+  border-radius: 8px;
+  border: 1px solid rgba(224, 168, 79, 0.45);
+  background: rgba(36, 30, 20, 0.96);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  font-size: 13px;
+  color: #e9dcc6;
+}
+
+.missing-bar-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.missing-bar-btn {
+  flex-shrink: 0;
+  font: inherit;
+  color: #fff;
+  background: rgba(224, 168, 79, 0.18);
+  border: 1px solid rgba(224, 168, 79, 0.5);
+  border-radius: 6px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+
+.missing-bar-btn:hover:not(:disabled) {
+  background: rgba(224, 168, 79, 0.3);
+}
+
+.missing-bar-link {
+  flex-shrink: 0;
+  font: inherit;
+  color: #b9ad99;
+  background: none;
+  border: none;
+  padding: 4px 2px;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.missing-bar-link:hover:not(:disabled) {
+  color: #fff;
+}
+
+.missing-bar-close {
+  flex-shrink: 0;
+  font: inherit;
+  font-size: 16px;
+  line-height: 1;
+  color: #9a917f;
+  background: none;
+  border: none;
+  padding: 2px 6px;
+  cursor: pointer;
+}
+
+.missing-bar button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}

@@ -3,6 +3,8 @@ import {
   EventEmitterInterface,
   FilesFilterParams,
 } from '../../constants/types'
+import { isCpuGame } from '../../lib/cpuPlayers'
+import { parseSemicolonParam } from '../../lib/filterHelpers'
 
 export default (
   prevResults: FileInterface[],
@@ -14,6 +16,9 @@ export default (
       eventEmitter({ current: index, total: prevResults.length })
     if (!file.isValid) return false
     if (!file.players || file.players.length < 2) return false
+    // Games with a CPU player are left out unless asked for. Not checked yet
+    // (older imports, until the background check reaches them) counts as human.
+    if (params.includeCpu !== true && isCpuGame(file.players)) return false
 
     const { stage, char1, char2, player1, player2, player1CC, player2CC } =
       params
@@ -51,35 +56,15 @@ export default (
         if (!(c2.indexOf(p1) !== -1 || c2.indexOf(p2) !== -1)) return false
       }
     }
-    const hasP1 = Array.isArray(player1) ? player1.length > 0 : !!player1
-    const hasP2 = Array.isArray(player2) ? player2.length > 0 : !!player2
-    const hasP1CC = Array.isArray(player1CC)
-      ? player1CC.length > 0
-      : !!player1CC
-    const hasP2CC = Array.isArray(player2CC)
-      ? player2CC.length > 0
-      : !!player2CC
+    const p1Tags = parseSemicolonParam(player1)
+    const p2Tags = parseSemicolonParam(player2)
+    const p1CCs = parseSemicolonParam(player1CC)
+    const p2CCs = parseSemicolonParam(player2CC)
+    const hasP1 = p1Tags.length > 0
+    const hasP2 = p2Tags.length > 0
+    const hasP1CC = p1CCs.length > 0
+    const hasP2CC = p2CCs.length > 0
     if (hasP1 || hasP2 || hasP1CC || hasP2CC) {
-      const p1Tags = Array.isArray(player1)
-        ? player1.map((t: string) => t.toLowerCase())
-        : player1
-          ? player1.toLowerCase().split(';')
-          : []
-      const p2Tags = Array.isArray(player2)
-        ? player2.map((t: string) => t.toLowerCase())
-        : player2
-          ? player2.toLowerCase().split(';')
-          : []
-      const p1CCs = Array.isArray(player1CC)
-        ? player1CC.map((t: string) => t.toLowerCase())
-        : player1CC
-          ? player1CC.toLowerCase().split(';')
-          : []
-      const p2CCs = Array.isArray(player2CC)
-        ? player2CC.map((t: string) => t.toLowerCase())
-        : player2CC
-          ? player2CC.toLowerCase().split(';')
-          : []
       const lp1Name = (file.players[0]?.displayName || '').toLowerCase()
       const lp2Name = (file.players[1]?.displayName || '').toLowerCase()
       const lp1CC = (file.players[0]?.connectCode || '').toLowerCase()

@@ -1,8 +1,11 @@
 {
   "name": "lm-clipper",
   "description": "An application for creating melee clips",
-  "version": "2.0.0-beta.9",
+  "version": "3.0.0",
   "license": "GPL-3.0-only",
+  "engines": {
+    "node": ">=22.15"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/madenney/lm-clipper.git"
@@ -25,7 +28,7 @@
   },
   "main": "./.erb/dll/main.bundle.dev.js",
   "scripts": {
-    "build": "concurrently \"npm run build:main\" \"npm run build:renderer\"",
+    "build": "concurrently \"npm run build:main\" \"npm run build:renderer\" && npm run check:release",
     "build:main": "cross-env NODE_ENV=production TS_NODE_TRANSPILE_ONLY=true webpack --config ./.erb/configs/webpack.config.main.prod.ts",
     "build:renderer": "cross-env NODE_ENV=production TS_NODE_TRANSPILE_ONLY=true webpack --config ./.erb/configs/webpack.config.renderer.prod.ts",
     "postinstall": "ts-node .erb/scripts/check-native-dep.js && electron-builder install-app-deps && cross-env NODE_ENV=development TS_NODE_TRANSPILE_ONLY=true webpack --config ./.erb/configs/webpack.config.renderer.dev.dll.ts",
@@ -33,6 +36,10 @@
     "typecheck": "tsc --noEmit -p tsconfig.typecheck.json",
     "typecheck:ratchet": "node ./.erb/scripts/tsc-ratchet.js",
     "package": "ts-node ./.erb/scripts/clean.js dist && npm run build && electron-builder build --publish never",
+    "check:release": "node scripts/check-release-clean.js",
+    "check:metadata": "node .erb/scripts/check-release-metadata.js",
+    "fetch:ffmpeg": "node .erb/scripts/fetch-ffmpeg.js",
+    "build:slpz": "node .erb/scripts/build-slpz.js",
     "rebuild": "electron-rebuild --parallel --types prod,dev,optional --module-dir release/app",
     "start": "ts-node ./.erb/scripts/check-port-in-use.js && npm run start:renderer",
     "_start:main": "cross-env NODE_ENV=development electronmon -r ts-node/register/transpile-only .",
@@ -75,7 +82,9 @@
       "\\.(css|less|sass|scss)$": "identity-obj-proxy",
       ".*/stageVariantAssets$": "<rootDir>/.erb/mocks/stageVariantAssets.js",
       ".*/clipAssets$": "<rootDir>/.erb/mocks/clipAssets.js",
-      ".*/GpuLayer$": "<rootDir>/.erb/mocks/GpuLayer.js"
+      ".*/GpuLayer$": "<rootDir>/.erb/mocks/GpuLayer.js",
+      "^slippi-dolphin-runner$": "<rootDir>/node_modules/slippi-dolphin-runner/dist/index.js",
+      "^yauzl$": "<rootDir>/node_modules/yauzl"
     },
     "setupFiles": [
       "./.erb/scripts/check-build-exists.ts"
@@ -92,8 +101,17 @@
       ".erb/dll"
     ],
     "transform": {
-      "\\.(ts|tsx|js|jsx)$": "ts-jest"
-    }
+      "[\\\\/]slippi-dolphin-runner[\\\\/]dist[\\\\/].+\\.js$": "<rootDir>/.erb/scripts/jest-runner-transform.js",
+      "\\.(ts|tsx|js|jsx)$": [
+        "ts-jest",
+        {
+          "tsconfig": "tsconfig.jest.json"
+        }
+      ]
+    },
+    "transformIgnorePatterns": [
+      "/node_modules/(?!slippi-dolphin-runner/)"
+    ]
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.0",
@@ -104,19 +122,21 @@
     "@codemirror/state": "^6.5.4",
     "@codemirror/theme-one-dark": "^6.1.3",
     "@codemirror/view": "^6.39.15",
+    "@gcpreston/slippi-viewer": "0.1.16",
     "@napi-rs/canvas": "^1.0.0",
+    "@slippi/slippi-js": "^6.6.1",
     "electron-debug": "^3.2.0",
-    "electron-log": "^4.4.8",
+    "jszip": "^3.10.1",
     "lodash": "^4.17.21",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "react-router-dom": "^6.8.1"
+    "slippi-dolphin-runner": "github:madenney/dolphin_runner#v0.5.8",
+    "yauzl": "^3.4.0"
   },
   "devDependencies": {
     "@electron/notarize": "^2.0.0",
     "@electron/rebuild": "^4.0.3",
     "@pmmmwh/react-refresh-webpack-plugin": "^0.5.10",
-    "@slippi/slippi-js": "^6.6.1",
     "@svgr/webpack": "^6.5.1",
     "@teamsupercell/typings-for-css-modules-loader": "^2.5.2",
     "@testing-library/jest-dom": "^5.16.5",
@@ -130,6 +150,7 @@
     "@types/react-test-renderer": "^18.0.0",
     "@types/terser-webpack-plugin": "^5.0.4",
     "@types/webpack-bundle-analyzer": "^4.6.0",
+    "@types/yauzl": "^3.4.0",
     "@typescript-eslint/eslint-plugin": "^5.51.0",
     "@typescript-eslint/parser": "^5.51.0",
     "browserslist-config-erb": "^0.0.3",
@@ -205,22 +226,43 @@
       "package.json"
     ],
     "afterSign": ".erb/scripts/notarize.js",
+    "beforePack": ".erb/scripts/check-bundled-binaries.js",
     "generateUpdatesFilesForAllChannels": true,
     "mac": {
       "target": [
-        "dmg"
-      ],
-      "extraResources": [
         {
-          "from": "release/app/ffmpeg/ffmpeg-darwin-x64",
-          "to": "ffmpeg/ffmpeg-darwin-x64"
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
         },
         {
-          "from": "release/app/slpz/slpz-darwin-x64",
-          "to": "slpz/slpz-darwin-x64"
+          "target": "zip",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
         }
       ],
-      "gatekeeperAssess": false
+      "category": "public.app-category.video",
+      "minimumSystemVersion": "12.0",
+      "hardenedRuntime": true,
+      "entitlements": "assets/entitlements.mac.plist",
+      "entitlementsInherit": "assets/entitlements.mac.plist",
+      "notarize": false,
+      "extraResources": [
+        {
+          "from": "release/app/ffmpeg/ffmpeg-darwin-${arch}",
+          "to": "ffmpeg/ffmpeg-darwin-${arch}"
+        },
+        {
+          "from": "release/app/slpz/slpz-darwin-${arch}",
+          "to": "slpz/slpz-darwin-${arch}"
+        }
+      ],
+      "gatekeeperAssess": false,
+      "artifactName": "Lunar-Clipper-${version}-mac-${arch}.${ext}"
     },
     "dmg": {
       "contents": [
@@ -248,15 +290,32 @@
         {
           "from": "release/app/slpz/slpz-win32-x64.exe",
           "to": "slpz/slpz-win32-x64.exe"
+        },
+        {
+          "from": "node_modules/slippi-dolphin-runner/native/win/bin/lunar-hidden-launcher.exe",
+          "to": "hidden-launcher/lunar-hidden-launcher.exe"
         }
       ],
       "artifactName": "Lunar-Clipper-Setup-${version}.${ext}"
     },
+    "nsis": {
+      "createDesktopShortcut": true,
+      "deleteAppDataOnUninstall": false
+    },
+    "deb": {
+      "recommends": [
+        "libappindicator3-1",
+        "xdotool",
+        "x11-utils",
+        "wmctrl"
+      ]
+    },
     "linux": {
       "target": [
-        "AppImage"
+        "AppImage",
+        "deb"
       ],
-      "category": "Development",
+      "category": "AudioVideo",
       "extraResources": [
         {
           "from": "release/app/ffmpeg/ffmpeg-linux-x64",
@@ -275,7 +334,9 @@
       "output": "release/build"
     },
     "extraResources": [
-      "./assets/**"
+      "./assets/**",
+      "./LICENSE",
+      "./THIRD_PARTY_NOTICES.md"
     ],
     "publish": {
       "provider": "github",
@@ -286,7 +347,7 @@
   "devEngines": {
     "runtime": {
       "name": "node",
-      "version": ">=18.x"
+      "version": ">=22.15"
     }
   },
   "electronmon": {

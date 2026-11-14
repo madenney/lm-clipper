@@ -1,4 +1,24 @@
-
 body {
   margin: 0px;
+}
+
+/* One-line notice (App.tsx `notice`): bottom-centre, above the footer and
+   the start screen's consent line; click or wait to dismiss. */
+.app-notice {
+  position: fixed;
+  left: 50%;
+  bottom: 72px;
+  transform: translateX(-50%);
+  z-index: 6000;
+  max-width: min(640px, calc(100vw - 32px));
+  padding: 8px 14px;
+  border: 1px solid #3a3a3a;
+  border-radius: 6px;
+  background: rgba(24, 24, 24, 0.96);
+  color: #ddd;
+  font: inherit;
+  font-size: 13px;
+  text-align: center;
+  cursor: pointer;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
 }

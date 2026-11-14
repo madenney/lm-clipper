@@ -1,89 +1,174 @@
-import {
-  app,
-  ipcMain,
-  dialog,
-  shell,
-  IpcMainEvent,
-  BrowserWindow,
-  OpenDialogOptions,
-} from 'electron'
+import { app, ipcMain, IpcMainEvent, BrowserWindow } from 'electron'
 import { Worker } from 'worker_threads'
 import { randomUUID } from 'crypto'
 import os from 'os'
 import path from 'path'
 import fs, { promises as fsPromises } from 'fs'
+import {
+  DEFAULT_PROJECT_NAME,
+  shownProjectName,
+} from '../constants/defaultProject'
+import { dialogHub, askDialog } from './askRenderer'
+
 import { getWorkerExecArgv } from '../lib'
-import { getDescendantIds } from '../lib/filterGraph'
+
 import { ensureProjectExt, projectDisplayName } from './projectFile'
 import { detectPlaybackDolphin, detectMeleeIso } from './slippiDetect'
+import {
+  detectHardware,
+  detectHardwareSync,
+  freeDiskGB,
+  hardwareProfileOf,
+  type HardwareInfo,
+} from './hardware'
 import { config as defaultConfig } from '../constants/defaults'
-import { filtersConfig } from '../constants/config'
-import {
-  ArchiveInterface,
-  ConfigInterface,
-  FilterInterface,
-  ShallowFilterInterface,
-  SavedCustomFilter,
-} from '../constants/types'
+
+import { ArchiveInterface, ConfigInterface } from '../constants/types'
 import Archive from '../models/Archive'
-import Filter from '../models/Filter'
+
+import { cleanupStaleTempDirs, scratchRootFor } from './diskSpace'
 import { setFFMPEGPathOverride } from './slpToVideo'
-import { getMetaData, createDB } from './db'
+
 import {
-  getTableCountAsync,
-  getFilterCountAsync,
-  getTableDurationAsync,
-  getAllIdsAsync,
-  deleteFilterRunAsync,
-  updateMetadataNameAsync,
-  updateMetadataPathAndNameAsync,
+  getMetaData,
+  createDBAsync,
+  closeDbAsync,
+  libraryCall,
 } from './dbAsync'
-import { closeDb } from './dbConnection'
-import { appendPerfEvents } from './perfLogger'
-import { logMain, logRenderer, getLogPath } from './logger'
-import { initTelemetry, track, applyUsageConsent } from './telemetry'
+
+import { setClientIdentity } from './clientIdentity'
+import { defaultLibraryFolder } from './dataLocations'
+import { approveOnce } from './customCodeApproval'
+import { logMain } from './logger'
+
+import { initTelemetry, reportStartupTelemetry } from './telemetry'
 import { migrateConfigTypes } from './configStore'
-import { RequestEnvelope, unpackRequest, reply } from './ipcUtils'
+import { startOwnerTools } from '../owner/main'
+
+import { RequestEnvelope, unpackRequest } from './ipcUtils'
+
+import type { FileSeen, GameHeader, LibraryEntry } from './replayLibrary'
+import type { MissingReport } from './missingReplays'
+
+import { LunarClip } from '../constants/clipSearch'
+
 import ConsoleManager from './managers/ConsoleManager'
 import ImportManager from './managers/ImportManager'
 import FilterExecutor from './managers/FilterExecutor'
 import VideoManager from './managers/VideoManager'
 import ClipManager from './managers/ClipManager'
 import CodeEditorManager from './managers/CodeEditorManager'
+import TransferManager from './managers/TransferManager'
+import { getSlpzPath } from './util'
 
-function getDefaultProjectDir(): string {
-  // User-created projects are documents — keep them where users actually browse
-  // (a "Lunar Clipper" folder under Documents), consistently on every platform,
-  // not buried in a hidden config/data dir.
-  return path.resolve(app.getPath('documents'), 'Lunar Clipper')
-}
+import { pruneSlpCache } from './slpCache'
 
-// Sensible default filter-thread count from the user's CPU: leave ~2 cores for
-// the UI + DB worker, capped to keep per-worker memory in check.
-function autoFilterThreads(): number {
-  const cores = os.cpus().length || 2
-  return Math.min(Math.max(cores - 2, 1), 8)
-}
+import OverviewService from './controller/overview'
+import type { ControllerCore } from './controller/context'
+import { getDefaultProjectDir, autoFilterThreads } from './controller/helpers'
+import {
+  getConfig,
+  setDefaultOutputPath,
+  updateConfig,
+  resetConfig,
+  resetApp,
+  hasDevBackup,
+  restoreDevBackup,
+} from './controller/ipcConfig'
+import {
+  getArchive,
+  createNewArchive,
+  getDirectory,
+  openExistingArchive,
+  closeArchive,
+  openMyReplays,
+  newProject,
+  saveAsArchive,
+  getRecentProjects,
+  openRecentProject,
+} from './controller/projects'
+import {
+  addFilter,
+  applyStarterChain,
+  removeFilter,
+  saveCustomFilter,
+  deleteCustomFilter,
+  reorderFilter,
+  updateFilter,
+} from './controller/filters'
+import {
+  getResults,
+  getSelectionDuration,
+  getTableDuration,
+  getFilterCount,
+  getNames,
+  getConnectCodes,
+} from './controller/results'
+import { compactProject } from './controller/compaction'
+import {
+  moveReplayLibrary,
+  addLunarClips,
+  detectorCache,
+  extractReplays,
+} from './controller/libraryTools'
+import {
+  startMissingCheck,
+  publishMissing,
+  getMissingReplays,
+  missingReplaysAction,
+} from './controller/missingReplays'
+import {
+  createCpuScan,
+  createLastFrameScan,
+  getLastFrameScanStatus,
+  lastFrameScanAction,
+  getCpuScanStatus,
+  cpuScanAction,
+} from './controller/scans'
+import {
+  getPath,
+  logPerfEvents,
+  debugLog,
+  logRendererError,
+  readReplayFile,
+  getClipTrack,
+  openFolder,
+  openDolphinFolder,
+  openLogsFolder,
+  getLogsPath,
+  exportLogs,
+  getAppVersion,
+  openExternal,
+} from './controller/ipcMisc'
 
-export default class Controller {
+export default class Controller implements ControllerCore {
+  /** Overview reads in progress, saving to the disk cache as they go (controller/overview.ts). */
+  private overview = new OverviewService(this)
+
   mainWindow: BrowserWindow
   configDir: string
   configPath: string
+  // Pre-preview config saved by the dev "reset to new user" (see resetApp).
+  devBackupPath: string
   // Serializes config writes so the ~20 fire-and-forget saveConfig() callers
   // can't interleave and corrupt the JSON file.
-  private configWriteChain: Promise<void> = Promise.resolve()
+  configWriteChain: Promise<void> = Promise.resolve()
   archive: ArchiveInterface | null
   private archiveVersion = 0
   config: ConfigInterface
   nameCountWorker: Worker | null
-  private countWorkerExecArgv?: string[]
+  countWorkerExecArgv?: string[]
 
   // Fired once, the first time the renderer requests the archive (i.e. once it
   // has mounted and registered its IPC listeners). main.ts uses this to safely
   // flush an OS-initiated "open this .lunar file" without racing the renderer.
   onRendererReady: (() => void) | null = null
 
-  private rendererReadyFired = false
+  rendererReadyFired = false
+
+  // First run waits (briefly) for the graphics check before handing the
+  // renderer its config, so the recording settings it shows are the picked ones.
+  hardwareReady: Promise<void> = Promise.resolve()
 
   // Managers
   consoleManager: ConsoleManager
@@ -92,12 +177,29 @@ export default class Controller {
   videoManager: VideoManager
   clipManager: ClipManager
   codeEditorManager: CodeEditorManager
+  transferManager: TransferManager
 
   constructor(mainWindow: BrowserWindow) {
     this.mainWindow = mainWindow
+    // In-app dialogs (askRenderer.ts): shown once the page has mounted.
+    ipcMain.on('dialogReady', () => dialogHub.setReady(true))
+    ipcMain.on('dialogReply', (_event: IpcMainEvent, data?: unknown) => {
+      const r = (data ?? {}) as {
+        id?: string
+        response?: number
+        checkboxChecked?: boolean
+      }
+      if (typeof r.id === 'string')
+        dialogHub.reply(r.id, Number(r.response), !!r.checkboxChecked)
+    })
+    mainWindow.webContents.on('did-start-loading', () =>
+      dialogHub.setReady(false),
+    )
+    mainWindow.on('closed', () => dialogHub.windowClosed(mainWindow))
     this.configDir = path.resolve(app.getPath('appData'), 'lm-clipper')
     if (!fs.existsSync(this.configDir)) fs.mkdirSync(this.configDir)
     this.configPath = path.resolve(this.configDir, 'lm-clipper.json')
+    this.devBackupPath = `${this.configPath}.dev-backup`
     const isFirstRun = !fs.existsSync(this.configPath)
     if (isFirstRun)
       fs.writeFileSync(this.configPath, JSON.stringify(defaultConfig, null, 2))
@@ -117,10 +219,21 @@ export default class Controller {
       loadedConfig = {}
     }
     this.config = { ...defaultConfig, ...loadedConfig }
+    // Fast Draft became Recording Format: someone who had it on keeps drafts.
+    if (
+      (loadedConfig as { fastDraft?: boolean }).fastDraft === true &&
+      !('recordingFormat' in loadedConfig)
+    )
+      this.config.recordingFormat = 'draft'
     if (isFirstRun) {
+      // A fresh install has nothing to catch up on: "What's new" starts at this version.
+      this.config.lastSeenVersion = app.getVersion()
       // First run: pick a sensible filter-thread count from the user's CPU.
       // (Video/Dolphin parallelism stays conservative; set separately.)
       this.config.numFilterThreads = autoFilterThreads()
+      // Recording settings for this computer from its threads and memory now;
+      // the graphics check (async) refines them just below.
+      this.applyHardwarePicks(detectHardwareSync())
       // And auto-detect their existing Slippi setup (Playback Dolphin + the ISO
       // path they already configured in the Slippi Launcher) so they never have
       // to set it up — if found, the setup wizard won't even appear.
@@ -146,10 +259,36 @@ export default class Controller {
     if (!this.config.installId) {
       this.config.installId = randomUUID()
     }
+    // The one-time `install` ping stays pending on disk until the server
+    // acknowledges it (see reportStartupTelemetry), so a first launch with no
+    // network or a quit before the notice does not lose it for good.
+    if (isFirstRun) this.config.installPingPending = true
+    // Every call to lunarmelee.com carries the app version (never the install id).
+    setClientIdentity({ version: app.getVersion() })
     this.saveConfig()
     if (this.config.ffmpegPath) {
       setFFMPEGPathOverride(this.config.ffmpegPath)
     }
+    // First run: pick recording settings with the graphics known too. Later
+    // runs that predate hardwareProfile just record it (for Settings' warnings)
+    // and keep the user's settings.
+    if (isFirstRun || !this.config.hardwareProfile) {
+      const apply = isFirstRun
+      this.hardwareReady = detectHardware(this.config.outputPath)
+        .then((hw) => {
+          if (apply) this.applyHardwarePicks(hw)
+          else this.config.hardwareProfile = hardwareProfileOf(hw)
+          logMain('hardware', this.config.hardwareProfile)
+          this.saveConfig()
+        })
+        .catch((err) => logMain('hardware detection failed', err))
+    }
+    // Dolphin temp folders a crashed or killed recording left behind.
+    cleanupStaleTempDirs(
+      this.config.scratchPath
+        ? { scratchRoots: [scratchRootFor(this.config)] }
+        : {},
+    ).catch((err) => logMain('cleanupStaleTempDirs failed', err))
     this.archive = null
     this.nameCountWorker = null
     this.countWorkerExecArgv = getWorkerExecArgv()
@@ -167,8 +306,10 @@ export default class Controller {
     }
 
     this.importManager = new ImportManager(mainWindow, {
+      getLibrary: () => this.library(),
       getConfig: () => this.config,
       getConfigPath: () => this.configPath,
+      saveConfig: () => this.saveConfig(),
       getArchive: () => this.archive,
       setArchive: setArchiveWithVersion,
       getArchiveVersion: () => this.archiveVersion,
@@ -176,10 +317,31 @@ export default class Controller {
       consoleManager: this.consoleManager,
     })
 
+    // Decoded .slpz copies for Dolphin from earlier sessions (main/slpCache.ts).
+    pruneSlpCache().catch(() => {})
+
+    this.transferManager = new TransferManager(mainWindow, {
+      configDir: this.configDir,
+      getArchive: () => this.archive,
+      ensureProject: () => this.autoCreateUntitledProject(),
+      getSlpzBinary: () => this.config.slpzPath || getSlpzPath(),
+      getLibrary: () => this.library(),
+      // Downloaded replays may be ones a project was missing.
+      onCompleted: () => startMissingCheck(this),
+      addClips: (projectPath, clips, pathByReplayId) =>
+        this.addLunarClips(projectPath, clips, pathByReplayId),
+      importer: this.importManager,
+      console: this.consoleManager,
+    })
+
     this.filterExecutor = new FilterExecutor(mainWindow, {
+      // A finished run's table is ready: cache its overview for the tray.
+      onFilterDone: (filterId) => {
+        this.overview.warmOverview(filterId).catch(() => {})
+      },
+      getLibraryFolder: () => this.library().folder,
       getArchive: () => this.archive,
       setArchive: setArchiveWithVersion,
-      getArchiveVersion: () => this.archiveVersion,
       getConfig: () => this.config,
       consoleManager: this.consoleManager,
     })
@@ -194,34 +356,30 @@ export default class Controller {
     this.clipManager = new ClipManager(mainWindow, {
       getArchive: () => this.archive,
       setArchive: setArchiveWithVersion,
+      // Deleting replays from the Replays tray forgets them here too.
+      getLibraryFolder: () => this.library().folder,
+      getMyReplaysPath: () => this.defaultWorkspacePath(),
     })
 
     this.codeEditorManager = new CodeEditorManager(mainWindow, {
       getArchive: () => this.archive,
       getConfig: () => this.config,
-      getConfigPath: () => this.configPath,
       saveConfig: () => {
         this.saveConfig()
       },
     })
 
     // Anonymous usage telemetry (opt-out: Settings → Send Anonymous Usage Data).
-    initTelemetry({ getConfig: () => this.config })
-    this.reportStartupTelemetry(isFirstRun)
+    initTelemetry({
+      getConfig: () => this.config,
+      saveConfig: () => {
+        this.saveConfig()
+      },
+    })
+    reportStartupTelemetry(app.getVersion())
   }
 
-  // Fire the install (once-ever) + app_open (once-per-day) usage events.
-  private reportStartupTelemetry(isFirstRun: boolean) {
-    if (isFirstRun) track('install')
-    const today = new Date().toISOString().slice(0, 10)
-    if (this.config.lastUsagePing !== today) {
-      this.config.lastUsagePing = today
-      this.saveConfig()
-      track('app_open')
-    }
-  }
-
-  private saveConfig(): Promise<void> {
+  saveConfig(): Promise<void> {
     // Queue behind any in-flight write (serialize), and write atomically via a
     // temp file + rename so a crash mid-write can never leave a truncated/
     // corrupt config. Each queued write serializes the then-current config.
@@ -230,7 +388,8 @@ export default class Controller {
       .then(async () => {
         const data = JSON.stringify(this.config, null, 2)
         const tmp = `${this.configPath}.tmp`
-        await fsPromises.writeFile(tmp, data)
+        // 0600: the config can hold private keys.
+        await fsPromises.writeFile(tmp, data, { mode: 0o600 })
         await fsPromises.rename(tmp, this.configPath)
       })
       .catch((err: { message?: string }) => {
@@ -239,7 +398,64 @@ export default class Controller {
     return this.configWriteChain
   }
 
-  private setArchiveInternal(a: ArchiveInterface | null) {
+  // Come up on a just-replaced config as if the app had started with it. Waits
+  // for the config write first. Packaged: a true process restart. Dev
+  // (electronmon): a process relaunch doesn't reliably come back, so reopen the
+  // config's last project (none after a reset) and reload the window; the
+  // renderer re-fetches config and archive.
+  async restartIntoConfig() {
+    await this.configWriteChain
+    if (app.isPackaged) {
+      app.relaunch()
+      app.exit(0)
+      return
+    }
+    await this.initArchive()
+    this.mainWindow.webContents.reload()
+  }
+
+  /** The replay library (main/replayLibrary.ts), on the DB worker thread. */
+  library() {
+    const folder = this.config.replayLibraryPath || defaultLibraryFolder()
+    return {
+      folder,
+      // New downloads are stored as .slpz (Settings > Paths; lib/slpz.ts).
+      compress: this.config.keepDownloadsCompressed !== false,
+      lookup: (replayIds: string[], fileHashes: string[]) =>
+        libraryCall('libraryLookup', folder, replayIds, fileHashes),
+      register: (entries: LibraryEntry[]) =>
+        libraryCall('libraryRegister', folder, entries),
+      headers: (files: FileSeen[]) =>
+        libraryCall('libraryHeaders', folder, files),
+      record: (files: (FileSeen & { header: GameHeader })[]) =>
+        libraryCall('libraryRecordHeaders', folder, files),
+      summary: () => libraryCall('librarySummary', folder),
+    }
+  }
+
+  /** Move the replay library to a new folder (controller/libraryTools.ts). */
+  async moveReplayLibrary(event: IpcMainEvent, data?: RequestEnvelope<string>) {
+    return moveReplayLibrary(this, event, data)
+  }
+
+  /** Find clips › Add to project, last step (TransferManager; controller/libraryTools.ts). */
+  async addLunarClips(
+    projectPath: string,
+    clips: LunarClip[],
+    pathByReplayId: Record<string, string>,
+  ): Promise<{ added: number; unavailable: number }> {
+    return addLunarClips(this, projectPath, clips, pathByReplayId)
+  }
+
+  /** File › Extract Replays… (controller/libraryTools.ts). */
+  async extractReplays(kind: 'files' | 'folder') {
+    return extractReplays(this, kind)
+  }
+
+  /** Project file being compacted; it can't be opened until that finishes. */
+  compactingPath: string | null = null
+
+  setArchiveInternal(a: ArchiveInterface | null) {
     this.archive = a
     this.archiveVersion += 1
     this.updateWindowTitle()
@@ -247,7 +463,11 @@ export default class Controller {
 
   // Reload the archive model from a project's DB and make it current. Returns
   // the metadata for callers that need it (e.g. to reply or read the name).
-  private async reloadArchiveFrom(archivePath: string) {
+  async reloadArchiveFrom(archivePath: string) {
+    if (this.compactingPath === archivePath)
+      throw new Error(
+        'This project is being compacted. Try again when it finishes.',
+      )
     const metadata = await getMetaData(archivePath)
     // The path persisted inside a project's metadata goes stale the moment the
     // file is moved or renamed. Always trust the path we actually opened from,
@@ -255,16 +475,54 @@ export default class Controller {
     // (getItems et al.) open — and silently recreate — an empty DB there.
     if (metadata) metadata.path = archivePath
     this.setArchiveInternal(new Archive(metadata))
+    startMissingCheck(this)
     return metadata
   }
 
-  private updateWindowTitle() {
+  // ── Replays missing from disk (docs/library-workspaces.md, Part D) ──
+
+  missingReport: MissingReport | null = null
+
+  missingWorker: Worker | null = null
+
+  // The missing-replay check and its IPC handlers: controller/missingReplays.ts
+
+  // ── CPU players in older games (lib/cpuPlayers.ts, CpuScanWorker.ts) ──
+
+  cpuScan = createCpuScan(this)
+
+  // ── Lengths of older anonymized games (lib/lastFrame.ts, LastFrameScanWorker.ts) ──
+
+  lastFrameScan = createLastFrameScan(this)
+
+  /**
+   * The background checks over the open project's games: `cpu` for games
+   * that don't have it (CpuScanWorker) and the length of anonymized games
+   * imported before Clipper read it (LastFrameScanWorker). Low priority,
+   * paused while an import or a filter runs, resume where they stopped next
+   * time. Nothing to do is quick.
+   */
+  startCpuScan() {
+    this.cpuScan.start(this.archive?.path)
+    this.lastFrameScan.start(this.archive?.path)
+  }
+
+  /** Stop the checks before their project is closed, copied or switched;
+   *  resolves once their connections to the project are gone. */
+  stopCpuScan(): Promise<void> {
+    return Promise.all([this.cpuScan.stop(), this.lastFrameScan.stop()]).then(
+      () => {},
+    )
+  }
+
+  updateWindowTitle() {
     if (this.mainWindow?.isDestroyed?.()) return
-    const name = this.archive?.name
+    const name = shownProjectName(this.archive?.name)
     this.mainWindow.setTitle(name ? `Lunar Clipper — ${name}` : 'Lunar Clipper')
   }
 
   cleanup() {
+    this.transferManager.cleanup()
     // Stop console polling
     this.consoleManager.cleanup()
 
@@ -279,12 +537,13 @@ export default class Controller {
 
     // Kill name count worker
     this.stopNameCountWorker()
+    this.stopCpuScan()
 
     // Close code editor window and clean up its IPC listeners
     this.codeEditorManager.cleanup()
   }
 
-  private addToRecentProjects(name: string, projectPath: string) {
+  addToRecentProjects(name: string, projectPath: string) {
     if (!this.config.recentProjects) this.config.recentProjects = []
     this.config.recentProjects = this.config.recentProjects.filter(
       (p) => p.path !== projectPath,
@@ -298,43 +557,68 @@ export default class Controller {
       this.config.recentProjects = this.config.recentProjects.slice(0, 10)
     }
     this.saveConfig()
+    this.onRecentsChanged?.()
   }
 
-  private removeFromRecentProjects(projectPath: string) {
+  /** The File > Open Recent menu is rebuilt when the list changes (main.ts). */
+  onRecentsChanged: (() => void) | null = null
+
+  removeFromRecentProjects(projectPath: string) {
     if (!this.config.recentProjects) return
+    queueMicrotask(() => this.onRecentsChanged?.())
     this.config.recentProjects = this.config.recentProjects.filter(
       (p) => p.path !== projectPath,
     )
     this.saveConfig()
   }
 
-  private getUntitledName(dir: string): string {
-    let name = 'Untitled'
+  /** "New Project", "New Project 2", … : the first name not taken in `dir`. */
+  getUntitledName(dir: string, base = 'Untitled'): string {
+    let name = base
     let counter = 1
     while (fs.existsSync(ensureProjectExt(path.resolve(dir, name)))) {
       counter += 1
-      name = `Untitled ${counter}`
+      name = `${base} ${counter}`
     }
     return name
   }
 
-  private async autoCreateUntitledProject() {
-    const docsDir = getDefaultProjectDir()
-    if (!fs.existsSync(docsDir)) fs.mkdirSync(docsDir, { recursive: true })
-    const name = this.getUntitledName(docsDir)
-    const metadata = await this.createNewArchiveInternal({
-      name,
-      location: docsDir,
-    })
+  /** The default workspace: quick imports land here when no project is open
+   *  (docs/library-workspaces.md, Part B). Kept in app data, out of Documents;
+   *  Save As… makes a named project file anywhere. */
+  defaultWorkspacePath() {
+    return path.join(app.getPath('userData'), 'Workspaces', 'My Replays.lunar')
+  }
+
+  /** Open "My Replays", creating it the first time. (Imports and downloads
+   *  with no project open used to create a new Untitled N.lunar each time.) */
+  async autoCreateUntitledProject() {
+    const workspace = this.defaultWorkspacePath()
+    if (!fs.existsSync(workspace)) {
+      fs.mkdirSync(path.dirname(workspace), { recursive: true })
+      return this.createNewArchiveInternal({
+        name: DEFAULT_PROJECT_NAME,
+        location: path.dirname(workspace),
+      })
+    }
+    this.stopNameCountWorker()
+    await this.stopCpuScan()
+    await closeDbAsync()
+    const metadata = await this.reloadArchiveFrom(workspace)
+    this.config.lastArchivePath = workspace
+    this.config.projectName = metadata.name
+    this.saveConfig()
+    this.addToRecentProjects(metadata.name, workspace)
     return metadata
   }
 
-  private async createNewArchiveInternal(payload: {
+  async createNewArchiveInternal(payload: {
     name?: string
     location?: string
   }) {
     this.stopNameCountWorker()
-    closeDb()
+    await this.stopCpuScan()
+    await closeDbAsync()
     const newArchivePath = ensureProjectExt(
       path.resolve(
         payload.location || getDefaultProjectDir(),
@@ -343,10 +627,10 @@ export default class Controller {
     )
     const displayName = projectDisplayName(newArchivePath)
 
-    await createDB(
+    await createDBAsync(
       newArchivePath,
       displayName,
-      this.config.includeDefaultFilters !== false,
+      this.config.includeDefaultFilters === true,
     )
     const metadata = await this.reloadArchiveFrom(newArchivePath)
 
@@ -371,32 +655,59 @@ export default class Controller {
         this.updateWindowTitle()
         return
       } catch (e) {
-        console.error('error fetching from last archive path')
+        // The file is there but would not open this time (an antivirus or sync
+        // client holding it, a lingering instance). Start on the start screen
+        // but keep the path: the next start tries again instead of forgetting
+        // the project (launch review REL-5).
+        logMain('could not open the last project, keeping it for next time', e)
+        this.setArchiveInternal(null)
+        return
       }
     }
 
-    // Stale path — clear it
+    // The file is gone: clear the stale path
     console.log('Last archive path not found, clearing')
     this.config.lastArchivePath = null
     this.saveConfig()
     this.setArchiveInternal(null)
   }
 
-  async getConfig(event: IpcMainEvent, data?: RequestEnvelope<null>) {
-    const { requestId } = unpackRequest<null>(data)
-    reply(event, 'config', requestId, this.config)
+  /** Apply the recording settings picked for this hardware, and remember it. */
+  applyHardwarePicks(hw: HardwareInfo) {
+    const profile = hardwareProfileOf(hw)
+    Object.assign(this.config, profile.picked)
+    this.config.hardwareProfile = profile
   }
 
-  async setDefaultOutputPath(
-    event: IpcMainEvent,
-    data?: RequestEnvelope<null>,
-  ) {
-    const { requestId } = unpackRequest<null>(data)
-    this.ensureDefaultOutputPath()
-    reply(event, 'setDefaultOutputPath', requestId, this.config.outputPath)
+  /** Detect the hardware again and apply its picks (Reset, Settings button). */
+  async pickSettingsForThisComputer() {
+    try {
+      this.applyHardwarePicks(await detectHardware(this.config.outputPath))
+    } catch (err) {
+      logMain('hardware detection failed', err)
+      this.applyHardwarePicks(detectHardwareSync())
+    }
+    await this.refreshFreeDisk()
+    logMain('hardware picks applied', this.config.hardwareProfile)
   }
 
-  private ensureDefaultOutputPath() {
+  /** Free space at the output and temp folders, for Settings' disk note. */
+  async refreshFreeDisk() {
+    const hp = this.config.hardwareProfile
+    if (!hp) return
+    const scratch = this.config.scratchPath || os.tmpdir()
+    const [out, tmp] = await Promise.all([
+      freeDiskGB(this.config.outputPath),
+      freeDiskGB(scratch),
+    ])
+    this.config.hardwareProfile = {
+      ...hp,
+      freeDiskGB: out,
+      scratchFreeDiskGB: tmp,
+    }
+  }
+
+  ensureDefaultOutputPath() {
     if (!this.config.outputPath) {
       this.config.outputPath = path.join(
         app.getPath('videos') || app.getPath('home'),
@@ -406,163 +717,11 @@ export default class Controller {
     }
   }
 
-  async updateConfig(
-    event: IpcMainEvent,
-    data: RequestEnvelope<{
-      key: string
-      value: string | number | boolean | null | string[]
-    }>,
-  ) {
-    const { requestId, payload } = unpackRequest<{
-      key: string
-      value: string | number | boolean | null
-    }>(data)
-    if (!payload) {
-      return reply(event, 'updateConfig', requestId)
-    }
-    const applyValue = () => {
-      this.config[payload.key] = payload.value
-    }
-    if (payload.key === 'sendAnonymousUsage') {
-      // This one setting reports its own change. applyUsageConsent owns the
-      // before/after-the-flip ordering that makes that work — don't inline it.
-      applyUsageConsent(
-        this.config.sendAnonymousUsage !== false,
-        payload.value !== false,
-        applyValue,
-      )
-    } else {
-      applyValue()
-    }
-
-    if (payload.key === 'ffmpegPath') {
-      setFFMPEGPathOverride(payload.value as string)
-    }
-    this.saveConfig()
-    return reply(event, 'updateConfig', requestId)
-  }
-
-  async getArchive(event: IpcMainEvent, data?: RequestEnvelope<null>) {
-    const { requestId } = unpackRequest<null>(data)
-    if (this.archive) {
-      try {
-        this.stopNameCountWorker()
-        const metadata = await this.reloadArchiveFrom(this.archive.path)
-        this.updateWindowTitle()
-        reply(event, 'archive', requestId, metadata)
-      } catch (error) {
-        console.error('Error loading archive metadata:', error)
-        this.setArchiveInternal(null)
-        this.config.lastArchivePath = null
-        this.saveConfig()
-        reply(event, 'archive', requestId)
-      }
-    } else {
-      reply(event, 'archive', requestId)
-    }
-
-    // The renderer has mounted and registered its listeners by the time it
-    // first asks for the archive — safe point to flush a pending OS file open.
-    if (!this.rendererReadyFired) {
-      this.rendererReadyFired = true
-      this.onRendererReady?.()
-    }
-  }
-
-  async createNewArchive(
-    event: IpcMainEvent,
-    data: RequestEnvelope<{ name?: string; location?: string }>,
-  ) {
-    try {
-      const { requestId, payload } = unpackRequest<{
-        name?: string
-        location?: string
-      }>(data)
-      const metadata = await this.createNewArchiveInternal(payload || {})
-      reply(event, 'createNewArchive', requestId, metadata)
-    } catch (error) {
-      const { requestId } = unpackRequest<{
-        name?: string
-        location?: string
-      }>(data)
-      reply(event, 'createNewArchive', requestId, { error: true, info: error })
-    }
-  }
-
-  async getDirectory(event: IpcMainEvent, data?: RequestEnvelope<null>) {
-    const { requestId } = unpackRequest<null>(data)
-    try {
-      const { canceled, filePaths } = await dialog.showOpenDialog(
-        this.mainWindow,
-        {
-          properties: ['openDirectory'],
-          defaultPath: this.config.lastArchivePath
-            ? this.config.lastArchivePath
-            : '',
-        },
-      )
-      if (canceled) return reply(event, 'directory', requestId)
-      return reply(event, 'directory', requestId, filePaths[0])
-    } catch (error) {
-      console.error('[getDirectory] error:', error)
-      return reply(event, 'directory', requestId)
-    }
-  }
-
-  async openExistingArchive(event: IpcMainEvent, data?: RequestEnvelope<null>) {
-    const { requestId } = unpackRequest<null>(data)
-    try {
-      const { canceled, filePaths } = await dialog.showOpenDialog(
-        this.mainWindow,
-        {
-          properties: ['openFile'],
-          filters: [
-            { name: 'Lunar Clipper Project', extensions: ['lunar'] },
-            { name: 'All Files', extensions: ['*'] },
-          ],
-          defaultPath: this.config.lastArchivePath
-            ? path.dirname(this.config.lastArchivePath)
-            : undefined,
-        },
-      )
-      if (canceled) return reply(event, 'openExistingArchive', requestId)
-
-      this.stopNameCountWorker()
-      closeDb()
-      try {
-        await this.reloadArchiveFrom(filePaths[0])
-        this.updateWindowTitle()
-      } catch (e) {
-        console.error('Error opening archive', e)
-        return reply(event, 'openExistingArchive', requestId, {
-          error: 'Failed to open given filepath',
-        })
-      }
-
-      if (!this.archive || !this.archive.shallowCopy)
-        throw new Error('Something went wrong :(')
-
-      // Fix legacy projects whose name is still "Untitled"
-      if (/^Untitled(\s\d+)?$/.test(this.archive.name)) {
-        const derivedName = projectDisplayName(filePaths[0])
-        await updateMetadataNameAsync(filePaths[0], derivedName)
-        this.archive.name = derivedName
-      }
-
-      this.config.lastArchivePath = this.archive.path
-      this.config.projectName = this.archive.name
-      this.saveConfig()
-      this.addToRecentProjects(this.archive.name, this.archive.path)
-      const metadata = await this.archive.shallowCopy()
-      return reply(event, 'openExistingArchive', requestId, metadata)
-    } catch (error) {
-      return reply(event, 'openExistingArchive', requestId, { error })
-    }
-  }
-
-  async closeArchive(event: IpcMainEvent, data?: RequestEnvelope<null>) {
-    const { requestId } = unpackRequest<null>(data)
+  /** Close the open project: its work stops first, then its database. */
+  /** Stop what is bound to the open project (before its database closes). */
+  private async stopProjectWork() {
     this.stopNameCountWorker()
+    this.stopCpuScan()
     // Abort any in-flight work bound to this project BEFORE closing its DB.
     // Otherwise a running import/filter worker keeps writing to a DB we're
     // closing (and the main getDb() would silently reopen the old path on its
@@ -570,7 +729,44 @@ export default class Controller {
     this.videoManager.cleanup()
     this.filterExecutor.cleanup()
     this.importManager.cleanup()
-    closeDb()
+    this.missingWorker?.terminate()
+    publishMissing(this, null)
+    await this.stopCpuScan()
+  }
+
+  /**
+   * Before any other project is opened, created or saved as: if a filter, import
+   * or recording is running for the open one, ask, and stop it. Without this a
+   * .lunar double-click mid-run opened the new project under the old run, whose
+   * results then landed in (or were marked done for) the wrong project
+   * (launch review REL-2). False: the user chose to keep working.
+   */
+  async prepareProjectSwitch(): Promise<boolean> {
+    if (!this.archive) return true
+    const running: string[] = []
+    if (this.filterExecutor.runningFilterIds.size > 0) running.push('a filter')
+    if (this.importManager.importInProgress) running.push('an import')
+    if (this.videoManager.activeVideoJob) running.push('a recording')
+    if (running.length) {
+      const { response } = await askDialog(this.mainWindow, {
+        type: 'question',
+        title: 'Switch project?',
+        message: `${running.join(' and ')} ${running.length > 1 ? 'are' : 'is'} still running in this project.`,
+        detail:
+          'Opening another project stops it. Results already saved stay; a filter can be resumed.',
+        buttons: ['Stop it and switch', 'Keep working here'],
+        defaultId: 1,
+        cancelId: 1,
+      })
+      if (response !== 0) return false
+    }
+    await this.stopProjectWork()
+    return true
+  }
+
+  async closeCurrentProject() {
+    await this.stopProjectWork()
+    await closeDbAsync()
     this.setArchiveInternal(null)
     this.config.lastArchivePath = null
     this.saveConfig()
@@ -580,728 +776,21 @@ export default class Controller {
       total: null,
       queueLength: 0,
     })
-    return reply(event, 'closeArchive', requestId)
   }
 
-  async newProject(event: IpcMainEvent, data?: RequestEnvelope<null>) {
-    const { requestId } = unpackRequest<null>(data)
-    try {
-      // Auto-create an "Untitled" project immediately — no save dialog. Matches
-      // the relaxed, expected flow (and the auto-create-on-import behavior).
-      // The user renames / relocates later via Save As. New projects land next
-      // to the last one (or in the default project dir for a fresh user).
-      const location = this.config.lastArchivePath
-        ? path.dirname(this.config.lastArchivePath)
-        : getDefaultProjectDir()
-      if (!fs.existsSync(location)) fs.mkdirSync(location, { recursive: true })
-      const name = this.getUntitledName(location)
-      logMain('newProject: auto-creating', { name, location })
-      const metadata = await this.createNewArchiveInternal({ name, location })
-      logMain('newProject: created successfully')
-      return reply(event, 'newProject', requestId, metadata)
-    } catch (error) {
-      logMain('newProject: error', error)
-      return reply(event, 'newProject', requestId, { error: true, info: error })
-    }
+  /** File > Compact Project… (controller/compaction.ts). */
+  async compactProject() {
+    return compactProject(this)
   }
 
-  async saveAsArchive(event: IpcMainEvent, data?: RequestEnvelope<null>) {
-    const { requestId } = unpackRequest<null>(data)
-    if (!this.archive) {
-      return reply(event, 'saveAsArchive', requestId, {
-        error: 'No project open',
-      })
-    }
-
-    // Parent the dialog to the main window. A parentless dialog on
-    // Linux/X11 isn't transient-for the app, so GNOME can spawn it behind
-    // the window with its filename-autocomplete popup floating detached.
-    const { canceled, filePath: rawPath } = await dialog.showSaveDialog(
-      this.mainWindow,
-      {
-        title: 'Save Project As',
-        // Suggest a complete filename *with* the .lunar extension. Passing
-        // the bare display name ("Untitled 6") left the GTK save dialog's
-        // name field holding a prefix that matches the sibling
-        // "Untitled *.lunar" files, so it popped an autocomplete dropdown
-        // over the field on open — which read as a "strange non-functional
-        // menu". A finished name has nothing to autocomplete against.
-        defaultPath: path.resolve(
-          path.dirname(this.archive.path),
-          ensureProjectExt(this.archive.name),
-        ),
-        filters: [{ name: 'Lunar Clipper Project', extensions: ['lunar'] }],
-      },
-    )
-    if (canceled || !rawPath) {
-      return reply(event, 'saveAsArchive', requestId)
-    }
-
-    const newPath = ensureProjectExt(rawPath)
-    try {
-      const oldPath = this.archive.path
-      this.stopNameCountWorker()
-      closeDb()
-      await fsPromises.copyFile(oldPath, newPath)
-
-      // Update the stored path and name inside the DB
-      const newName = projectDisplayName(newPath)
-      await updateMetadataPathAndNameAsync(newPath, newPath, newName)
-
-      await this.reloadArchiveFrom(newPath)
-      this.updateWindowTitle()
-
-      this.config.lastArchivePath = newPath
-      this.config.projectName = newName
-      this.saveConfig()
-      this.addToRecentProjects(newName, newPath)
-
-      const shallow = await this.archive.shallowCopy!()
-      return reply(event, 'saveAsArchive', requestId, shallow)
-    } catch (error) {
-      console.error('Error saving project as:', error)
-      return reply(event, 'saveAsArchive', requestId, {
-        error: true,
-        info: error,
-      })
-    }
-  }
-
-  async getRecentProjects(event: IpcMainEvent, data?: RequestEnvelope<null>) {
-    const { requestId } = unpackRequest<null>(data)
-    const recents = (this.config.recentProjects || []).filter((p) =>
-      fs.existsSync(p.path),
-    )
-    // Update stored list to remove stale entries
-    if (recents.length !== (this.config.recentProjects || []).length) {
-      this.config.recentProjects = recents
-      this.saveConfig()
-    }
-    return reply(event, 'getRecentProjects', requestId, recents)
-  }
-
-  async openRecentProject(event: IpcMainEvent, data: RequestEnvelope<string>) {
-    const { requestId, payload: projectPath } = unpackRequest<string>(data)
-    if (!projectPath || !fs.existsSync(projectPath)) {
-      if (projectPath) this.removeFromRecentProjects(projectPath)
-      return reply(event, 'openRecentProject', requestId, {
-        error: 'Project file not found',
-      })
-    }
-
-    try {
-      this.stopNameCountWorker()
-      closeDb()
-      await this.reloadArchiveFrom(projectPath)
-      this.updateWindowTitle()
-      if (!this.archive || !this.archive.shallowCopy) {
-        throw new Error('Failed to load project')
-      }
-      // Fix legacy projects whose name is still "Untitled"
-      if (/^Untitled(\s\d+)?$/.test(this.archive.name)) {
-        const derivedName = path.basename(projectPath)
-        await updateMetadataNameAsync(projectPath, derivedName)
-        this.archive.name = derivedName
-      }
-
-      this.config.lastArchivePath = projectPath
-      this.config.projectName = this.archive.name
-      this.saveConfig()
-      this.addToRecentProjects(this.archive.name, projectPath)
-      const shallow = await this.archive.shallowCopy()
-      return reply(event, 'openRecentProject', requestId, shallow)
-    } catch (error) {
-      console.error('Error opening recent project:', error)
-      return reply(event, 'openRecentProject', requestId, {
-        error: true,
-        info: error,
-      })
-    }
-  }
-
-  async addFilter(event: IpcMainEvent, data: RequestEnvelope<string>) {
-    const { requestId, payload } = unpackRequest<string>(data)
-    if (!this.archive) {
-      try {
-        await this.createNewArchiveInternal({
-          name: this.config.projectName || undefined,
-        })
-      } catch (error) {
-        console.error('Error creating default DB:', error)
-      }
-    }
-    if (!this.archive || !this.archive.shallowCopy || !this.archive.addFilter)
-      return reply(event, 'addFilter', requestId, {
-        error: 'archive undefined',
-      })
-    if (payload === 'default') {
-      return reply(event, 'addFilter', requestId, {
-        error: 'invalid filter type',
-      })
-    }
-
-    // Handle saved custom templates: "customTemplate:INDEX"
-    const isCustomTemplate = payload?.startsWith('customTemplate:')
-    const filterType = isCustomTemplate ? 'custom' : payload
-    const template = filtersConfig.find((p) => p.id === filterType)
-    if (!template) {
-      throw Error(`Invalid Filter Type ${payload}`)
-    }
-
-    const existingIds = new Set(this.archive.filters.map((f) => f.id))
-    let newFilterId: string
-    do {
-      const randomNum = Math.floor(1000 + Math.random() * 90000)
-      newFilterId = `filter_${randomNum}`
-    } while (existingIds.has(newFilterId))
-
-    const newFilterJSON: FilterInterface = {
-      id: newFilterId,
-      results: 0,
-      type: template.id,
-      isProcessed: false,
-      label: template.label,
-      params: {},
-    }
-    template.options.forEach((option) => {
-      newFilterJSON.params[option.id] = option.default
-    })
-    if (template.id === 'sort') {
-      const hasParser = this.archive.filters.some((f) => f.type === 'slpParser')
-      if (!hasParser) {
-        newFilterJSON.params.sortFunction = 'chronological'
-      }
-    }
-
-    // Pre-fill from saved custom template
-    if (isCustomTemplate) {
-      const templateIndex = parseInt(payload!.split(':')[1], 10)
-      const saved = this.config.savedCustomFilters?.[templateIndex]
-      if (saved) {
-        newFilterJSON.label = saved.name
-        newFilterJSON.params.code = saved.code
-        if (saved.customParams) {
-          newFilterJSON.params.customParams = JSON.parse(
-            JSON.stringify(saved.customParams),
-          )
-        }
-        if (saved.outputFields) {
-          newFilterJSON.params.outputFields = JSON.parse(
-            JSON.stringify(saved.outputFields),
-          )
-        }
-      }
-    }
-
-    try {
-      await this.archive.addFilter(newFilterJSON)
-      const metadata = await this.archive.shallowCopy()
-      return reply(event, 'addFilter', requestId, metadata)
-    } catch (error) {
-      console.error('[addFilter] error:', error)
-      return reply(event, 'addFilter', requestId, {
-        error: error instanceof Error ? error.message : String(error),
-      })
-    }
-  }
-
-  // Build a fresh filter JSON of `type` with its config-default params (plus any
-  // overrides), assigning a unique id. Mirrors the defaulting in addFilter.
-  private buildFilterJSON(
-    type: string,
-    existingIds: Set<string>,
-    paramOverrides?: Record<string, any>,
-  ): FilterInterface {
-    const template = filtersConfig.find((p) => p.id === type)
-    if (!template) throw new Error(`Invalid Filter Type ${type}`)
-    let newFilterId: string
-    do {
-      const randomNum = Math.floor(1000 + Math.random() * 90000)
-      newFilterId = `filter_${randomNum}`
-    } while (existingIds.has(newFilterId))
-    existingIds.add(newFilterId)
-    const json: FilterInterface = {
-      id: newFilterId,
-      results: 0,
-      type: template.id,
-      isProcessed: false,
-      label: template.label,
-      params: {},
-    }
-    template.options.forEach((option) => {
-      json.params[option.id] = option.default
-    })
-    if (paramOverrides) Object.assign(json.params, paramOverrides)
-    return json
-  }
-
-  // First-run starter picker (ProjectIdeas modal). Replaces the downstream chain
-  // with a purpose-built one for the chosen goal, keeping the base Game Filter.
-  async applyStarterChain(event: IpcMainEvent, data: RequestEnvelope<string>) {
-    const { requestId, payload } = unpackRequest<string>(data)
-    if (!this.archive) {
-      try {
-        await this.createNewArchiveInternal({
-          name: this.config.projectName || undefined,
-        })
-      } catch (error) {
-        console.error('Error creating default DB:', error)
-      }
-    }
-    if (
-      !this.archive ||
-      !this.archive.shallowCopy ||
-      !this.archive.replaceDownstreamFilters
-    )
-      return reply(event, 'applyStarterChain', requestId, {
-        error: 'archive undefined',
-      })
-
-    const CHAINS: Record<
-      string,
-      Array<{ type: string; params?: Record<string, any> }>
-    > = {
-      combos: [
-        { type: 'slpParser' },
-        { type: 'comboFilter' },
-        { type: 'sort', params: { sortFunction: 'dps' } },
-      ],
-      edgeguards: [
-        { type: 'edgeguard' },
-        { type: 'edgeguardFilter' },
-        { type: 'sort', params: { sortFunction: 'edgeguardScore' } },
-      ],
-      custom: [{ type: 'custom' }],
-    }
-    const spec = payload ? CHAINS[payload] : undefined
-    if (!spec)
-      return reply(event, 'applyStarterChain', requestId, {
-        error: `unknown starter chain: ${payload}`,
-      })
-
-    const existingIds = new Set(this.archive.filters.map((f) => f.id))
-    try {
-      const downstream = spec.map((s) =>
-        this.buildFilterJSON(s.type, existingIds, s.params),
-      )
-      await this.archive.replaceDownstreamFilters(downstream)
-      const metadata = await this.archive.shallowCopy()
-      return reply(event, 'applyStarterChain', requestId, metadata)
-    } catch (error) {
-      console.error('[applyStarterChain] error:', error)
-      return reply(event, 'applyStarterChain', requestId, {
-        error: error instanceof Error ? error.message : String(error),
-      })
-    }
-  }
-
-  async removeFilter(event: IpcMainEvent, data: RequestEnvelope<string>) {
-    const { requestId, payload } = unpackRequest<string>(data)
-    if (
-      !this.archive ||
-      !this.archive.shallowCopy ||
-      !this.archive.deleteFilter
-    ) {
-      return reply(event, 'removeFilter', requestId, {
-        error: 'archive undefined',
-      })
-    }
-
-    const target = this.archive.filters.find((filter) => filter.id === payload)
-    if (target?.type === 'files') {
-      return reply(event, 'removeFilter', requestId, {
-        error: 'cannot remove game filter',
-      })
-    }
-
-    try {
-      if (payload) {
-        const _t0 = Date.now()
-        await deleteFilterRunAsync(this.archive.path, payload)
-        console.log(`[removeFilter] deleteFilterRun took ${Date.now() - _t0}ms`)
-        const _t1 = Date.now()
-        await this.archive.deleteFilter(payload)
-        console.log(`[removeFilter] deleteFilter took ${Date.now() - _t1}ms`)
-      }
-      const _t2 = Date.now()
-      const metadata = await this.archive.shallowCopy()
-      console.log(`[removeFilter] shallowCopy took ${Date.now() - _t2}ms`)
-      return reply(event, 'removeFilter', requestId, metadata)
-    } catch (error) {
-      console.error('[removeFilter] error:', error)
-      return reply(event, 'removeFilter', requestId, {
-        error: error instanceof Error ? error.message : String(error),
-      })
-    }
-  }
-
-  // removeGame, removeResult, reorderClips → ClipManager
-
-  async saveCustomFilter(
-    event: IpcMainEvent,
-    data: RequestEnvelope<{
-      name: string
-      code: string
-      customParams?: { name: string; type: string; value: string }[]
-      outputFields?: { name: string; type: string }[]
-    }>,
-  ) {
-    const { requestId, payload } = unpackRequest<{
-      name: string
-      code: string
-      customParams?: { name: string; type: string; value: string }[]
-      outputFields?: { name: string; type: string }[]
-    }>(data)
-    if (!payload?.name || !payload?.code) {
-      return reply(event, 'saveCustomFilter', requestId, {
-        error: 'missing name or code',
-      })
-    }
-    if (!this.config.savedCustomFilters) {
-      this.config.savedCustomFilters = []
-    }
-    // Update existing template with same name, or add new
-    const existing = this.config.savedCustomFilters.findIndex(
-      (t) => t.name === payload.name,
-    )
-    // IPC-payload boundary: assert the renderer-sent param `type` strings back
-    // to the SavedCustomFilter union.
-    const entry = {
-      name: payload.name,
-      code: payload.code,
-      customParams: payload.customParams,
-      outputFields: payload.outputFields,
-    } as SavedCustomFilter
-    if (existing >= 0) {
-      this.config.savedCustomFilters[existing] = entry
-    } else {
-      this.config.savedCustomFilters.push(entry)
-    }
-    this.saveConfig()
-    return reply(event, 'saveCustomFilter', requestId, {
-      savedCustomFilters: this.config.savedCustomFilters,
-    })
-  }
-
-  async deleteCustomFilter(event: IpcMainEvent, data: RequestEnvelope<number>) {
-    const { requestId, payload } = unpackRequest<number>(data)
-    if (
-      !this.config.savedCustomFilters ||
-      typeof payload !== 'number' ||
-      payload < 0 ||
-      payload >= this.config.savedCustomFilters.length
-    ) {
-      return reply(event, 'deleteCustomFilter', requestId, {
-        error: 'invalid index',
-      })
-    }
-    this.config.savedCustomFilters.splice(payload, 1)
-    this.saveConfig()
-    return reply(event, 'deleteCustomFilter', requestId, {
-      savedCustomFilters: this.config.savedCustomFilters,
-    })
-  }
-
-  async reorderFilter(
-    event: IpcMainEvent,
-    data: RequestEnvelope<{ fromIndex: number; toIndex: number }>,
-  ) {
-    const { requestId, payload } = unpackRequest<{
-      fromIndex: number
-      toIndex: number
-    }>(data)
-    if (!payload) {
-      return reply(event, 'reorderFilter', requestId, {
-        error: 'missing payload',
-      })
-    }
-    if (!this.archive || !this.archive.shallowCopy) {
-      return reply(event, 'reorderFilter', requestId, {
-        error: 'archive undefined',
-      })
-    }
-
-    const { fromIndex, toIndex } = payload
-    const filters = this.archive.filters
-
-    // Validate indices
-    if (
-      fromIndex < 1 ||
-      toIndex < 1 ||
-      fromIndex >= filters.length ||
-      toIndex >= filters.length ||
-      fromIndex === toIndex
-    ) {
-      return reply(event, 'reorderFilter', requestId, {
-        error: 'invalid indices',
-      })
-    }
-
-    // Splice: remove from old position, insert at new position
-    const [moved] = filters.splice(fromIndex, 1)
-    filters.splice(toIndex, 0, moved)
-
-    // A filter may only read from `files` or a filter ABOVE it. If a move turned
-    // an explicit inputId into a forward (or self) reference, drop it so the
-    // filter reverts to reading from the card directly above it.
-    for (let i = 0; i < filters.length; i += 1) {
-      const inputId = filters[i].inputId
-      if (!inputId || inputId === 'files') continue
-      const sourceIdx = filters.findIndex((f) => f.id === inputId)
-      if (sourceIdx === -1 || sourceIdx >= i) {
-        delete filters[i].inputId
-      }
-    }
-
-    // Mark all filters from the earliest affected index onward as unprocessed
-    const start = Math.min(fromIndex, toIndex)
-    for (let i = start; i < filters.length; i += 1) {
-      filters[i].isProcessed = false
-      filters[i].results = 0
-    }
-
-    // Reset parser-dependent params for filters that no longer have a parser above them
-    const hasParserAbove = (idx: number) =>
-      filters.slice(0, idx).some((f) => f.type === 'slpParser')
-
-    for (let i = 0; i < filters.length; i += 1) {
-      if (hasParserAbove(i)) continue
-      const fc = filtersConfig.find((c) => c.id === filters[i].type)
-      if (!fc?.options) continue
-      for (const opt of fc.options as any[]) {
-        if (opt.requiresParser && filters[i].params?.[opt.id] !== undefined) {
-          filters[i].params[opt.id] = opt.default ?? ''
-        }
-        if (
-          opt.type === 'dropdown' &&
-          opt.options &&
-          filters[i].params?.[opt.id]
-        ) {
-          const selected = opt.options.find(
-            (e: any) => e.id === filters[i].params[opt.id],
-          )
-          if (selected?.requiresParser) {
-            filters[i].params[opt.id] = opt.default ?? ''
-          }
-        }
-      }
-    }
-
-    try {
-      if (this.archive.saveMetaData) await this.archive.saveMetaData()
-      return reply(
-        event,
-        'reorderFilter',
-        requestId,
-        await this.archive.shallowCopy(),
-      )
-    } catch (error) {
-      console.error('[reorderFilter] error:', error)
-      return reply(event, 'reorderFilter', requestId, {
-        error: error instanceof Error ? error.message : String(error),
-      })
-    }
-  }
-
-  async updateFilter(
-    event: IpcMainEvent,
-    data: RequestEnvelope<{
-      filterIndex: number
-      newFilter: ShallowFilterInterface
-    }>,
-  ) {
-    const { requestId, payload } = unpackRequest<{
-      filterIndex: number
-      newFilter: ShallowFilterInterface
-    }>(data)
-    if (!payload) {
-      return reply(event, 'updateFilter', requestId, {
-        error: 'missing payload',
-      })
-    }
-    const { newFilter, filterIndex } = payload
-    if (!this.archive || !this.archive.shallowCopy)
-      return reply(event, 'updateFilter', requestId, {
-        error: 'archive undefined',
-      })
-    try {
-      this.archive.filters[filterIndex] = new Filter({
-        ...newFilter,
-        isProcessed: false,
-        results: 0,
-      })
-      // Invalidate only filters that read from this one (transitively). In a
-      // linear chain that's everything below; with branches it leaves unrelated
-      // branches alone.
-      const editedId = this.archive.filters[filterIndex].id
-      const descendants = getDescendantIds(
-        this.archive.filters,
-        editedId,
-        this.config.branchingEnabled === true,
-      )
-      this.archive.filters.forEach((filter) => {
-        if (descendants.has(filter.id)) {
-          filter.isProcessed = false
-          filter.results = 0
-        }
-      })
-      if (this.archive.saveMetaData) await this.archive.saveMetaData()
-      return reply(
-        event,
-        'updateFilter',
-        requestId,
-        await this.archive.shallowCopy(),
-      )
-    } catch (error) {
-      console.error('[updateFilter] error:', error)
-      return reply(event, 'updateFilter', requestId, {
-        error: error instanceof Error ? error.message : String(error),
-      })
-    }
-  }
-
-  async getResults(
-    event: IpcMainEvent,
-    data: RequestEnvelope<{
-      filterId: string
-      currentPage?: number
-      numPerPage?: number
-      offset?: number
-      limit?: number
-      lite?: boolean
-    }>,
-  ) {
-    const { requestId, payload } = unpackRequest<{
-      filterId: string
-      currentPage?: number
-      numPerPage?: number
-      offset?: number
-      limit?: number
-      lite?: boolean
-    }>(data)
-    if (!this.archive || !this.archive.getItems || !payload) {
-      return reply(event, 'getResults', requestId, { items: [], total: 0 })
-    }
-    const { filterId, numPerPage, currentPage, offset, limit, lite } = payload
-    console.log('Selected filter: ', filterId)
-
-    try {
-      // Use the already-known cached count instead of a fresh COUNT(*). On a
-      // 48M-row table that scan is ~30s and was running on EVERY page fetch,
-      // blocking the whole tray. The count is already in the in-memory archive
-      // (hydrated on open); only fall back to a live count if it's unknown.
-      const cachedTotal =
-        filterId === 'files'
-          ? this.archive.files
-          : this.archive.filters.find((f) => f.id === filterId)?.results
-      const [items, total] = await Promise.all([
-        this.archive.getItems({
-          filterId,
-          numPerPage,
-          currentPage,
-          offset,
-          limit,
-          lite,
-        }),
-        typeof cachedTotal === 'number'
-          ? Promise.resolve(cachedTotal)
-          : getTableCountAsync(this.archive.path, filterId),
-      ])
-      reply(event, 'getResults', requestId, { items, total })
-    } catch (error) {
-      console.error('Error fetching results:', error)
-      reply(event, 'getResults', requestId, { items: [], total: 0 })
-    }
-  }
-
-  async getAllResultIds(
-    event: IpcMainEvent,
-    data: RequestEnvelope<{ filterId: string }>,
-  ) {
-    const { requestId, payload } = unpackRequest<{ filterId: string }>(data)
-    if (!this.archive || !payload?.filterId) {
-      return reply(event, 'getAllResultIds', requestId, [])
-    }
-    try {
-      const ids = await getAllIdsAsync(this.archive.path, payload.filterId)
-      return reply(event, 'getAllResultIds', requestId, ids)
-    } catch (error) {
-      console.error('[getAllResultIds] error:', error)
-      return reply(event, 'getAllResultIds', requestId, [])
-    }
-  }
-
-  async getTableDuration(
-    event: IpcMainEvent,
-    data: RequestEnvelope<{ filterId: string }>,
-  ) {
-    const { requestId, payload } = unpackRequest<{ filterId: string }>(data)
-    if (!this.archive || !payload?.filterId) {
-      return reply(event, 'getTableDuration', requestId, 0)
-    }
-    try {
-      const total = await getTableDurationAsync(
-        this.archive.path,
-        payload.filterId,
-      )
-      return reply(event, 'getTableDuration', requestId, total)
-    } catch (error) {
-      console.error('[getTableDuration] error:', error)
-      return reply(event, 'getTableDuration', requestId, 0)
-    }
-  }
-
-  // Lazy count hydration: the renderer calls this per-filter after a project
-  // opens to fill in the result counts that getMetadata intentionally left null
-  // (so open never blocks on a full-table COUNT(*)). Runs in the DbWorker thread
-  // and caches the result for instant subsequent opens.
-  async getFilterCount(
-    event: IpcMainEvent,
-    data: RequestEnvelope<{ filterId: string }>,
-  ) {
-    const { requestId, payload } = unpackRequest<{ filterId: string }>(data)
-    if (!this.archive || !payload?.filterId) {
-      return reply(event, 'getFilterCount', requestId, {
-        filterId: payload?.filterId,
-        count: 0,
-      })
-    }
-    try {
-      const count = await getFilterCountAsync(
-        this.archive.path,
-        payload.filterId,
-      )
-      // Keep the in-memory archive's count in sync so getResults can use it
-      // instead of a fresh COUNT(*) on subsequent fetches.
-      if (this.archive) {
-        if (payload.filterId === 'files') {
-          this.archive.files = count
-        } else {
-          const f = this.archive.filters.find((x) => x.id === payload.filterId)
-          if (f) f.results = count
-        }
-      }
-      return reply(event, 'getFilterCount', requestId, {
-        filterId: payload.filterId,
-        count,
-      })
-    } catch (error) {
-      console.error('[getFilterCount] error:', error)
-      return reply(event, 'getFilterCount', requestId, {
-        filterId: payload.filterId,
-        count: 0,
-      })
-    }
-  }
-
-  private stopNameCountWorker() {
+  stopNameCountWorker() {
     if (!this.nameCountWorker) return
     const worker = this.nameCountWorker
     this.nameCountWorker = null
     worker.terminate().catch(() => {})
   }
 
-  private ensureNameCountWorker(): Worker {
+  ensureNameCountWorker(): Worker {
     if (this.nameCountWorker) return this.nameCountWorker
     if (!this.archive) throw new Error('No archive')
     const worker = new Worker(
@@ -1328,161 +817,101 @@ export default class Controller {
     return worker
   }
 
-  async getNames(event: IpcMainEvent, data?: RequestEnvelope<null>) {
-    const { requestId } = unpackRequest<null>(data)
-    if (!this.archive) return reply(event, 'getNames', requestId, [])
-
-    try {
-      const worker = this.ensureNameCountWorker()
-      const t0 = Date.now()
-      const result = await new Promise<{ name: string; total: number }[]>(
-        (resolve, reject) => {
-          const handler = (msg: any) => {
-            if (msg.type === 'names') {
-              worker.off('message', handler)
-              resolve(msg.data)
-            } else if (msg.type === 'error') {
-              worker.off('message', handler)
-              reject(new Error(msg.error))
-            }
-          }
-          worker.on('message', handler)
-          worker.postMessage({ type: 'getNames' })
-        },
-      )
-      console.log(
-        `[perf] getNames: ${Date.now() - t0}ms (${result.length} names)`,
-      )
-      return reply(event, 'getNames', requestId, result)
-    } catch (error) {
-      console.error('[NameCountWorker] getNames error:', error)
-      return reply(event, 'getNames', requestId, [])
-    }
-  }
-
-  async getConnectCodes(event: IpcMainEvent, data?: RequestEnvelope<null>) {
-    const { requestId } = unpackRequest<null>(data)
-    if (!this.archive) return reply(event, 'getConnectCodes', requestId, [])
-
-    try {
-      const worker = this.ensureNameCountWorker()
-      const t0 = Date.now()
-      const result = await new Promise<{ name: string; total: number }[]>(
-        (resolve, reject) => {
-          const handler = (msg: any) => {
-            if (msg.type === 'connectCodes') {
-              worker.off('message', handler)
-              resolve(msg.data)
-            } else if (msg.type === 'error') {
-              worker.off('message', handler)
-              reject(new Error(msg.error))
-            }
-          }
-          worker.on('message', handler)
-          worker.postMessage({ type: 'getConnectCodes' })
-        },
-      )
-      console.log(
-        `[perf] getConnectCodes: ${Date.now() - t0}ms (${result.length} codes)`,
-      )
-      return reply(event, 'getConnectCodes', requestId, result)
-    } catch (error) {
-      console.error('[NameCountWorker] getConnectCodes error:', error)
-      return reply(event, 'getConnectCodes', requestId, [])
-    }
-  }
-
-  async getPath(
-    event: IpcMainEvent,
-    data: RequestEnvelope<
-      | 'openFile'
-      | 'openDirectory'
-      | { type: 'openFile' | 'openDirectory'; defaultPath?: string }
-    >,
-  ) {
-    const { requestId, payload } = unpackRequest<
-      | 'openFile'
-      | 'openDirectory'
-      | { type: 'openFile' | 'openDirectory'; defaultPath?: string }
-    >(data)
-    const type =
-      typeof payload === 'string' ? payload : payload?.type || 'openFile'
-    const defaultPath =
-      typeof payload === 'object' ? payload?.defaultPath : undefined
-    const opts: OpenDialogOptions = { properties: [type] }
-    if (defaultPath) {
-      let resolved = defaultPath
-      if (resolved.startsWith('~')) {
-        resolved = path.join(os.homedir(), resolved.slice(1))
-      }
-      if (resolved.includes('%APPDATA%')) {
-        resolved = resolved.replace('%APPDATA%', app.getPath('appData') || '')
-      }
-      if (fs.existsSync(resolved)) {
-        opts.defaultPath = resolved
-      }
-    }
-    const { canceled, filePaths } = await dialog.showOpenDialog(
-      this.mainWindow,
-      opts,
-    )
-    if (canceled) return reply(event, 'getPath', requestId)
-    return reply(event, 'getPath', requestId, filePaths[0])
-  }
-
-  async logPerfEvents(_event: IpcMainEvent, data: RequestEnvelope<any>) {
-    try {
-      const { payload } = unpackRequest<any>(data)
-      const events = Array.isArray(payload) ? payload : payload?.events
-      if (!Array.isArray(events) || events.length === 0) return
-      await appendPerfEvents(events)
-    } catch (error) {
-      console.error('Perf log error:', error)
-    }
-  }
-
-  async debugLog(_event: IpcMainEvent, data: RequestEnvelope<any>) {
-    try {
-      const { payload } = unpackRequest<any>(data)
-      const lines = Array.isArray(payload) ? payload : []
-      if (lines.length === 0) return
-      const fsModule = await import('fs')
-      const pathModule = await import('path')
-      const logPath = pathModule.resolve(process.cwd(), 'logs', 'debug.log')
-      const logDir = pathModule.dirname(logPath)
-      if (!fsModule.existsSync(logDir))
-        fsModule.mkdirSync(logDir, { recursive: true })
-      fsModule.appendFileSync(logPath, `${lines.join('\n')}\n`)
-    } catch (error) {
-      console.error('Debug log error:', error)
-    }
-  }
-
-  async logRendererError(event: IpcMainEvent, data: RequestEnvelope<any>) {
-    const { requestId, payload } = unpackRequest<any>(data)
-    logRenderer(payload)
-    reply(event, 'rendererError', requestId)
-  }
-
   // openCodeEditor, openCodeEditorForTemplate, _openCodeEditorWindow → CodeEditorManager
 
   initiateListeners() {
-    ipcMain.on('getConfig', this.getConfig.bind(this))
-    ipcMain.on('updateConfig', this.updateConfig.bind(this))
-    ipcMain.on('setDefaultOutputPath', this.setDefaultOutputPath.bind(this))
-    ipcMain.on('getDirectory', this.getDirectory.bind(this))
-    ipcMain.on('getArchive', this.getArchive.bind(this))
-    ipcMain.on('getFilterCount', this.getFilterCount.bind(this))
+    ipcMain.on('getConfig', (event: IpcMainEvent, data: any) =>
+      getConfig(this, event, data),
+    )
+    ipcMain.on('getMissingReplays', (event: IpcMainEvent, data: any) =>
+      getMissingReplays(this, event, data),
+    )
+    ipcMain.on('getCpuScanStatus', (event: IpcMainEvent, data: any) =>
+      getCpuScanStatus(this, event, data),
+    )
+    ipcMain.on('cpuScanAction', (event: IpcMainEvent, data: any) =>
+      cpuScanAction(this, event, data),
+    )
+    ipcMain.on('getLastFrameScanStatus', (event: IpcMainEvent, data: any) =>
+      getLastFrameScanStatus(this, event, data),
+    )
+    ipcMain.on('lastFrameScanAction', (event: IpcMainEvent, data: any) =>
+      lastFrameScanAction(this, event, data),
+    )
+    ipcMain.on('moveReplayLibrary', (event: IpcMainEvent, data: any) =>
+      moveReplayLibrary(this, event, data),
+    )
+    ipcMain.on('detectorCache', (event: IpcMainEvent, data: any) =>
+      detectorCache(this, event, data),
+    )
+    ipcMain.on('extractReplays', (_event: IpcMainEvent, data?: unknown) => {
+      const { payload } = unpackRequest<{ kind?: string }>(data)
+      this.extractReplays(payload?.kind === 'folder' ? 'folder' : 'files')
+    })
+    ipcMain.on('missingReplaysAction', (event: IpcMainEvent, data: any) =>
+      missingReplaysAction(this, event, data),
+    )
+    ipcMain.on(
+      'databaseRequest',
+      this.transferManager.handle.bind(this.transferManager),
+    )
+    startOwnerTools(ipcMain, {
+      getConfig: () => this.config,
+      saveConfig: () => {
+        this.saveConfig()
+      },
+      getArchive: () => this.archive,
+      openProject: (projectPath: string) => {
+        if (!this.mainWindow.isDestroyed())
+          this.mainWindow.webContents.send('openRecentFromMenu', projectPath)
+      },
+      releaseProject: async (projectPath: string) => {
+        if (this.archive?.path !== projectPath) return
+        await this.closeCurrentProject()
+        if (!this.mainWindow.isDestroyed())
+          this.mainWindow.webContents.send('archiveUpdated', null)
+      },
+    })
+    ipcMain.on('updateConfig', (event: IpcMainEvent, data: any) =>
+      updateConfig(this, event, data),
+    )
+    ipcMain.on('setDefaultOutputPath', (event: IpcMainEvent, data: any) =>
+      setDefaultOutputPath(this, event, data),
+    )
+    ipcMain.on('getDirectory', (event: IpcMainEvent, data: any) =>
+      getDirectory(this, event, data),
+    )
+    ipcMain.on('getArchive', (event: IpcMainEvent, data: any) =>
+      getArchive(this, event, data),
+    )
+    ipcMain.on('getFilterCount', (event: IpcMainEvent, data: any) =>
+      getFilterCount(this, event, data),
+    )
     ipcMain.on(
       'getImportStatus',
       this.importManager.getImportStatusHandler.bind(this.importManager),
     )
-    ipcMain.on('createNewArchive', this.createNewArchive.bind(this))
-    ipcMain.on('openExistingArchive', this.openExistingArchive.bind(this))
-    ipcMain.on('newProject', this.newProject.bind(this))
-    ipcMain.on('saveAsArchive', this.saveAsArchive.bind(this))
-    ipcMain.on('getRecentProjects', this.getRecentProjects.bind(this))
-    ipcMain.on('openRecentProject', this.openRecentProject.bind(this))
+    ipcMain.on('createNewArchive', (event: IpcMainEvent, data: any) =>
+      createNewArchive(this, event, data),
+    )
+    ipcMain.on('openExistingArchive', (event: IpcMainEvent, data: any) =>
+      openExistingArchive(this, event, data),
+    )
+    ipcMain.on('newProject', (event: IpcMainEvent, data: any) =>
+      newProject(this, event, data),
+    )
+    ipcMain.on('openMyReplays', (event: IpcMainEvent, data: any) =>
+      openMyReplays(this, event, data),
+    )
+    ipcMain.on('saveAsArchive', (event: IpcMainEvent, data: any) =>
+      saveAsArchive(this, event, data),
+    )
+    ipcMain.on('getRecentProjects', (event: IpcMainEvent, data: any) =>
+      getRecentProjects(this, event, data),
+    )
+    ipcMain.on('openRecentProject', (event: IpcMainEvent, data: any) =>
+      openRecentProject(this, event, data),
+    )
     ipcMain.on(
       'addFilesManual',
       this.importManager.addFilesManual.bind(this.importManager),
@@ -1499,19 +928,45 @@ export default class Controller {
       'stopImport',
       this.importManager.stopImport.bind(this.importManager),
     )
-    ipcMain.on('closeArchive', this.closeArchive.bind(this))
-    ipcMain.on('addFilter', this.addFilter.bind(this))
-    ipcMain.on('applyStarterChain', this.applyStarterChain.bind(this))
-    ipcMain.on('updateFilter', this.updateFilter.bind(this))
-    ipcMain.on('reorderFilter', this.reorderFilter.bind(this))
-    ipcMain.on('removeFilter', this.removeFilter.bind(this))
-    ipcMain.on('saveCustomFilter', this.saveCustomFilter.bind(this))
-    ipcMain.on('deleteCustomFilter', this.deleteCustomFilter.bind(this))
-    ipcMain.on('getResults', this.getResults.bind(this))
-    ipcMain.on('getAllResultIds', this.getAllResultIds.bind(this))
-    ipcMain.on('getTableDuration', this.getTableDuration.bind(this))
-    ipcMain.on('getNames', this.getNames.bind(this))
-    ipcMain.on('getConnectCodes', this.getConnectCodes.bind(this))
+    ipcMain.on('closeArchive', (event: IpcMainEvent, data: any) =>
+      closeArchive(this, event, data),
+    )
+    ipcMain.on('addFilter', (event: IpcMainEvent, data: any) =>
+      addFilter(this, event, data),
+    )
+    ipcMain.on('applyStarterChain', (event: IpcMainEvent, data: any) =>
+      applyStarterChain(this, event, data),
+    )
+    ipcMain.on('updateFilter', (event: IpcMainEvent, data: any) =>
+      updateFilter(this, event, data),
+    )
+    ipcMain.on('reorderFilter', (event: IpcMainEvent, data: any) =>
+      reorderFilter(this, event, data),
+    )
+    ipcMain.on('removeFilter', (event: IpcMainEvent, data: any) =>
+      removeFilter(this, event, data),
+    )
+    ipcMain.on('saveCustomFilter', (event: IpcMainEvent, data: any) =>
+      saveCustomFilter(this, event, data),
+    )
+    ipcMain.on('deleteCustomFilter', (event: IpcMainEvent, data: any) =>
+      deleteCustomFilter(this, event, data),
+    )
+    ipcMain.on('getResults', (event: IpcMainEvent, data: any) =>
+      getResults(this, event, data),
+    )
+    ipcMain.on('getSelectionDuration', (event: IpcMainEvent, data: any) =>
+      getSelectionDuration(this, event, data),
+    )
+    ipcMain.on('getTableDuration', (event: IpcMainEvent, data: any) =>
+      getTableDuration(this, event, data),
+    )
+    ipcMain.on('getNames', (event: IpcMainEvent, data: any) =>
+      getNames(this, event, data),
+    )
+    ipcMain.on('getConnectCodes', (event: IpcMainEvent, data: any) =>
+      getConnectCodes(this, event, data),
+    )
     ipcMain.on(
       'runFilter',
       this.filterExecutor.runFilter.bind(this.filterExecutor),
@@ -1525,8 +980,8 @@ export default class Controller {
       this.filterExecutor.dismissFilterResume.bind(this.filterExecutor),
     )
     ipcMain.on(
-      'runFilters',
-      this.filterExecutor.runFilters.bind(this.filterExecutor),
+      'keepFilterResults',
+      this.filterExecutor.keepFilterResults.bind(this.filterExecutor),
     )
     ipcMain.on(
       'cancelRunningFilters',
@@ -1544,7 +999,9 @@ export default class Controller {
       'cancelFilter',
       this.filterExecutor.cancelFilter.bind(this.filterExecutor),
     )
-    ipcMain.on('getPath', this.getPath.bind(this))
+    ipcMain.on('getPath', (event: IpcMainEvent, data: any) =>
+      getPath(this, event, data),
+    )
     ipcMain.on(
       'detectDolphinPath',
       this.videoManager.detectDolphinPath.bind(this.videoManager),
@@ -1560,6 +1017,19 @@ export default class Controller {
     ipcMain.on(
       'validateDolphinPath',
       this.videoManager.validateDolphinPath.bind(this.videoManager),
+    )
+    // The tray's overview (docs/tray-v2.md): the next chunk of every row's id,
+    // stage and characters, for the far-out GPU view. The renderer pulls chunks.
+    ipcMain.on('getOverviewChunk', (event: IpcMainEvent, data: unknown) =>
+      this.overview.handleOverviewChunk(event, data),
+    )
+    // The full-zoom card's Watch panel: the replay file itself, for slippi-viewer.
+    ipcMain.on('readReplayFile', (event: IpcMainEvent, data: unknown) =>
+      readReplayFile(event, data),
+    )
+    // The full-zoom card's combo map: both players' positions during a clip.
+    ipcMain.on('getClipTrack', (event: IpcMainEvent, data: unknown) =>
+      getClipTrack(event, data),
     )
     ipcMain.on(
       'validateIsoPath',
@@ -1595,6 +1065,10 @@ export default class Controller {
     )
     ipcMain.on('removeGame', this.clipManager.removeGame.bind(this.clipManager))
     ipcMain.on(
+      'previewRemoveGames',
+      this.clipManager.previewRemoveGames.bind(this.clipManager),
+    )
+    ipcMain.on(
       'removeResult',
       this.clipManager.removeResult.bind(this.clipManager),
     )
@@ -1602,151 +1076,51 @@ export default class Controller {
       'reorderClips',
       this.clipManager.reorderClips.bind(this.clipManager),
     )
-    ipcMain.on('logPerfEvents', this.logPerfEvents.bind(this))
-    ipcMain.on('debugLog', this.debugLog.bind(this))
-    ipcMain.on('openFolder', (_event: IpcMainEvent, folderPath: string) => {
-      if (!folderPath) return
-      if (!fs.existsSync(folderPath)) {
-        console.error('openFolder: path does not exist:', folderPath)
-        return
-      }
-      shell.openPath(folderPath).then((err) => {
-        if (err) console.error('shell.openPath failed:', err)
-      })
-    })
+    ipcMain.on('logPerfEvents', (event: IpcMainEvent, data: any) =>
+      logPerfEvents(this, event, data),
+    )
+    ipcMain.on('debugLog', (event: IpcMainEvent, data: any) =>
+      debugLog(this, event, data),
+    )
+    ipcMain.on(
+      'openFolder',
+      (event: IpcMainEvent, arg: string | { path: string; create?: boolean }) =>
+        openFolder(event, arg),
+    )
     ipcMain.on(
       'openDolphinFolder',
-      (event: IpcMainEvent, data: RequestEnvelope<string>) => {
-        const { requestId, payload: rawPath } = unpackRequest<string>(data)
-        if (!rawPath) {
-          return reply(event, 'openDolphinFolder', requestId, {
-            found: false,
-          })
-        }
-        let resolved = rawPath
-        if (resolved.startsWith('~')) {
-          resolved = path.join(os.homedir(), resolved.slice(1))
-        }
-        if (resolved.includes('%APPDATA%')) {
-          resolved = resolved.replace('%APPDATA%', app.getPath('appData') || '')
-        }
-        if (!fs.existsSync(resolved)) {
-          return reply(event, 'openDolphinFolder', requestId, {
-            found: false,
-          })
-        }
-        shell.openPath(resolved).then((err) => {
-          if (err) console.error('shell.openPath failed:', err)
-        })
-        return reply(event, 'openDolphinFolder', requestId, { found: true })
-      },
+      (event: IpcMainEvent, data: RequestEnvelope<string>) =>
+        openDolphinFolder(event, data),
     )
-    ipcMain.on('getLogsPath', (event: IpcMainEvent) => {
-      event.reply('logsPath', getLogPath())
-    })
+    // "Run once" for custom code: this session only (customCodeApproval.ts).
+    ipcMain.on(
+      'approveCustomCodeOnce',
+      (_event: IpcMainEvent, hashes: unknown) => approveOnce(hashes),
+    )
+    ipcMain.on('openLogsFolder', () => openLogsFolder())
+    ipcMain.on('getLogsPath', (event: IpcMainEvent) => getLogsPath(event))
     ipcMain.on(
       'exportLogs',
-      async (event: IpcMainEvent, data: RequestEnvelope<null>) => {
-        const { requestId } = unpackRequest<null>(data)
-        try {
-          // eslint-disable-next-line global-require
-          const JSZip = require('jszip')
-          const logsDir = getLogPath()
-          const zip = new JSZip()
-          try {
-            await fsPromises.access(logsDir)
-            const files = await fsPromises.readdir(logsDir)
-            for (const file of files) {
-              const filePath = path.join(logsDir, file)
-              const stat = await fsPromises.stat(filePath)
-              if (stat.isFile()) {
-                zip.file(file, await fsPromises.readFile(filePath))
-              }
-            }
-          } catch (_) {
-            // logs dir doesn't exist or is empty
-          }
-          const downloadsDir = app.getPath('downloads')
-          const timestamp = new Date()
-            .toISOString()
-            .replace(/[:.]/g, '-')
-            .slice(0, 19)
-          const outPath = path.join(
-            downloadsDir,
-            `lm-clipper-logs-${timestamp}.zip`,
-          )
-          const buf = await zip.generateAsync({ type: 'nodebuffer' })
-          await fsPromises.writeFile(outPath, buf)
-          shell.showItemInFolder(outPath)
-          return reply(event, 'exportLogs', requestId, { path: outPath })
-        } catch (error) {
-          console.error('Export logs error:', error)
-          return reply(event, 'exportLogs', requestId, {
-            error: error instanceof Error ? error.message : String(error),
-          })
-        }
-      },
+      (event: IpcMainEvent, data: RequestEnvelope<null>) =>
+        exportLogs(event, data),
     )
-    ipcMain.on('getAppVersion', (event: IpcMainEvent) => {
-      event.reply('appVersion', app.getVersion())
-    })
-    ipcMain.on('resetConfig', (event: IpcMainEvent) => {
-      const preserveKeys = [
-        'recentProjects',
-        'lastArchivePath',
-        'ssbmIsoPath',
-        'dolphinPath',
-        'outputPath',
-        'defaultProjectDirectory',
-      ]
-      const preserved: Record<string, any> = {}
-      for (const key of preserveKeys) {
-        if (this.config[key] !== undefined) preserved[key] = this.config[key]
-      }
-      this.config = { ...defaultConfig, ...preserved }
-      this.saveConfig()
-      event.reply('config', this.config)
-    })
-    // Full factory reset: wipe ALL settings AND paths (no preserved keys) back
-    // to first-run defaults, then relaunch so the app comes up as a brand-new
-    // user. Projects on disk are NOT deleted — only the config. A one-shot
-    // backup of the pre-reset config is left next to it as a safety net.
-    ipcMain.on('resetApp', () => {
-      try {
-        if (fs.existsSync(this.configPath)) {
-          fs.copyFileSync(this.configPath, `${this.configPath}.bak`)
-        }
-      } catch (_) {
-        // best-effort backup; never block the reset on it
-      }
-      closeDb()
-      this.config = JSON.parse(JSON.stringify(defaultConfig))
-      this.config.numFilterThreads = autoFilterThreads()
-      this.config.dolphinPath = detectPlaybackDolphin() || ''
-      this.config.ssbmIsoPath = detectMeleeIso() || ''
-      this.saveConfig()
-      this.setArchiveInternal(null)
-      if (app.isPackaged) {
-        // Production: a true process restart → comes up as a fresh install.
-        app.relaunch()
-        app.exit(0)
-      } else {
-        // Dev (electronmon): a full process relaunch doesn't reliably come back,
-        // so reload the window into the fresh first-run state instead. Same
-        // visible result — the renderer re-fetches the now-default config and a
-        // null archive, landing on the new-user Start screen.
-        this.mainWindow.webContents.reload()
-      }
-    })
-    ipcMain.on('openExternal', (_event: IpcMainEvent, url: string) => {
-      if (
-        typeof url === 'string' &&
-        (url.startsWith('https://') || url.startsWith('http://'))
-      ) {
-        shell.openExternal(url)
-      }
-    })
-    ipcMain.on('rendererError', this.logRendererError.bind(this))
+    ipcMain.on('getAppVersion', (event: IpcMainEvent) => getAppVersion(event))
+    ipcMain.on('resetConfig', (event: IpcMainEvent, data?: unknown) =>
+      resetConfig(this, event, data),
+    )
+    ipcMain.on('resetApp', (event: IpcMainEvent, data?: any) =>
+      resetApp(this, event, data),
+    )
+    ipcMain.on('hasDevBackup', (event: IpcMainEvent) =>
+      hasDevBackup(this, event),
+    )
+    ipcMain.on('restoreDevBackup', () => restoreDevBackup(this))
+    ipcMain.on('openExternal', (event: IpcMainEvent, url: string) =>
+      openExternal(event, url),
+    )
+    ipcMain.on('rendererError', (event: IpcMainEvent, data: any) =>
+      logRendererError(this, event, data),
+    )
     ipcMain.on(
       'testDolphin',
       this.videoManager.testDolphin.bind(this.videoManager),

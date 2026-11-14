@@ -2,9 +2,13 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
   <dict>
+    <!-- Electron's V8 needs JIT and writable+executable memory under the hardened runtime. -->
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
     <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
     <true/>
-    <key>com.apple.security.cs.allow-jit</key>
+    <!-- Native modules (better-sqlite3, @napi-rs/canvas) are signed by their own authors, not our team. -->
+    <key>com.apple.security.cs.disable-library-validation</key>
     <true/>
   </dict>
 </plist>

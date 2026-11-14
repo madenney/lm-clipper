@@ -63,6 +63,7 @@
 
 .slpz-dir-input {
   flex: 1;
+  min-width: 0;
   padding: 6px 10px;
   background: #1a1a1a;
   border: 1px solid #333;

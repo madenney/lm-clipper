@@ -1,12 +1,19 @@
 import { app, BrowserWindow, IpcMainEvent, shell } from 'electron'
-import { spawn, execFile, ChildProcess } from 'child_process'
+import { execFile } from 'child_process'
 import crypto from 'crypto'
 import os from 'os'
 import path from 'path'
 import fs, { promises as fsPromises } from 'fs'
+import {
+  play,
+  dolphinStatus,
+  type PlayResult,
+  type RunnerWarning,
+} from 'slippi-dolphin-runner'
 import { characters } from '../../constants/characters'
 import { stages } from '../../constants/stages'
-import { GAME_START_FRAME, FRAME_MAX } from '../../constants/frames'
+import { GAME_START_FRAME } from '../../constants/frames'
+import { gameEndFrame } from '../../lib/lastFrame'
 import { track } from '../telemetry'
 import {
   ArchiveInterface,
@@ -22,6 +29,8 @@ import slpToVideo, {
   resolveFilenamePattern,
   concatClips,
   probeFilesInfo,
+  getEffectiveFFMPEGPath,
+  listConcatInputs,
 } from '../slpToVideo'
 import ManifestWriter, { ManifestData, ManifestClip } from '../manifestWriter'
 import { buildReplayVars } from '../../lib/overlayTokens'
@@ -29,12 +38,24 @@ import {
   detectPlaybackDolphin,
   detectMeleeIso,
   detectSlippiReplayDir,
+  resolveDolphinExecutable,
+  stripPathQuotes,
 } from '../slippiDetect'
-import { createOutputDirectory, getFFMPEGPath } from '../util'
-import { getMetaData } from '../db'
+import { createOutputDirectory } from '../util'
+import { dolphinTempRoot } from '../diskSpace'
+import { getMetaData, selectionIdsAsync } from '../dbAsync'
+import { Selection, type SelectionWire } from '../../lib/selection'
 import { logMain, getLogPath } from '../logger'
+import {
+  judgeTestRun,
+  dolphinErrorHint,
+  checkDolphinPath,
+} from '../dolphinCheck'
 import { RequestEnvelope, unpackRequest, reply } from '../ipcUtils'
+import { errorMessage, shownError } from '../errorText'
 import type ConsoleManager from './ConsoleManager'
+import { playableSlp } from '../slpCache'
+import { holdAwake } from '../powerSave'
 
 type ClipPayload = {
   path?: string
@@ -46,16 +67,53 @@ type ClipPayload = {
 const resolveClipFrames = (payload: ClipPayload) => {
   const hasStart =
     typeof payload.startFrame === 'number' && payload.startFrame !== 0
-  const hasEnd = typeof payload.endFrame === 'number' && payload.endFrame !== 0
+  // endFrame -123 is an older game row with no known length: no end.
+  const hasEnd =
+    typeof payload.endFrame === 'number' &&
+    payload.endFrame !== 0 &&
+    payload.endFrame > GAME_START_FRAME
   // hasStart/hasEnd already proved these are numbers; assert past the
   // separate-boolean narrowing limitation so the result is {number, number}.
   const startFrame = hasStart ? payload.startFrame! : GAME_START_FRAME
-  const endFrame = hasEnd
-    ? payload.endFrame!
-    : typeof payload.lastFrame === 'number' && payload.lastFrame > 0
-      ? payload.lastFrame
-      : FRAME_MAX
+  const endFrame = hasEnd ? payload.endFrame! : gameEndFrame(payload.lastFrame)
   return { startFrame, endFrame }
+}
+
+/**
+ * The rows a play or record names, in display order: a tray selection
+ * (lib/selection.ts; Select All is resolved here, never sent as ids) or a list of
+ * ids. Null when nothing is named.
+ */
+async function selectedItems(
+  archive: {
+    path: string
+    getItemsByIds?: (_filterId: string, _ids: number[]) => Promise<any[]>
+  },
+  filterId: string,
+  selection: SelectionWire | undefined,
+  selectedIds: string[] | undefined,
+): Promise<any[] | null> {
+  let ids: number[]
+  if (selection) {
+    const sel = Selection.fromWire(selection)
+    if (sel.isEmpty) return null
+    ids =
+      sel.explicitIds() ??
+      Array.from(await selectionIdsAsync(archive.path, filterId, selection))
+  } else {
+    ids = (selectedIds ?? [])
+      .map((id) => parseInt(id, 10))
+      .filter((n) => !Number.isNaN(n))
+  }
+  if (ids.length === 0) return null
+  return (await archive.getItemsByIds?.(filterId, ids)) ?? []
+}
+
+/** Remove a temp folder; Windows may still hold a file a moment after Dolphin exits. */
+async function rmDirWithRetries(dir: string) {
+  await fsPromises
+    .rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })
+    .catch((err) => logMain('could not remove temp folder', { dir, err }))
 }
 
 export default class VideoManager {
@@ -64,13 +122,16 @@ export default class VideoManager {
   private setArchive: (_archive: ArchiveInterface | null) => void
   private getConfig: () => ConfigInterface
   private consoleManager: ConsoleManager
+  /** The recording's entry in the console's status zone. */
+  private videoConsoleId: number | undefined
 
   activeVideoJob: VideoJobController | null
   // True when the current video job's promise rejection was caused by the user
   // pressing Stop/Cancel (vs a real ffmpeg/Dolphin failure) — lets us surface
   // genuine errors instead of silently swallowing them as "stopped".
   private videoStopRequested = false
-  activePlaybackProcess: ChildProcess | null
+  // The preview Dolphin running now; aborting it kills its whole tree.
+  activePlayback: AbortController | null
   playbackAborted: boolean
   activeTmpDirs: Set<string>
 
@@ -90,18 +151,71 @@ export default class VideoManager {
     this.consoleManager = deps.consoleManager
 
     this.activeVideoJob = null
-    this.activePlaybackProcess = null
+    this.activePlayback = null
     this.playbackAborted = false
     this.activeTmpDirs = new Set()
   }
 
+  /** A recording (the whole run, or one clip) is starting or running: a second
+   *  would orphan the first (Stop/Cancel only reach the stored job) and its
+   *  completion would end the wrong one's state (launch review CR-2). */
+  private recordingBusy = false
+
+  /** Say why a Record/Play is refused while one is running. */
+  private refuseWhileRecording(
+    event: IpcMainEvent,
+    channel: string,
+    requestId: string | undefined,
+  ) {
+    this.mainWindow.webContents.send(
+      'videoMsg',
+      'A recording is already running. Wait for it to finish, or stop it first.',
+    )
+    return reply(event, channel, requestId)
+  }
+
+  private get recordingActive() {
+    return this.recordingBusy || this.activeVideoJob !== null
+  }
+
   async generateVideo(
     event: IpcMainEvent,
-    data?: RequestEnvelope<{ filterId: string; selectedIds: string[] }>,
+    data?: RequestEnvelope<{
+      filterId: string
+      selectedIds?: string[]
+      selection?: SelectionWire
+    }>,
+  ) {
+    if (this.recordingActive)
+      return this.refuseWhileRecording(
+        event,
+        'generateVideo',
+        unpackRequest<unknown>(data).requestId,
+      )
+    this.recordingBusy = true
+    // Hours of recording: the computer must not sleep under it (a sleeping laptop
+    // makes Dolphin's frame clock jump and the clip is judged stalled).
+    const letSleep = holdAwake('recording')
+    try {
+      return await this.generateVideoInner(event, data)
+    } finally {
+      this.recordingBusy = false
+      letSleep()
+    }
+  }
+
+  private async generateVideoInner(
+    event: IpcMainEvent,
+    data?: RequestEnvelope<{
+      filterId: string
+      selectedIds?: string[]
+      selection?: SelectionWire
+    }>,
   ) {
     const { requestId, payload } = unpackRequest<{
       filterId: string
-      selectedIds: string[]
+      selectedIds?: string[]
+      selection?: SelectionWire
     }>(data)
     const archive = this.getArchive()
     if (!archive || !archive.getAllItems) {
@@ -152,7 +266,7 @@ export default class VideoManager {
       ...config,
       outputPath: outputDirectory,
       numProcesses: effectiveNumCPUs,
-      dolphinPath: path.resolve(dolphinPath),
+      dolphinPath: path.resolve(resolveDolphinExecutable(dolphinPath)),
       ssbmIsoPath: path.resolve(ssbmIsoPath),
       gameMusicOn: gameMusic,
       hideHud,
@@ -174,17 +288,14 @@ export default class VideoManager {
     this.setArchive(newArchive)
 
     const filterId = payload?.filterId || 'files'
-    const selectedIds = payload?.selectedIds || []
-
-    let finalResults: any[]
-    if (selectedIds.length > 0) {
-      const numericIds = selectedIds
-        .map((id) => parseInt(id, 10))
-        .filter((n) => !Number.isNaN(n))
-      finalResults = await newArchive.getItemsByIds(filterId, numericIds)
-    } else {
-      finalResults = await newArchive.getAllItems(filterId)
-    }
+    // Nothing chosen: every row.
+    let finalResults: any[] =
+      (await selectedItems(
+        newArchive,
+        filterId,
+        payload?.selection,
+        payload?.selectedIds,
+      )) ?? (await newArchive.getAllItems(filterId))
 
     if (!finalResults || finalResults.length === 0) {
       this.mainWindow.webContents.send('videoMsg', 'No clips to generate.')
@@ -199,11 +310,13 @@ export default class VideoManager {
         const hasStart =
           typeof result.startFrame === 'number' && result.startFrame !== 0
         const hasEnd =
-          typeof result.endFrame === 'number' && result.endFrame !== 0
+          typeof result.endFrame === 'number' &&
+          result.endFrame !== 0 &&
+          result.endFrame > GAME_START_FRAME
         const startFrame = hasStart ? result.startFrame : GAME_START_FRAME
         const endFrame = hasEnd
           ? result.endFrame
-          : (result as FileInterface).lastFrame || FRAME_MAX
+          : gameEndFrame((result as FileInterface).lastFrame)
 
         const adjustedStart = startFrame - addStartFrames
         const adjustedEnd = endFrame + addEndFrames
@@ -335,7 +448,10 @@ export default class VideoManager {
       'videoOutputPath',
       videoConfig.outputPath.replace(/\/+$/, ''),
     )
-    this.consoleManager.startConsole('recording', 'Recording')
+    this.videoConsoleId = this.consoleManager.startConsole(
+      'recording',
+      'Recording',
+    )
     this.videoStopRequested = false
 
     // Opt-in manifest: write the full skeleton up front so an interrupted
@@ -365,6 +481,7 @@ export default class VideoManager {
       },
       onClipEncoded,
       onClipFailed,
+      (note: string) => this.consoleManager.pushConsoleNote(note),
     )
     let stopped = false
     try {
@@ -375,16 +492,19 @@ export default class VideoManager {
       if (!this.videoStopRequested) {
         // A real ffmpeg/Dolphin failure, not a user Stop/Cancel — surface it
         // instead of letting the job silently vanish with no completion modal.
-        const m =
-          (err as { message?: string })?.message || 'Video generation failed'
-        this.mainWindow.webContents.send('videoMsg', `Error: ${m}`)
+        const m = errorMessage(err, 'Video generation failed')
+        // The recorder stops a run itself with a reason ("Stopped: disk full
+        // on …"); show that as is, anything else as "Error: <message>" once.
+        const shown = shownError(err, 'Video generation failed')
+        this.mainWindow.webContents.send('videoMsg', shown)
         this.consoleManager.pushConsoleLog(
           'error',
           `Video generation failed: ${m}`,
         )
       }
     } finally {
-      this.consoleManager.stopConsole()
+      this.consoleManager.stopConsole(this.videoConsoleId)
+      this.videoConsoleId = undefined
       this.activeVideoJob = null
       this.mainWindow.webContents.send('videoJobFinished')
       // Report clips from the last (un-checkpointed) chunk. Runs on every exit
@@ -409,15 +529,17 @@ export default class VideoManager {
     if (!stopped && videoConfig.outputPath) {
       try {
         const ext = videoConfig.convertToMp4 ? '.mp4' : '.avi'
-        const allFiles = (await fsPromises.readdir(videoConfig.outputPath))
-          .filter(
-            (f) =>
-              f.endsWith(ext) &&
-              !f.includes('-unmerged') &&
-              !f.includes('-merged'),
-          )
-          .sort()
-        const clips = allFiles.filter((f) => !f.startsWith('final'))
+        // The clips the run made (pattern subfolders included, kept masters
+        // and leftovers not), plus the joined final file when there is one.
+        const out = videoConfig.outputPath
+        const clips = (await listConcatInputs(out, ext)).map((f) =>
+          path.relative(out, f),
+        )
+        const hasFinal = await fsPromises
+          .stat(path.resolve(out, `final${ext}`))
+          .then(() => true)
+          .catch(() => false)
+        const allFiles = hasFinal ? [...clips, `final${ext}`] : clips
         let totalSize = 0
         for (const f of allFiles) {
           try {
@@ -442,7 +564,7 @@ export default class VideoManager {
           // `ffmpeg -i <file>` with no output file prints the container header
           // to stderr and then exits non-zero ("At least one output file must
           // be specified"). That exit code is expected — parse stderr either way.
-          const ffmpegBin = getFFMPEGPath()
+          const ffmpegBin = getEffectiveFFMPEGPath()
           const probeDuration = (file: string) =>
             new Promise<number | null>((resolve) => {
               execFile(
@@ -828,6 +950,28 @@ export default class VideoManager {
   }
 
   async recordClip(event: IpcMainEvent, data: RequestEnvelope<ClipPayload>) {
+    if (this.recordingActive)
+      return this.refuseWhileRecording(
+        event,
+        'recordClip',
+        unpackRequest<unknown>(data).requestId,
+      )
+    // A preview on screen gives way to the recording (they share Dolphin).
+    this.activePlayback?.abort()
+    this.recordingBusy = true
+    const letSleep = holdAwake('recording')
+    try {
+      return await this.recordClipInner(event, data)
+    } finally {
+      this.recordingBusy = false
+      letSleep()
+    }
+  }
+
+  private async recordClipInner(
+    event: IpcMainEvent,
+    data: RequestEnvelope<ClipPayload>,
+  ) {
     const { requestId, payload } = unpackRequest<ClipPayload>(data)
     if (!payload?.path) {
       this.mainWindow.webContents.send('videoMsg', 'No clip selected.')
@@ -886,7 +1030,7 @@ export default class VideoManager {
       ...config,
       outputPath: outputDirectory,
       numProcesses: effectiveNumCPUs,
-      dolphinPath: path.resolve(dolphinPath),
+      dolphinPath: path.resolve(resolveDolphinExecutable(dolphinPath)),
       ssbmIsoPath: path.resolve(ssbmIsoPath),
       gameMusicOn: gameMusic,
       hideHud,
@@ -919,16 +1063,20 @@ export default class VideoManager {
     }
 
     try {
-      const job = slpToVideo([replay], videoConfig, (msg: string) => {
-        this.mainWindow.webContents.send('videoMsg', msg)
-      })
+      const job = slpToVideo(
+        [replay],
+        videoConfig,
+        (msg: string) => {
+          this.mainWindow.webContents.send('videoMsg', msg)
+        },
+        undefined,
+        undefined,
+        (note: string) => this.consoleManager.pushConsoleNote(note),
+      )
       await job.promise
     } catch (error) {
       console.error('[recordClip] error:', error)
-      this.mainWindow.webContents.send(
-        'videoMsg',
-        `Error: ${error instanceof Error ? error.message : String(error)}`,
-      )
+      this.mainWindow.webContents.send('videoMsg', shownError(error))
     }
 
     return reply(event, 'recordClip', requestId)
@@ -936,21 +1084,33 @@ export default class VideoManager {
 
   async playClips(
     event: IpcMainEvent,
-    data: RequestEnvelope<{ filterId: string; selectedIds: string[] }>,
+    data: RequestEnvelope<{
+      filterId: string
+      selectedIds?: string[]
+      selection?: SelectionWire
+    }>,
   ) {
     const { payload } = unpackRequest<{
       filterId: string
-      selectedIds: string[]
+      selectedIds?: string[]
+      selection?: SelectionWire
     }>(data)
     const archive = this.getArchive()
-    if (!archive || !payload?.selectedIds?.length) return
+    if (!archive || !payload?.filterId) return
+    if (this.recordingActive) {
+      this.mainWindow.webContents.send(
+        'videoMsg',
+        'A recording is already running. Wait for it to finish, or stop it first.',
+      )
+      return
+    }
 
-    const numericIds = payload.selectedIds
-      .map((id) => parseInt(id, 10))
-      .filter((n) => !Number.isNaN(n))
-    if (numericIds.length === 0) return
-
-    const items = await archive.getItemsByIds?.(payload.filterId, numericIds)
+    const items = await selectedItems(
+      archive,
+      payload.filterId,
+      payload.selection,
+      payload.selectedIds,
+    )
     if (!items || items.length === 0) return
 
     const playable = items.filter(
@@ -978,13 +1138,7 @@ export default class VideoManager {
 
   stopPlayback() {
     this.playbackAborted = true
-    if (this.activePlaybackProcess) {
-      try {
-        this.activePlaybackProcess.kill()
-      } catch (_) {
-        // empty
-      }
-    }
+    this.activePlayback?.abort()
   }
 
   private async playClipAsync(
@@ -1033,166 +1187,96 @@ export default class VideoManager {
     const { addStartFrames, addEndFrames } = config
     const adjustedStart = startFrame - addStartFrames
     const adjustedEnd = endFrame + addEndFrames
-    const dolphinConfig = {
-      mode: 'normal',
+    const tmpDir = await fsPromises.mkdtemp(
+      path.join(dolphinTempRoot(), 'lm-clipper-'),
+    )
+    this.activeTmpDirs.add(tmpDir)
+    const removeTmp = () => {
+      rmDirWithRetries(tmpDir).finally(() => this.activeTmpDirs.delete(tmpDir))
+    }
+
+    // Isolated `--user` profile for this preview: a copy of the real profile
+    // with the playback overrides (resolution, gecko toggles, dump flags off),
+    // so watching a clip never changes the user's own Dolphin and never dumps.
+    const profileDir = path.resolve(tmpDir, 'profile')
+    try {
+      await buildPlaybackProfile(
+        { ...config, dolphinPath: resolveDolphinExecutable(dolphinPath) },
+        profileDir,
+      )
+    } catch (err) {
+      logMain('playClipAsync: failed to build playback profile', err)
+      const why = errorMessage(err)
+      reportError?.(`Error: could not prepare Dolphin for playback: ${why}`)
+      removeTmp()
+      return
+    }
+
+    // Dolphin plays only .slp: a .slpz gets a decoded copy (main/slpCache.ts).
+    let slpPath: string
+    try {
+      slpPath = await playableSlp(payload.path)
+    } catch (err) {
+      logMain('playClipAsync: could not decode replay', err)
+      reportError?.(`Error: Could not read replay ${payload.path}. `)
+      removeTmp()
+      return
+    }
+
+    // One preview at a time: a new clip replaces the one on screen.
+    this.activePlayback?.abort()
+    const playback = new AbortController()
+    this.activePlayback = playback
+    logMain('playClipAsync: playing', {
       replay: payload.path,
       startFrame: adjustedStart,
       endFrame: adjustedEnd,
-      isRealTimeMode: false,
-      commandId: crypto.randomBytes(12).toString('hex'),
-    }
-
-    const tmpDir = await fsPromises.mkdtemp(
-      path.join(os.tmpdir(), 'lm-clipper-'),
-    )
-    this.activeTmpDirs.add(tmpDir)
-    const filePath = path.resolve(tmpDir, 'dolphinConfig.json')
-    await fsPromises.writeFile(filePath, JSON.stringify(dolphinConfig))
-
-    // Isolated `--user` profile for this playback: copies the real profile's
-    // settings and applies the playback overrides (EFBScale, gecko toggles,
-    // dump flags OFF) to the COPIES — so previewing a clip never mutates the
-    // user's real Dolphin profile and never framedumps. Replaces the old
-    // updateEfbScale / writeGeckoCodes / setDolphinDumping + dtkdump cleanup,
-    // all of which wrote the real profile. See buildPlaybackProfile.
-    const profileDir = path.resolve(tmpDir, 'profile')
-    try {
-      await buildPlaybackProfile(config, profileDir)
-    } catch (err) {
-      logMain('playClipAsync: failed to build playback profile', err)
-    }
-
-    const args = [
-      '-i',
-      filePath,
-      ...(config.fullscreen !== false ? ['-b'] : []),
-      '-e',
-      path.resolve(ssbmIsoPath),
-      '--user',
-      profileDir,
-      '--cout',
-    ]
-
-    logMain('playClipAsync: spawning Dolphin', {
-      dolphinPath: path.resolve(dolphinPath),
-      args,
-      configJson: dolphinConfig,
     })
-
     try {
-      if (this.activePlaybackProcess) {
-        try {
-          this.activePlaybackProcess.kill()
-        } catch (_) {
-          // empty
-        }
-      }
-
-      const dolphinProcess = spawn(path.resolve(dolphinPath), args)
-      this.activePlaybackProcess = dolphinProcess
-
-      let dolphinStderr = ''
-      dolphinProcess.stderr.setEncoding('utf8')
-      dolphinProcess.stderr.on('data', (chunk: string) => {
-        dolphinStderr += chunk
-      })
-
-      dolphinProcess.on('error', (err) => {
-        logMain('playClipAsync: Dolphin spawn error', err)
-        reportError?.(
-          `Error launching Dolphin: ${err.message}. Check ${getLogPath()}/main.log`,
-        )
-      })
-
-      await new Promise<void>((resolve) => {
-        let targetEndFrame: number = Infinity
-        let staleTimer: ReturnType<typeof setTimeout> | null = null
-        const stdoutLines: string[] = []
-        let killedReason = ''
-        // Single settle path: a spawn 'error' can fire WITHOUT a later 'exit',
-        // which would otherwise leave this promise (and the whole playback
-        // queue) hung forever. Both 'exit' and 'error' funnel through finish().
-        let settled = false
-        const finish = () => {
-          if (settled) return
-          settled = true
-          if (staleTimer) clearTimeout(staleTimer)
-          if (this.activePlaybackProcess === dolphinProcess) {
-            this.activePlaybackProcess = null
-          }
-          fsPromises.unlink(filePath).catch(() => {})
-          fsPromises.rmdir(tmpDir).catch(() => {})
-          this.activeTmpDirs.delete(tmpDir)
-          resolve()
-        }
-        const resetStaleTimer = () => {
-          if (staleTimer) clearTimeout(staleTimer)
-          staleTimer = setTimeout(() => {
-            killedReason = 'stale timer (no CURRENT_FRAME for 1s)'
-            dolphinProcess.kill()
-          }, 1000)
-        }
-
-        dolphinProcess.stdout.setEncoding('utf8')
-        dolphinProcess.stdout.on('data', (chunk: string) => {
-          const lines = chunk.split('\r\n')
-          lines.forEach((line: string) => {
-            if (stdoutLines.length < 50 && line.trim()) {
-              stdoutLines.push(line)
-            }
-            if (line.includes('[PLAYBACK_END_FRAME]')) {
-              const match = /\[PLAYBACK_END_FRAME\] ([0-9]+)/.exec(line)
-              if (match?.[1])
-                targetEndFrame = Math.min(
-                  targetEndFrame,
-                  parseInt(match[1], 10),
-                )
-            } else if (line.includes('[GAME_END_FRAME]')) {
-              const match = /\[GAME_END_FRAME\] ([0-9]+)/.exec(line)
-              if (match?.[1])
-                targetEndFrame = Math.min(
-                  targetEndFrame,
-                  parseInt(match[1], 10),
-                )
-            } else if (
-              targetEndFrame !== Infinity &&
-              line.includes(`[CURRENT_FRAME] ${targetEndFrame}`)
-            ) {
-              killedReason = `reached target end frame ${targetEndFrame}`
-              dolphinProcess.kill()
-            } else if (line.includes('[CURRENT_FRAME]')) {
-              resetStaleTimer()
-            }
-          })
-        })
-
-        // Resolve on spawn error too, so a Dolphin that errors without exiting
-        // can't wedge the playback queue.
-        dolphinProcess.on('error', () => finish())
-        dolphinProcess.on('exit', (code, signal) => {
-          logMain('playClipAsync: Dolphin exited', {
-            code,
-            signal,
-            killedReason: killedReason || 'unknown',
-            stdoutLines,
-            stderr: dolphinStderr.slice(-2000),
-          })
-          if (code !== 0 && code !== null) {
-            reportError?.(
-              `Dolphin exited with code ${code}. Check ${getLogPath()}/main.log`,
-            )
-          }
-          finish()
-        })
+      // play() stops at the end frame (compared numerically), or when the
+      // stall watchdog fires; -b (exit with emulation) follows the fullscreen
+      // setting as before.
+      const res = await play(
+        {
+          dolphinPath: path.resolve(resolveDolphinExecutable(dolphinPath)),
+          isoPath: path.resolve(ssbmIsoPath),
+        },
+        slpPath,
+        {
+          userDir: profileDir,
+          commPath: path.resolve(tmpDir, 'dolphinConfig.json'),
+          startFrame: adjustedStart,
+          endFrame: adjustedEnd,
+          batch: config.fullscreen !== false,
+          signal: playback.signal,
+          onWarning: (w: RunnerWarning) =>
+            logMain('playClipAsync: dolphin-runner warning', w),
+        },
+      )
+      logMain('playClipAsync: done', {
+        stalled: res.stalled,
+        reason: res.diagnostic?.reason ?? null,
+        stderr: res.diagnostic?.stderrTail?.slice(-5),
       })
     } catch (err) {
-      logMain('playClipAsync: spawn failed', err)
-      reportError?.('Error: Failed to launch Dolphin.')
+      // An abort is the user moving on (Stop, or the next clip): not an error.
+      if (!playback.signal.aborted) {
+        logMain('playClipAsync: Dolphin failed', err)
+        reportError?.(
+          `Error launching Dolphin: ${(err as Error).message}. Check ${getLogPath()}/main.log`,
+        )
+      }
+    } finally {
+      if (this.activePlayback === playback) this.activePlayback = null
+      removeTmp()
     }
   }
 
   async playClip(event: IpcMainEvent, data: RequestEnvelope<ClipPayload>) {
     const { requestId, payload } = unpackRequest<ClipPayload>(data)
+    // No preview over a recording: two Dolphins at once on the same profile.
+    if (this.recordingActive)
+      return this.refuseWhileRecording(event, 'playClip', requestId)
     if (!payload?.path) {
       this.mainWindow.webContents.send('videoMsg', 'No clip selected.')
       return reply(event, 'playClip', requestId)
@@ -1215,32 +1299,22 @@ export default class VideoManager {
 
   async testDolphin() {
     const config = this.getConfig()
-    const { dolphinPath, ssbmIsoPath } = config
-    if (!dolphinPath || !ssbmIsoPath) {
-      this.mainWindow.webContents.send(
-        'videoMsg',
-        'Error: Set Dolphin and ISO paths first.',
-      )
+    const { ssbmIsoPath } = config
+    const send = (msg: string) =>
+      this.mainWindow.webContents.send('videoMsg', msg)
+    if (!config.dolphinPath || !ssbmIsoPath) {
+      send('Error: Set Dolphin and ISO paths first.')
       return
     }
+    const dolphinPath = path.resolve(
+      resolveDolphinExecutable(config.dolphinPath),
+    )
+    const isoPath = path.resolve(stripPathQuotes(ssbmIsoPath))
 
-    try {
-      await fsPromises.access(dolphinPath)
-    } catch {
-      this.mainWindow.webContents.send(
-        'videoMsg',
-        `Error: Dolphin not found at ${dolphinPath}`,
-      )
-      return
-    }
-
-    try {
-      await fsPromises.access(ssbmIsoPath)
-    } catch {
-      this.mainWindow.webContents.send(
-        'videoMsg',
-        `Error: ISO not found at ${ssbmIsoPath}`,
-      )
+    // The runner's own check first: its reason names what to fix.
+    const status = dolphinStatus({ dolphinPath, isoPath })
+    if (status) {
+      send(`Error: ${status}`)
       return
     }
 
@@ -1253,127 +1327,106 @@ export default class VideoManager {
     try {
       await fsPromises.access(testSlp)
     } catch {
-      this.mainWindow.webContents.send(
-        'videoMsg',
-        `Error: test.slp not found at ${testSlp}`,
-      )
+      send(`Error: test.slp not found at ${testSlp}`)
       return
     }
 
-    const dolphinDolphinConfig = {
-      mode: 'normal',
-      replay: testSlp,
-      startFrame: GAME_START_FRAME,
-      endFrame: 3600,
-      isRealTimeMode: true,
-      commandId: crypto.randomBytes(12).toString('hex'),
-    }
-
     const tmpDir = await fsPromises.mkdtemp(
-      path.join(os.tmpdir(), 'lm-clipper-test-'),
+      path.join(dolphinTempRoot(), 'lm-clipper-test-'),
     )
     this.activeTmpDirs.add(tmpDir)
-    const configFile = path.resolve(tmpDir, 'testDolphinConfig.json')
-    await fsPromises.writeFile(configFile, JSON.stringify(dolphinDolphinConfig))
+    const profileDir = path.resolve(tmpDir, 'profile')
+    const logFilePath = path.join(os.tmpdir(), 'lm-clipper-dolphin-test.log')
+    const writeLog = (lines: string[]) =>
+      fsPromises
+        .writeFile(
+          logFilePath,
+          [
+            `Dolphin test log - ${new Date().toISOString()}`,
+            `Dolphin path: ${dolphinPath}`,
+            `ISO path: ${isoPath}`,
+            `Test replay: ${testSlp}`,
+            '',
+            ...lines,
+          ].join('\n'),
+        )
+        .catch(() => {})
 
-    // Clean up leftover audio dump files so Dolphin doesn't prompt the user
-    const testDolphinDir = path.dirname(dolphinPath)
-    for (const dumpDir of [
-      path.join(testDolphinDir, 'User', 'Dump', 'Audio'),
-      path.join(app.getPath('appData'), 'SlippiPlayback', 'Dump', 'Audio'),
-    ]) {
-      for (const file of ['dtkdump.wav', 'dspdump.wav']) {
-        await fsPromises.unlink(path.join(dumpDir, file)).catch(() => {})
-      }
-    }
-
-    this.mainWindow.webContents.send('videoMsg', 'Launching Dolphin test...')
-
+    send('Launching Dolphin test...')
+    // The first minute of the test replay in a throwaway play profile (the
+    // user's real profile is copied, never written; nothing is dumped).
+    const warnings: string[] = []
+    let framesSeen = 0
     try {
-      const dolphinProcess = spawn(path.resolve(dolphinPath), [
-        '-i',
-        configFile,
-        ...(config.fullscreen !== false ? ['-b'] : []),
-        '-e',
-        path.resolve(ssbmIsoPath),
-        '--cout',
-      ])
-
-      const logLines: string[] = []
-      const addLog = (line: string) => {
-        logLines.push(line)
-        console.log('[Dolphin test]', line)
+      await buildPlaybackProfile({ ...config, dolphinPath }, profileDir)
+      const res: PlayResult = await play({ dolphinPath, isoPath }, testSlp, {
+        userDir: profileDir,
+        startFrame: GAME_START_FRAME,
+        endFrame: 3600,
+        batch: config.fullscreen !== false,
+        onFrame: () => {
+          framesSeen += 1
+        },
+        onWarning: (w: RunnerWarning) => warnings.push(JSON.stringify(w)),
+      })
+      const verdict = judgeTestRun(res, framesSeen, dolphinPath)
+      const extra = res as PlayResult & {
+        exitCode?: number | null
+        signal?: string | null
       }
-
-      dolphinProcess.stdout?.on('data', (d: Buffer) => {
-        d.toString()
-          .split('\n')
-          .forEach((l) => {
-            if (l.trim()) addLog(`stdout: ${l.trim()}`)
-          })
-      })
-
-      dolphinProcess.stderr?.on('data', (d: Buffer) => {
-        d.toString()
-          .split('\n')
-          .forEach((l) => {
-            if (l.trim()) addLog(`stderr: ${l.trim()}`)
-          })
-      })
-
-      dolphinProcess.on('error', (err) => {
-        addLog(`spawn error: ${err.message}`)
-        this.mainWindow.webContents.send(
-          'videoMsg',
-          `Dolphin error: ${err.message}`,
+      await writeLog([
+        `Result: ${verdict.ok ? 'ok' : `FAILED: ${verdict.reason}`}`,
+        `Frames seen: ${framesSeen}`,
+        `Stalled: ${res.stalled}`,
+        `Exit code: ${extra.exitCode ?? 'unknown'}`,
+        ...(extra.signal ? [`Signal: ${extra.signal}`] : []),
+        ...(res.diagnostic
+          ? [`Diagnostic: ${JSON.stringify(res.diagnostic)}`]
+          : []),
+        ...(verdict.hint ? [`Hint: ${verdict.hint}`] : []),
+        ...(verdict.stderr.length
+          ? ['Last stderr lines:', ...verdict.stderr]
+          : []),
+        ...warnings.map((w) => `Warning: ${w}`),
+      ])
+      if (!verdict.ok) {
+        logMain('testDolphin: failed', {
+          reason: verdict.reason,
+          stderr: verdict.stderr,
+        })
+        send(
+          [
+            `Error: Dolphin test failed. ${verdict.reason}`,
+            verdict.hint,
+            verdict.stderr.length
+              ? `Dolphin said: ${verdict.stderr.slice(-3).join(' | ')}`
+              : null,
+            `Log: ${logFilePath}`,
+          ]
+            .filter(Boolean)
+            .join(' '),
         )
-      })
-
-      dolphinProcess.on('exit', (code) => {
-        fsPromises.unlink(configFile).catch(() => {})
-        fsPromises.rmdir(tmpDir).catch(() => {})
-        this.activeTmpDirs.delete(tmpDir)
-        const logFilePath = path.join(
-          os.tmpdir(),
-          'lm-clipper-dolphin-test.log',
-        )
-        const logContent = [
-          `Dolphin test log - ${new Date().toISOString()}`,
-          `Exit code: ${code}`,
-          `Dolphin path: ${dolphinPath}`,
-          `ISO path: ${ssbmIsoPath}`,
-          `Test replay: ${testSlp}`,
-          '',
-          ...logLines,
-        ].join('\n')
-        fsPromises.writeFile(logFilePath, logContent).catch(() => {})
-
-        if (code !== 0 && logLines.length > 0) {
-          const lastErr = logLines[logLines.length - 1]
-          this.mainWindow.webContents.send(
-            'videoMsg',
-            `Dolphin failed (code ${code}): ${lastErr} — Log: ${logFilePath}`,
-          )
-        } else if (code !== 0) {
-          this.mainWindow.webContents.send(
-            'videoMsg',
-            `Dolphin exited with code ${code}. Log: ${logFilePath}`,
-          )
-        } else {
-          this.mainWindow.webContents.send(
-            'videoMsg',
-            `Dolphin test finished. Log: ${logFilePath}`,
-          )
-          setTimeout(() => {
-            this.mainWindow.webContents.send('videoMsg', '')
-          }, 5000)
-        }
-      })
+      } else {
+        send(`Dolphin test passed. Log: ${logFilePath}`)
+        setTimeout(() => send(''), 5000)
+      }
     } catch (err: any) {
-      this.mainWindow.webContents.send(
-        'videoMsg',
-        `Failed to launch Dolphin: ${err.message}`,
+      const message = errorMessage(err)
+      const hint = dolphinErrorHint(
+        `${message} ${err?.code ?? ''}`,
+        dolphinPath,
       )
+      await writeLog([
+        `Error: ${message}`,
+        ...(hint ? [`Hint: ${hint}`] : []),
+        ...warnings.map((w) => `Warning: ${w}`),
+      ])
+      send(
+        `Error: Dolphin failed: ${message}${hint ? ` ${hint}` : ''} Log: ${logFilePath}`,
+      )
+    } finally {
+      await rmDirWithRetries(tmpDir)
+      this.activeTmpDirs.delete(tmpDir)
     }
   }
 
@@ -1393,7 +1446,7 @@ export default class VideoManager {
       event,
       'detectSlippiReplays',
       requestId,
-      detectSlippiReplayDir(),
+      await detectSlippiReplayDir(),
     )
   }
 
@@ -1401,91 +1454,9 @@ export default class VideoManager {
     event: IpcMainEvent,
     data: RequestEnvelope<string>,
   ) {
-    const { requestId, payload: dolphinPath } = unpackRequest<string>(data)
-
-    if (!dolphinPath) {
-      return reply(event, 'validateDolphinPath', requestId, {
-        valid: false,
-        message: 'No path provided.',
-      })
-    }
-
-    try {
-      await fsPromises.access(dolphinPath)
-    } catch {
-      return reply(event, 'validateDolphinPath', requestId, {
-        valid: false,
-        message: 'File does not exist at this path.',
-      })
-    }
-
-    // On Windows, spawning `dolphin -h` opens a blocking GUI dialog.
-    // Validate by checking the path instead.
-    if (os.platform() === 'win32') {
-      const lower = dolphinPath.toLowerCase().replace(/\\/g, '/')
-      if (lower.includes('/playback/')) {
-        return reply(event, 'validateDolphinPath', requestId, {
-          valid: true,
-          message: 'Slippi Dolphin Playback detected.',
-        })
-      }
-      if (lower.includes('slippi') && !lower.includes('playback')) {
-        return reply(event, 'validateDolphinPath', requestId, {
-          valid: false,
-          message:
-            'This appears to be Slippi Dolphin Online/Netplay, not the Playback build. The Playback build is in a "playback" folder.',
-        })
-      }
-      return reply(event, 'validateDolphinPath', requestId, {
-        valid: false,
-        message:
-          'Could not confirm this is the Playback build. Make sure the path includes a "playback" folder.',
-      })
-    }
-
-    // On Linux/macOS, spawn dolphin -h and check for playback-specific flags
-    try {
-      const output = await new Promise<string>((resolve, reject) => {
-        const proc = spawn(dolphinPath, ['-h'], { timeout: 10000 })
-        let out = ''
-        proc.stdout?.on('data', (chunk: Buffer) => {
-          out += chunk.toString()
-        })
-        proc.stderr?.on('data', (chunk: Buffer) => {
-          out += chunk.toString()
-        })
-        proc.on('close', () => resolve(out))
-        proc.on('error', (err) => reject(err))
-      })
-
-      if (output.includes('--hide-seekbar')) {
-        return reply(event, 'validateDolphinPath', requestId, {
-          valid: true,
-          message: 'Slippi Dolphin Playback detected.',
-        })
-      }
-
-      // Has Slippi flags but not playback-specific ones -- likely the netplay build
-      if (output.includes('slippi') || output.includes('Slippi')) {
-        return reply(event, 'validateDolphinPath', requestId, {
-          valid: false,
-          message:
-            'This appears to be Slippi Dolphin Online/Netplay, not the Playback build. Lunar Clipper requires the Playback build.',
-        })
-      }
-
-      return reply(event, 'validateDolphinPath', requestId, {
-        valid: false,
-        message:
-          'This does not appear to be Slippi Dolphin Playback. Make sure you select the Playback build, not regular Dolphin.',
-      })
-    } catch {
-      return reply(event, 'validateDolphinPath', requestId, {
-        valid: false,
-        message:
-          'Could not run this file. Make sure it is an executable Dolphin binary.',
-      })
-    }
+    const { requestId, payload } = unpackRequest<string>(data)
+    const result = await checkDolphinPath(payload ?? '')
+    return reply(event, 'validateDolphinPath', requestId, result)
   }
 
   async validateIsoPath(event: IpcMainEvent, data: RequestEnvelope<string>) {
@@ -1550,8 +1521,20 @@ export default class VideoManager {
   }
 
   cleanup() {
-    // Kill active video job
+    // Kill active video job. Its per-worker Dolphin folders (profile + dump)
+    // are removed below too: on quit the job's own cleanup may not get to run.
+    // getTempDirs is optional on the job controller (slpToVideo's recorder
+    // exposes it when it tracks them); without it, cleanupStaleTempDirs at the
+    // next start catches what is left.
     if (this.activeVideoJob) {
+      const job = this.activeVideoJob as VideoJobController & {
+        getTempDirs?: () => string[]
+      }
+      try {
+        for (const dir of job.getTempDirs?.() ?? []) this.activeTmpDirs.add(dir)
+      } catch (_) {
+        // best effort
+      }
       this.videoStopRequested = true
       this.activeVideoJob.cancel()
       this.activeVideoJob = null
@@ -1559,21 +1542,21 @@ export default class VideoManager {
 
     // Kill playback
     this.playbackAborted = true
-    if (this.activePlaybackProcess) {
-      try {
-        this.activePlaybackProcess.kill()
-      } catch (_) {
-        // empty
-      }
-      this.activePlaybackProcess = null
-    }
+    this.activePlayback?.abort()
+    this.activePlayback = null
 
-    // Clean up temp directories
+    // Clean up temp directories. Synchronous (the app is quitting); retries
+    // because Windows keeps a file locked for a moment after Dolphin dies.
     for (const dir of this.activeTmpDirs) {
       try {
-        fs.rmSync(dir, { recursive: true, force: true })
-      } catch (_) {
-        // empty
+        fs.rmSync(dir, {
+          recursive: true,
+          force: true,
+          maxRetries: 3,
+          retryDelay: 100,
+        })
+      } catch (err) {
+        logMain('cleanup: could not remove temp folder', { dir, err })
       }
     }
     this.activeTmpDirs.clear()

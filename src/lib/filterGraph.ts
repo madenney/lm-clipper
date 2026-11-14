@@ -12,7 +12,7 @@
 
 export const FILES_TABLE = 'files'
 
-type GraphFilter = { id: string; inputId?: string }
+type GraphFilter = { id: string; inputId?: string; locked?: boolean }
 
 /**
  * The table id a filter reads from: its explicit `inputId` when set, otherwise
@@ -48,7 +48,9 @@ export function getDescendantIds(
     // loop closing over `added` — keeps the linter happy and is just as clear.
     for (let i = 0; i < filters.length; i += 1) {
       const f = filters[i]
-      if (descendants.has(f.id)) continue
+      // A locked step keeps its results whatever happens above it, so it isn't a
+      // descendant and nothing below it is reached through it.
+      if (descendants.has(f.id) || f.locked) continue
       const input = resolveInputId(filters, i, branchingEnabled)
       if (input === rootId || descendants.has(input)) {
         descendants.add(f.id)

@@ -1,12 +1,15 @@
 import { existsSync } from 'fs'
-import { SlippiGame } from '@slippi/slippi-js'
+import { createHash } from 'crypto'
+import { readReplayBytes } from '../../lib/slpz'
+import { SlippiGame } from '../../lib/slippiGame'
 import {
   FileInterface,
   ClipInterface,
   SlpParserParams,
 } from '../../constants/types'
-import { detectCombos } from './comboDetection'
-import { matchesPlayer, safeInt } from '../../lib/filterHelpers'
+import { detectCombos } from '../../vendor/replay-analysis'
+import { matchesPlayer, maxOf, safeInt } from '../../lib/filterHelpers'
+import { COMBO_DETECTOR, DetectionCache } from '../detectionCache'
 
 type SlpParserResult = {
   combos: ClipInterface[]
@@ -17,9 +20,15 @@ type SlpParserResult = {
   readError?: 'missing' | 'corrupt'
 }
 
+type DetectedCombos = {
+  combos: ReturnType<typeof detectCombos>
+  lastFrame?: number
+}
+
 export default (
   file: FileInterface,
   params: SlpParserParams,
+  cache?: DetectionCache,
 ): SlpParserResult => {
   const {
     minHits,
@@ -41,23 +50,42 @@ export default (
 
   let combos
   let lastFrame: number | undefined
+  const timeout = safeInt(comboTimeout, 45, 1, 600)
+  // Only the timeout changes what the detector finds; every other setting
+  // filters its output below. So the raw combos are cached per game + timeout.
+  const key = { ...COMBO_DETECTOR, paramsKey: String(timeout) }
+  const cached = cache?.get<DetectedCombos>(path, key)
   try {
-    const game = new SlippiGame(path)
-    const settings = game.getSettings()
-    const frames = game.getFrames()
-    if (!settings || !frames) return { combos: [] }
-    const timeout = safeInt(comboTimeout, 45, 1, 600)
-    combos = detectCombos(frames, settings, timeout)
-    // Discover lastFrame from frame data (free — already loaded)
-    const metadata = game.getMetadata()
-    lastFrame = metadata?.lastFrame ?? undefined
-    if (!lastFrame || lastFrame <= 0) {
-      const numericKeys = Object.keys(frames)
-        .map(Number)
-        .filter((n) => !Number.isNaN(n))
-      if (numericKeys.length > 0) {
-        lastFrame = Math.max(...numericKeys)
+    if (cached?.data) {
+      ;({ combos, lastFrame } = cached.data)
+    } else {
+      // One read: the same bytes are hashed (the game's identity in the
+      // library's detector cache) and parsed. A .slpz is decoded first, so the
+      // hash is the .slp's whichever way the game is stored.
+      const bytes = cache ? readReplayBytes(path) : null
+      const game = new SlippiGame(bytes ?? path)
+      const settings = game.getSettings()
+      const frames = game.getFrames()
+      if (!settings || !frames) return { combos: [] }
+      combos = detectCombos(frames, settings, timeout)
+      // Discover lastFrame from frame data (free — already loaded)
+      const metadata = game.getMetadata()
+      lastFrame = metadata?.lastFrame ?? undefined
+      if (!lastFrame || lastFrame <= 0) {
+        const numericKeys = Object.keys(frames)
+          .map(Number)
+          .filter((n) => !Number.isNaN(n))
+        if (numericKeys.length > 0) {
+          lastFrame = maxOf(numericKeys)
+        }
       }
+      if (cache && bytes && cached?.seen)
+        cache.put(
+          cached.seen,
+          createHash('md5').update(bytes).digest('hex'),
+          key,
+          { combos, lastFrame } satisfies DetectedCombos,
+        )
     }
   } catch (e) {
     // Only stat on the failure path so the happy path pays nothing. A missing

@@ -2,17 +2,25 @@ name: CI
 
 on: [push, pull_request]
 
+# Read-only token: nothing in CI writes to the repository.
+permissions:
+  contents: read
+
+# Third-party actions are pinned to a commit (Dependabot's github-actions updates keep them
+# current). Node 22 is what Electron 35 runs and what the in-process .slpz codec needs
+# (zlib zstd, Node 22.15+); 24 is what the monorepo develops on.
 jobs:
   lint:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - name: Install dependencies
@@ -22,33 +30,58 @@ jobs:
         run: npm run lint
 
   test:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-22.04, node: 22 }
+          - { os: ubuntu-22.04, node: 24 }
+          # Windows is the main platform: path, drive-letter and file-locking behaviour is
+          # only really tested here. Informational until it has been seen green once.
+          - { os: windows-2022, node: 22, experimental: true }
+    runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.experimental == true }}
+    timeout-minutes: 30
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: 20
+          node-version: ${{ matrix.node }}
           cache: npm
 
       - name: Install dependencies
         run: npm ci
 
+      # The tests that run the real slpz binary are skipped without it; build it (Linux).
+      - name: Build slpz (for the tests that use it)
+        if: runner.os == 'Linux'
+        run: node .erb/scripts/build-slpz.js linux x64
+
+      # A suite that fails to LOAD counts as a failure here ("Test suite failed to run").
       - name: Test
         run: npm test
+        env:
+          CI: true
+
+      # Every number a release depends on agrees (also part of npm test).
+      - name: Release metadata
+        if: matrix.os != 'windows-2022'
+        run: node .erb/scripts/check-release-metadata.js
 
   typecheck:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - name: Install dependencies
@@ -60,16 +93,43 @@ jobs:
       - name: Typecheck (ratchet)
         run: npm run typecheck:ratchet
 
-  audit:
-    runs-on: ubuntu-latest
+  # The production webpack build and the check that nothing private is in it: caught here
+  # on every push, not for the first time when a tag is pushed.
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: 20
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # The installed app dependencies must be exactly what release/app/package-lock.json
+      # says: install-app-deps runs during npm ci and would rewrite a lock that has drifted.
+      - name: release/app lockfile is in sync
+        run: git diff --exit-code -- release/app/package-lock.json release/app/package.json
+
+      - name: Build and check the build is clean
+        run: npm run build
+
+  audit:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
           cache: npm
 
       - name: Install dependencies
@@ -80,6 +140,13 @@ jobs:
       # so they don't block; keep them visible via the non-omit line below.
       - name: Audit (production deps)
         run: npm audit --omit=dev --audit-level=high
+
+      # What the installer really ships (native modules and the updater) lives in
+      # release/app and is locked there. Critical blocks; the known high advisories in
+      # electron-updater's dependencies are tracked in the release notes' audit file.
+      - name: Audit (shipped runtime dependencies, release/app)
+        working-directory: release/app
+        run: npm audit --omit=dev --audit-level=critical
 
       - name: Audit (all, advisory only)
         run: npm audit --audit-level=high || true

@@ -20,7 +20,7 @@
 }
 
 .clip--with-border {
-  border: 1px solid #fff;
+  border: 1px solid #2f3a34;
 }
 
 .clip--full {
@@ -126,31 +126,11 @@
   border-radius: 4px;
 }
 
-
-/* Overlay for selected state */
-.clip::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: transparent;
-  pointer-events: none;
-  z-index: 10;
-}
-
-/* Hover: blue border */
-.clip:hover {
+/* Full mode keeps the old hover/selected look (the grid's is below). */
+.clip--full:hover,
+.clip--full.clip--selected {
   outline: 2px solid #3a7bff;
   outline-offset: -2px;
-}
-
-/* Selected: blue border + blue overlay */
-.clip.clip--selected {
-  outline: 2px solid #3a7bff;
-  outline-offset: -2px;
-}
-
-.clip.clip--selected::after {
-  background: rgba(58, 123, 255, 0.25);
 }
 
 /* ─── Background Layer (Stage Image) ─── */
@@ -190,7 +170,6 @@
   width: 18%;
   height: auto;
   object-fit: contain;
-  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.6));
 }
 
 .clip-arrow {
@@ -289,7 +268,7 @@
   transition: opacity 120ms ease;
 }
 
-.clip:hover .clip-actions {
+.clip--full:hover .clip-actions {
   opacity: 1;
 }
 
@@ -435,4 +414,372 @@
   padding: 8px 20px;
   border-radius: 6px;
   font-size: 14px;
+}
+
+/* ═══ Grid card (mode2, 120-299 px) ═══
+ * Square card: lightly dimmed stage art, both icons on one dark pill in the
+ * upper middle with the arrow between them (a game's players with a bold
+ * "vs"), the step's lead line at the bottom with the length beside it, a
+ * strength meter along the bottom edge, a kill badge top right, the selection
+ * check top left and Play/Record in the lower right corner on hover.
+ * Icon placement comes from lib/tileArt.ts CARD_LAYOUTS (inline styles in
+ * Clip.tsx), which the GPU tiles below 120 px draw too.
+ * Cheap on purpose (up to limits.maxDomElements tiles): no filters, no blurred
+ * shadows, transforms for the meter.
+ */
+
+.clip--mode2 {
+  border-radius: 6px;
+  color: #e3ece6;
+  font-family: inherit;
+  /* Line metrics per size tier (sm 120-164, md 165-219, lg 220+). */
+  --fs-lead: 11.5px;
+  --fs-sub: 10.5px;
+  --pad: 6px;
+  --btn: 24px;
+}
+
+.clip--mode2.clip--md {
+  --fs-lead: 12.5px;
+  --fs-sub: 11px;
+  --pad: 7px;
+  --btn: 26px;
+}
+
+.clip--mode2.clip--lg {
+  --fs-lead: 13.5px;
+  --fs-sub: 11.5px;
+  --pad: 9px;
+  --btn: 30px;
+}
+
+/* Dim the stage a little (CARD_LOOK dimTop/dimMid/dimBottom): stages stay
+   recognisable; the icons have their backing, the text its strip. */
+.clip--mode2 .clip-bg::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    to bottom,
+    rgba(9, 12, 10, 0.3) 0%,
+    rgba(9, 12, 10, 0.36) 60%,
+    rgba(9, 12, 10, 0.6) 100%
+  );
+}
+
+/* Hover: a quiet light edge (selection has its own, stronger one). */
+.clip--mode2::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: 6;
+}
+
+.clip--mode2:hover::after {
+  box-shadow: inset 0 0 0 1px rgba(227, 236, 230, 0.55);
+}
+
+.clip--mode2.clip--selected::after {
+  box-shadow: inset 0 0 0 3px #4c8dff;
+  background: rgba(76, 141, 255, 0.16);
+}
+
+.clip--mode2.clip--selected:hover::after {
+  box-shadow: inset 0 0 0 3px #79a9ff;
+}
+
+/* Icons: placed by CARD_LAYOUTS (inline left/top/width/height in Clip.tsx). */
+.clip--mode2 .clip-characters {
+  inset: 0;
+  display: block;
+  padding: 0;
+}
+
+.clip--mode2 .clip-matchup-chip,
+.clip--mode2 .clip-char,
+.clip--mode2 .clip-arrow,
+.clip--mode2 .clip-vs {
+  position: absolute;
+  margin: 0;
+}
+
+/* CARD_LOOK chipColor / chipAlpha. */
+.clip--mode2 .clip-matchup-chip {
+  background: rgba(6, 9, 7, 0.66);
+  box-shadow: inset 0 0 0 1px rgba(227, 236, 230, 0.08);
+}
+
+.clip--mode2 .clip-char,
+.clip--mode2 .clip-arrow {
+  object-fit: contain;
+}
+
+/* The "vs" between a game's players: white, heavy, with a dark outline
+   (VS_FONT / VS_WEIGHT / VS_STROKE inline; the GPU tiles draw the same glyph
+   from the icon atlas). */
+.clip--mode2 .clip-vs {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  paint-order: stroke fill;
+}
+
+/* Kill (red) or standout (gold): a thin ring all the way round the card, under
+   the selection edge (which wins when both apply). */
+.clip-accent {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.clip--tone-kill .clip-accent {
+  box-shadow: inset 0 0 0 1.5px rgba(229, 72, 77, 0.85);
+}
+
+.clip--tone-hot .clip-accent {
+  box-shadow: inset 0 0 0 1.5px rgba(227, 179, 65, 0.85);
+}
+
+/* Corner badges */
+.clip-badge {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  z-index: 4;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 16px;
+  padding: 0 5px;
+  border-radius: 4px;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  line-height: 1;
+  pointer-events: none;
+}
+
+.clip-badge svg {
+  width: 10px;
+  height: 10px;
+}
+
+.clip--sm .clip-badge--kill {
+  padding: 0 3px;
+}
+
+.clip--sm .clip-badge--kill svg {
+  width: 11px;
+  height: 11px;
+}
+
+.clip-badge--kill {
+  background: #c9373c;
+  color: #fff;
+}
+
+.clip-badge--quit {
+  background: #6b5521;
+  color: #ffe7a8;
+}
+
+.clip--lg .clip-badge {
+  top: 7px;
+  right: 7px;
+  height: 18px;
+  font-size: 10.5px;
+}
+
+.clip-check {
+  position: absolute;
+  top: 5px;
+  left: 5px;
+  z-index: 7;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #4c8dff;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  pointer-events: none;
+}
+
+.clip--lg .clip-check {
+  top: 7px;
+  left: 7px;
+  width: 22px;
+  height: 22px;
+  font-size: 14px;
+}
+
+/* Bottom: actions (above), info lines, meter (the very edge). */
+.clip-foot {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 5;
+}
+
+.clip--mode2 .clip-info {
+  position: relative;
+  max-height: none;
+  padding: calc(var(--pad) - 1px) var(--pad) var(--pad) calc(var(--pad) + 1px);
+  background: rgba(10, 14, 12, 0.92);
+  border-top: 1px solid rgba(227, 236, 230, 0.07);
+  color: #a9b8ae;
+  font-size: var(--fs-sub);
+  gap: 2px;
+}
+
+.clip--mode2 .clip-info-row {
+  display: block;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.clip--mode2 .clip-info-lead {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: var(--fs-lead);
+}
+
+.clip-info-primary {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #f2f7f3;
+  font-weight: 600;
+}
+
+.clip--mode2 .clip-duration {
+  flex: none;
+  color: #8fa397;
+  font-size: var(--fs-sub);
+  font-variant-numeric: tabular-nums;
+}
+
+.clip-info-detail {
+  color: #b9c7be;
+}
+
+.clip--tone-hot .clip-info-detail {
+  color: #ecd18f;
+}
+
+.clip-info-names {
+  color: #7f9488;
+}
+
+.clip-meter {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  background: rgba(227, 236, 230, 0.08);
+  overflow: hidden;
+}
+
+.clip-meter-fill {
+  display: block;
+  height: 100%;
+  width: 100%;
+  transform-origin: left center;
+  background: #4fae6c;
+}
+
+
+/* Play / Record: lower right, clear of the icons; shown on hover or focus. */
+.clip--mode2 .clip-actions {
+  top: auto;
+  right: var(--pad);
+  bottom: calc(100% + var(--pad));
+  gap: 5px;
+  position: absolute;
+}
+
+.clip--mode2:hover .clip-actions,
+.clip--mode2 .clip-actions:focus-within {
+  opacity: 1;
+}
+
+/* Solid, bright fills with white glyphs and a thin light ring inside a crisp
+   dark one (no blur), so they read on any stage. */
+.clip--mode2 .clip-action-btn {
+  width: var(--btn);
+  height: var(--btn);
+  font-size: calc(var(--btn) * 0.5);
+  color: #fff;
+  border: 1.5px solid rgba(255, 255, 255, 0.7);
+  box-shadow: 0 0 0 1.5px rgba(0, 0, 0, 0.55);
+}
+
+.clip--mode2 .clip-action-btn svg {
+  stroke-width: 2.5;
+}
+
+.clip--mode2 .clip-action-btn--play {
+  background-color: #1fa94f;
+}
+
+.clip--mode2 .clip-action-btn--play:hover {
+  background-color: #25c25c;
+}
+
+.clip--mode2 .clip-action-btn--record {
+  background-color: #e0393e;
+}
+
+.clip--mode2 .clip-action-btn--record:hover {
+  background-color: #f04a4f;
+}
+
+.clip--mode2 .clip-action-btn:focus-visible {
+  outline: 2px solid #e3ece6;
+  outline-offset: 1px;
+}
+
+.clip--mode2 .clip-action-btn--play svg {
+  margin-left: 2px; /* optical centre of the triangle */
+  fill: currentColor;
+}
+
+.clip--mode2 .clip-action-btn--record svg {
+  fill: currentColor;
+  width: 45%;
+  height: 45%;
+}
+
+/* The keyboard's highlighted card in the grid (Tray/DomLayer.tsx): the arrow keys move it. */
+.clip--kbd-active {
+  outline: 2px solid #7cc4ff;
+  outline-offset: -2px;
+  z-index: 1;
+}
+
+@media (forced-colors: active) {
+  .clip--kbd-active {
+    outline-color: Highlight;
+  }
+
+  .clip--selected {
+    outline: 3px solid Highlight;
+    outline-offset: -3px;
+  }
 }

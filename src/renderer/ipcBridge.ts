@@ -5,6 +5,9 @@ import {
   LiteItem,
   StitchFolder,
 } from 'constants/types'
+import type { ClipTrack } from '../main/clipTrack'
+import type { SelectionWire } from '../lib/selection'
+import { OWNER_LONG_CHANNELS } from '../owner/channels'
 
 type ResponseHandler<T> = (_payload: T) => void
 
@@ -20,9 +23,27 @@ let requestCounter = 0
 const STALE_REQUEST_MS = 30_000
 const REAP_INTERVAL_MS = 10_000
 const LONG_RUNNING_CHANNELS = new Set([
+  'databaseRequest',
+  // Owner tools may upload files before they reply.
+  ...OWNER_LONG_CHANNELS,
+  // Locate… waits on a folder dialog and a disk search.
+  'missingReplaysAction',
+  // Waits on dialogs and can move many GB.
+  'moveReplayLibrary',
   'runFilter',
-  'runFilters',
   'resumeFilter',
+  // A selection's duration: a sum over a whole table can take a while on huge ones.
+  'getSelectionDuration',
+  'getTableDuration',
+  // An overview chunk can wait behind long DbWorker work (a removal, a count);
+  // a reaped one would leave the overview stuck on an error.
+  'getOverviewChunk',
+  // Removing millions of rows runs in 5,000-row statements; the tray re-reads
+  // the overview when the reply comes.
+  'removeResult',
+  'removeGame',
+  // Resolves a Select All over the whole table to count it.
+  'previewRemoveGames',
   'generateVideo',
   'recordClip',
   'stitchClips',
@@ -34,6 +55,7 @@ const LONG_RUNNING_CHANNELS = new Set([
   'archive',
   'openExistingArchive',
   'newProject',
+  'openMyReplays',
 ])
 
 const nextRequestId = () => {
@@ -111,6 +133,90 @@ const send = <TPayload>(channel: string, payload: TPayload) =>
   request<TPayload, never>(channel, payload, channel)
 
 export default {
+  database(
+    params: import('../constants/database').DatabaseRequest,
+    handler: ResponseHandler<import('../constants/database').DatabaseReply>,
+  ) {
+    return request('databaseRequest', params, 'databaseRequest', handler)
+  },
+  /** Owner tools (src/owner; empty in release builds): request/reply on their own channel. */
+  ownerRequest<TPayload, TResponse>(
+    channel: string,
+    params: TPayload,
+    handler: ResponseHandler<TResponse>,
+  ) {
+    return request(channel, params, channel, handler)
+  },
+  getMissingReplays(
+    handler: ResponseHandler<
+      import('../main/missingReplays').MissingReport | null
+    >,
+  ) {
+    return request('getMissingReplays', null, 'getMissingReplays', handler)
+  },
+  missingReplaysAction(
+    action: 'locate' | 'download' | 'remove',
+    handler: ResponseHandler<any>,
+  ) {
+    return request(
+      'missingReplaysAction',
+      { action },
+      'missingReplaysAction',
+      handler,
+    )
+  },
+  getCpuScanStatus(
+    handler: ResponseHandler<import('../lib/cpuPlayers').CpuScanStatus | null>,
+  ) {
+    return request('getCpuScanStatus', null, 'getCpuScanStatus', handler)
+  },
+  cpuScanAction(
+    action: 'stop' | 'continue',
+    handler: ResponseHandler<import('../lib/cpuPlayers').CpuScanStatus | null>,
+  ) {
+    return request('cpuScanAction', { action }, 'cpuScanAction', handler)
+  },
+  getLastFrameScanStatus(
+    handler: ResponseHandler<
+      import('../lib/lastFrame').LastFrameScanStatus | null
+    >,
+  ) {
+    return request(
+      'getLastFrameScanStatus',
+      null,
+      'getLastFrameScanStatus',
+      handler,
+    )
+  },
+  lastFrameScanAction(
+    action: 'stop' | 'continue',
+    handler: ResponseHandler<
+      import('../lib/lastFrame').LastFrameScanStatus | null
+    >,
+  ) {
+    return request(
+      'lastFrameScanAction',
+      { action },
+      'lastFrameScanAction',
+      handler,
+    )
+  },
+  /** File › Extract Replays… from the screen (Add replays). */
+  extractReplays(kind: 'files' | 'folder') {
+    return send('extractReplays', { kind })
+  },
+  detectorCache(
+    action: 'stats' | 'clear',
+    handler: ResponseHandler<{ stats?: { entries: number; bytes: number } }>,
+  ) {
+    return request('detectorCache', { action }, 'detectorCache', handler)
+  },
+  moveReplayLibrary(
+    folder: string,
+    handler: ResponseHandler<{ config: any; cancelled?: boolean }>,
+  ) {
+    return request('moveReplayLibrary', folder, 'moveReplayLibrary', handler)
+  },
   getConfig(handler?: ResponseHandler<any>) {
     return request('getConfig', null, 'config', handler)
   },
@@ -142,6 +248,10 @@ export default {
   },
   newProject(handler?: ResponseHandler<any>) {
     return request('newProject', null, 'newProject', handler)
+  },
+  /** Open My Replays (created the first time): the one default project. */
+  openMyReplays(handler?: ResponseHandler<any>) {
+    return request('openMyReplays', null, 'openMyReplays', handler)
   },
   saveAsArchive(handler?: ResponseHandler<any>) {
     return request('saveAsArchive', null, 'saveAsArchive', handler)
@@ -189,16 +299,30 @@ export default {
       offset?: number
       limit?: number
       lite?: boolean
+      /** A newer request on this lane supersedes this one (reply `stale`). */
+      lane?: string
     },
     handler?: ResponseHandler<{
       items: (ClipInterface | FileInterface | LiteItem)[]
       total: number
+      stale?: boolean
     }>,
   ) {
     return request('getResults', params, 'getResults', handler)
   },
-  getAllResultIds(filterId: string, handler?: ResponseHandler<string[]>) {
-    return request('getAllResultIds', { filterId }, 'getAllResultIds', handler)
+  /** A selection's length in frames and row count, added up in main. */
+  getSelectionDuration(
+    params: { filterId: string; selection: SelectionWire },
+    handler?: ResponseHandler<
+      { frames: number; count: number } | { error: string }
+    >,
+  ) {
+    return request(
+      'getSelectionDuration',
+      params,
+      'getSelectionDuration',
+      handler,
+    )
   },
   getTableDuration(filterId: string, handler?: ResponseHandler<number>) {
     return request(
@@ -243,8 +367,9 @@ export default {
       handler,
     )
   },
-  runFilters(handler?: ResponseHandler<any>) {
-    return request('runFilters', null, 'runFilters', handler)
+  /** Accept a stopped or failed run's results as they are (the step counts as done). */
+  keepFilterResults(filterId: string, handler?: ResponseHandler<any>) {
+    return request('keepFilterResults', filterId, 'keepFilterResults', handler)
   },
   cancelRunningFilters(handler?: ResponseHandler<any>) {
     return request(
@@ -306,12 +431,25 @@ export default {
   ) {
     return request('detectSlippiReplays', null, 'detectSlippiReplays', handler)
   },
-  openFolder(folderPath: string) {
-    window.electron.ipcRenderer.sendMessage('openFolder', folderPath)
+  openLogsFolder() {
+    window.electron.ipcRenderer.sendMessage('openLogsFolder', null)
+  },
+  openFolder(folderPath: string, opts?: { create?: boolean }) {
+    window.electron.ipcRenderer.sendMessage(
+      'openFolder',
+      opts?.create ? { path: folderPath, create: true } : folderPath,
+    )
   },
   validateDolphinPath(
     dolphinPath: string,
-    handler?: ResponseHandler<{ valid: boolean; message: string }>,
+    handler?: ResponseHandler<{
+      valid: boolean
+      message: string
+      /** The cleaned-up path (quotes stripped) when it differs: save it. */
+      path?: string
+      /** Valid, but worth a look. */
+      warning?: string
+    }>,
   ) {
     return request(
       'validateDolphinPath',
@@ -320,6 +458,39 @@ export default {
       handler,
     )
   },
+  /** The tray overview's next chunk (main/overview.ts); pass `next` back. */
+  getOverviewChunk(
+    params: {
+      filterId: string
+      cursor: { key: number; id: number; cached?: boolean } | null
+      limit: number
+    },
+    handler?: ResponseHandler<{
+      ids?: Uint32Array
+      packed?: Uint8Array
+      next?: { key: number; id: number; cached?: boolean } | null
+      error?: string
+    }>,
+  ) {
+    return request('getOverviewChunk', params, 'getOverviewChunk', handler)
+  },
+  readReplayFile(
+    path: string,
+    handler?: ResponseHandler<{ bytes?: Uint8Array; error?: string }>,
+  ) {
+    return request('readReplayFile', { path }, 'readReplayFile', handler)
+  },
+  getClipTrack(
+    clip: {
+      path: string
+      startFrame: number
+      endFrame: number
+      playerIndexes: number[]
+    },
+    handler?: ResponseHandler<{ track?: ClipTrack; error?: string }>,
+  ) {
+    return request('getClipTrack', clip, 'getClipTrack', handler)
+  },
   validateIsoPath(
     isoPath: string,
     handler?: ResponseHandler<{ valid: boolean; message: string }>,
@@ -327,7 +498,11 @@ export default {
     return request('validateIsoPath', isoPath, 'validateIsoPath', handler)
   },
   generateVideo(
-    payload: { filterId: string; selectedIds: string[] },
+    payload: {
+      filterId: string
+      selectedIds?: string[]
+      selection?: SelectionWire
+    },
     handler?: ResponseHandler<any>,
   ) {
     return request('generateVideo', payload, 'generateVideo', handler)
@@ -368,7 +543,11 @@ export default {
       handler,
     )
   },
-  playClips(payload: { filterId: string; selectedIds: string[] }) {
+  playClips(payload: {
+    filterId: string
+    selectedIds?: string[]
+    selection?: SelectionWire
+  }) {
     return send('playClips', payload)
   },
   stopPlayback() {
@@ -404,11 +583,28 @@ export default {
   deleteCustomFilter(index: number, handler?: ResponseHandler<any>) {
     return request('deleteCustomFilter', index, 'deleteCustomFilter', handler)
   },
-  removeGames(fileIds: number[], handler?: ResponseHandler<any>) {
-    return request('removeGame', { fileIds }, 'removeGame', handler)
+  /** Remove games by id, or a whole selection (main resolves it). */
+  removeGames(
+    games: number[] | { selection: SelectionWire },
+    handler?: ResponseHandler<any>,
+  ) {
+    const payload = Array.isArray(games) ? { fileIds: games } : games
+    return request('removeGame', payload, 'removeGame', handler)
+  },
+  /** How many replays deleting these Replays-tray rows would remove (main
+   *  resolves a selection), for the warning before it. */
+  previewRemoveGames(
+    params:
+      | { filterId: string; ids: number[] }
+      | { filterId: string; selection: SelectionWire },
+    handler?: ResponseHandler<{ games?: number; error?: string }>,
+  ) {
+    return request('previewRemoveGames', params, 'previewRemoveGames', handler)
   },
   removeResults(
-    params: { filterId: string; rowIds: number[] },
+    params:
+      | { filterId: string; rowIds: number[] }
+      | { filterId: string; selection: SelectionWire },
     handler?: ResponseHandler<any>,
   ) {
     return request('removeResult', params, 'removeResult', handler)

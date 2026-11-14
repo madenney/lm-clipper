@@ -1,0 +1,218 @@
+.char-select {
+  position: relative;
+  min-width: 0;
+  width: 100%;
+}
+.char-select .char-select-trigger {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  min-height: 36px;
+  box-sizing: border-box;
+  padding: 4px 8px;
+  background: #101613;
+  color: #e3ece6;
+  border: 1px solid #3c4b41;
+  border-radius: 5px;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.char-select .char-select-trigger:hover:not(:disabled) {
+  background: #14201a;
+  border-color: #5a7061;
+}
+.char-select .char-select-trigger:focus-visible {
+  outline: 1px solid #6cf;
+  outline-offset: -1px;
+}
+.char-select .char-select-trigger:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.char-select-value,
+.char-select-any {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.char-select-any {
+  color: #8f9e95;
+}
+.char-select .char-select-trigger img {
+  width: 24px;
+  height: 24px;
+  image-rendering: pixelated;
+  flex: 0 0 auto;
+}
+.char-select-chips {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  gap: 4px;
+  overflow: hidden;
+}
+.char-select-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 6px 1px 3px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.char-select .char-select-trigger .char-select-chip img {
+  width: 18px;
+  height: 18px;
+}
+.char-select-caret {
+  flex: 0 0 auto;
+  color: #8f9e95;
+  font-size: 11px;
+}
+.char-select-menu {
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  z-index: 10000;
+  background: #1e2126;
+  border: 1px solid #3b4048;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+  color: #e3ece6;
+  font-size: 13px;
+}
+.char-select-search {
+  flex: 0 0 auto;
+  box-sizing: border-box;
+  width: 100%;
+  padding: 7px 10px;
+  border: none;
+  border-bottom: 1px solid #3b4048;
+  background: rgba(255, 255, 255, 0.06);
+  color: #f5f6f8;
+  font: inherit;
+  font-size: 12px;
+  outline: none;
+}
+.char-select-actions {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 6px;
+  padding: 4px 8px;
+  border-bottom: 1px solid #3b4048;
+}
+.char-select-actions button {
+  background: none;
+  border: none;
+  color: #9bc5a7;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  padding: 2px 4px;
+}
+.char-select-actions button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.char-select-list {
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+  overflow-y: auto;
+  flex: 1 1 auto;
+}
+.char-select-list::-webkit-scrollbar {
+  width: 5px;
+}
+.char-select-list::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+}
+.char-select-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 10px;
+  cursor: pointer;
+}
+.char-select-option.active {
+  background: rgba(255, 255, 255, 0.09);
+}
+.char-select-option.on {
+  color: #9bc5a7;
+}
+.char-select-icon {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.char-select-icon img {
+  width: 24px;
+  height: 24px;
+  image-rendering: pixelated;
+}
+.char-select-check {
+  width: 12px;
+  flex: 0 0 auto;
+  font-size: 11px;
+}
+.char-select-empty {
+  padding: 8px 10px;
+  color: #8f9e95;
+}
+
+/* In the filter steps: the same 32px field as the other controls there. */
+.char-select.char-select-filter .char-select-trigger {
+  min-height: 32px;
+  padding: 0 6px;
+  border-radius: 8px;
+  border-color: var(--filter-border, #3b4048);
+  background: #14171c;
+  color: #f5f6f8;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+}
+.char-select.char-select-filter .char-select-trigger:hover:not(:disabled) {
+  background: #14171c;
+  border-color: #4d525b;
+}
+.char-select.char-select-filter .char-select-any {
+  color: #8b919c;
+}
+
+/* Stage picker: wide thumbnails (40x24) instead of square stock icons. */
+.char-select-stage .char-select-icon {
+  width: 40px;
+  height: 24px;
+}
+.char-select-stage .char-select-icon img {
+  width: 40px;
+  height: 24px;
+  object-fit: cover;
+  border-radius: 3px;
+  image-rendering: auto;
+}
+.char-select.char-select-stage .char-select-trigger img {
+  width: 40px;
+  height: 24px;
+  object-fit: cover;
+  border-radius: 3px;
+  image-rendering: auto;
+}
+.char-select.char-select-stage .char-select-trigger .char-select-chip img {
+  width: 30px;
+  height: 18px;
+}

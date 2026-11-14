@@ -1,7 +1,9 @@
 import { useState, useEffect, useCallback } from 'react'
+import { Selection } from '../../lib/selection'
 
 export default function useSelection(activeFilterId: string) {
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  // Compact at any size (lib/selection.ts): Select All is a flag, not every id.
+  const [selection, setSelection] = useState<Selection>(Selection.none)
   const [lastSelectedIndex, setLastSelectedIndex] = useState<number | null>(
     null,
   )
@@ -11,20 +13,20 @@ export default function useSelection(activeFilterId: string) {
 
   // Clear selection when filter changes
   useEffect(() => {
-    setSelectedIds(new Set())
+    setSelection(Selection.none())
     setLastSelectedIndex(null)
     setSelectionDuration(null)
   }, [activeFilterId])
 
   const clearSelection = useCallback(() => {
-    setSelectedIds(new Set())
+    setSelection(Selection.none())
     setLastSelectedIndex(null)
     setSelectionDuration(null)
   }, [])
 
   return {
-    selectedIds,
-    setSelectedIds,
+    selection,
+    setSelection,
     lastSelectedIndex,
     setLastSelectedIndex,
     selectionDuration,

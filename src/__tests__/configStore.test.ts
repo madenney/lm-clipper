@@ -6,6 +6,8 @@ import {
   RESOLUTION_LABELS,
   INT_KEYS,
 } from '../main/configStore'
+import { config as defaultConfig } from '../constants/defaults'
+import { settingForPlatform, videoConfig } from '../constants/config'
 
 describe('migrateConfigTypes', () => {
   it("maps a legacy 'Nx' resolution label to its scale factor", () => {
@@ -47,5 +49,66 @@ describe('migrateConfigTypes', () => {
   it('exposes the label map and int-key list it operates on', () => {
     expect(RESOLUTION_LABELS['4x']).toBe(7)
     expect(INT_KEYS).toContain('numFilterThreads')
+  })
+})
+
+describe('Show Dolphin While Recording -> Hide Recording Windows', () => {
+  // The controller merges defaults under the saved config, then migrates.
+  const load = (saved: Record<string, unknown>) =>
+    migrateConfigTypes({ ...defaultConfig, ...saved }) as any
+
+  it('defaults to hidden, with no old key left', () => {
+    const out = load({})
+    expect(out.hideRecordingWindows).toBe(true)
+    expect('showRecordingDolphin' in out).toBe(false)
+  })
+
+  it('keeps Dolphin shown for someone who had it shown', () => {
+    const out = load({ showRecordingDolphin: true })
+    expect(out.hideRecordingWindows).toBe(false)
+    expect('showRecordingDolphin' in out).toBe(false)
+  })
+
+  it('hides for someone who had it off (the old default)', () => {
+    const out = load({ showRecordingDolphin: false })
+    expect(out.hideRecordingWindows).toBe(true)
+    expect('showRecordingDolphin' in out).toBe(false)
+  })
+
+  it('leaves a saved choice alone on the next load', () => {
+    expect(load({ hideRecordingWindows: false }).hideRecordingWindows).toBe(
+      false,
+    )
+    const once = load({ showRecordingDolphin: true })
+    expect(load(once).hideRecordingWindows).toBe(false)
+  })
+})
+
+describe('settingForPlatform', () => {
+  const format = videoConfig.find((c) => c.id === 'recordingFormat')!
+  const labelOf = (platform: string | undefined) =>
+    (
+      settingForPlatform(format, platform) as {
+        options: { value: string; label: string }[]
+      }
+    ).options.find((o) => o.value === 'auto')!.label
+
+  it('calls Windows "auto" Fast (it is MPEG-4 there), lossless elsewhere', () => {
+    expect(labelOf('win32')).toBe('Fast (high quality, recommended)')
+    expect(labelOf('linux')).toBe('Fast lossless (recommended)')
+    expect(labelOf('darwin')).toBe('Fast lossless (recommended)')
+    expect(labelOf(undefined)).toBe('Fast lossless (recommended)')
+    expect(settingForPlatform(format, 'win32').tooltip).toMatch(
+      /MPEG-4 at 150 Mb\/s/,
+    )
+    expect(settingForPlatform(format, 'win32').tooltip).not.toMatch(
+      /Fast lossless/,
+    )
+  })
+
+  it('has the hide setting on by default in Settings', () => {
+    const hide = videoConfig.find((c) => c.id === 'hideRecordingWindows')!
+    expect(hide.default).toBe(true)
+    expect(hide.category).toBe('recording')
   })
 })

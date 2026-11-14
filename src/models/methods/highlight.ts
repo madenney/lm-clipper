@@ -46,14 +46,16 @@
  * games) and emits scored clips. Optional killer/victim char/tag/CC filters.
  * ============================================================================
  */
-import { SlippiGame } from '@slippi/slippi-js'
+import { SlippiGame } from '../../lib/slippiGame'
 import { moves as MOVE_LIST } from '../../constants/moves'
 import { edgeguardRects } from '../../constants/stageGeometry'
+import { parseSemicolonParam } from '../../lib/filterHelpers'
 import {
   ClipInterface,
   FileInterface,
   PlayerInterface,
   EventEmitterInterface,
+  HighlightMetrics,
 } from '../../constants/types'
 
 // --- Tunables (first-guess weights; calibrate against rated clips later) -----
@@ -122,33 +124,7 @@ type HighlightParams = {
   includeSurvivals?: boolean
 }
 
-export type HighlightMetrics = {
-  score: number
-  flavors: string[]
-  winProbSwing: number
-  comebackMagnitude: number
-  killerWinProbAfter: number
-  lastStock: boolean
-  killerStocks: number
-  victimStocksAfter: number
-  comboDamage: number
-  comboMoves: number
-  isZeroToDeath: boolean
-  isGimp: boolean
-  isSD: boolean
-  isTrade: boolean
-  disrespect: boolean
-  damageRate: number
-  victimPercentAtDeath: number
-  isSurvival: boolean
-  perilPercent: number
-  distinctMoves: number
-  spikeKill: boolean
-  killMove: string
-  bothLastStock: boolean
-  tensionSecs: number
-  reason: string
-}
+export type { HighlightMetrics }
 
 // Seconds in the lead-up where BOTH players sat at kill percent — a "could die
 // any second" standoff. This is the close-battle / high-tension signal.
@@ -225,13 +201,18 @@ function matchesPlayer(
 ): boolean {
   const cs = (Array.isArray(chars) ? chars : []).map((c) => Number(c))
   if (cs.length && !cs.includes(p.characterId)) return false
-  const ts = asArr(tags)
+  // Like every other filter: not case-sensitive, ";" separates several names
+  // (launch review FLT-13).
+  const ts = parseSemicolonParam(asArr(tags).join(';'))
   if (ts.length) {
-    const names = [p.displayName, p.nametag].filter(Boolean).map(String)
+    const names = [p.displayName, p.nametag]
+      .filter(Boolean)
+      .map((n) => String(n).trim().toLowerCase())
     if (!ts.some((t) => names.includes(t))) return false
   }
-  const cc = asArr(ccs)
-  if (cc.length && !cc.includes(String(p.connectCode))) return false
+  const cc = parseSemicolonParam(asArr(ccs).join(';'))
+  if (cc.length && !cc.includes(String(p.connectCode ?? '').toLowerCase()))
+    return false
   return true
 }
 

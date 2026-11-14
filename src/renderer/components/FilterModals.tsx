@@ -1,15 +1,7 @@
 /* eslint-disable react/no-array-index-key */
 import { useState } from 'react'
-
-function formatDuration(ms: number): string {
-  const totalSec = Math.round(ms / 1000)
-  const h = Math.floor(totalSec / 3600)
-  const m = Math.floor((totalSec % 3600) / 60)
-  const s = totalSec % 60
-  if (h > 0) return m > 0 ? `${h}h ${m}m` : `${h}h`
-  if (m > 0) return s > 0 ? `${m}m ${s}s` : `${m}m`
-  return `${s}s`
-}
+import Modal from './Modal'
+import { formatDurationMs } from '../../lib/format'
 
 export type ResetWarnSeverity = 'low' | 'medium' | 'high'
 
@@ -120,45 +112,118 @@ export function ConfirmResetModal({
   const { title, body } = resetCopy(
     severity,
     filterLabel,
-    formatDuration(durationMs),
+    formatDurationMs(durationMs),
     mode,
   )
   return (
-    <div className="filter-warn-overlay" role="presentation" onClick={onCancel}>
-      <div
-        className={`filter-warn-modal filter-warn-${severity}`}
-        role="presentation"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="filter-warn-title">{title}</div>
-        <div className="filter-warn-body">{body}</div>
+    <Modal
+      overlayClassName="filter-warn-overlay"
+      className={`filter-warn-modal filter-warn-${severity}`}
+      onClose={onCancel}
+      label={title}
+    >
+      <div className="filter-warn-title">{title}</div>
+      <div className="filter-warn-body">{body}</div>
+      <label className="filter-warn-checkbox">
+        <input
+          type="checkbox"
+          checked={dontAskAgain}
+          onChange={(e) => setDontAskAgain(e.target.checked)}
+        />
+        Don&apos;t warn me again for {mode === 'edit' ? 'edits' : 're-runs'}{' '}
+        over {thresholdLabel}
+      </label>
+      <div className="filter-warn-actions">
+        <button
+          type="button"
+          className="filter-warn-btn filter-warn-btn-secondary"
+          onClick={onCancel}
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          className="filter-warn-btn filter-warn-btn-danger"
+          onClick={() => onConfirm(dontAskAgain)}
+        >
+          {mode === 'edit' ? 'Edit anyway' : 'Reset & re-run'}
+        </button>
+      </div>
+    </Modal>
+  )
+}
+
+// A plain yes / no question in the app's own style (instead of the system's
+// window.confirm box). Filters.tsx `askConfirm` resolves with the answer.
+export function ConfirmModal({
+  title,
+  body,
+  confirmLabel,
+  checkboxLabel,
+  extraLabel,
+  onExtra,
+  onConfirm,
+  onCancel,
+}: {
+  title: string
+  body: string
+  confirmLabel: string
+  /** A third, quiet action (opens something to look at; the dialog stays). */
+  extraLabel?: string
+  onExtra?: () => void
+  /** A "Don't show this again" style checkbox; its state goes to onConfirm. */
+  checkboxLabel?: string
+  onConfirm: (_checked: boolean) => void
+  onCancel: () => void
+}) {
+  const [checked, setChecked] = useState(false)
+  return (
+    <Modal
+      overlayClassName="filter-warn-overlay"
+      className="filter-warn-modal filter-warn-medium"
+      onClose={onCancel}
+      label={title}
+    >
+      <div className="filter-warn-title">{title}</div>
+      <div className="filter-warn-body" style={{ whiteSpace: 'pre-line' }}>
+        {body}
+      </div>
+      {checkboxLabel && (
         <label className="filter-warn-checkbox">
           <input
             type="checkbox"
-            checked={dontAskAgain}
-            onChange={(e) => setDontAskAgain(e.target.checked)}
+            checked={checked}
+            onChange={(e) => setChecked(e.target.checked)}
           />
-          Don&apos;t warn me again for {mode === 'edit' ? 'edits' : 're-runs'}{' '}
-          over {thresholdLabel}
+          {checkboxLabel}
         </label>
-        <div className="filter-warn-actions">
+      )}
+      <div className="filter-warn-actions">
+        {extraLabel && onExtra && (
           <button
             type="button"
             className="filter-warn-btn filter-warn-btn-secondary"
-            onClick={onCancel}
+            onClick={onExtra}
           >
-            Cancel
+            {extraLabel}
           </button>
-          <button
-            type="button"
-            className="filter-warn-btn filter-warn-btn-danger"
-            onClick={() => onConfirm(dontAskAgain)}
-          >
-            {mode === 'edit' ? 'Edit anyway' : 'Reset & re-run'}
-          </button>
-        </div>
+        )}
+        <button
+          type="button"
+          className="filter-warn-btn filter-warn-btn-secondary"
+          onClick={onCancel}
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          className="filter-warn-btn filter-warn-btn-danger"
+          onClick={() => onConfirm(checked)}
+        >
+          {confirmLabel}
+        </button>
       </div>
-    </div>
+    </Modal>
   )
 }
 
@@ -179,44 +244,42 @@ export function ParserRunModal({
   onCancel: () => void
 }) {
   return (
-    <div className="filter-warn-overlay" role="presentation" onClick={onCancel}>
-      <div
-        className="filter-warn-modal filter-warn-medium"
-        role="presentation"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="filter-warn-title">Run the {parserLabel} first?</div>
-        <div className="filter-warn-body">
-          Running <strong>{targetLabel}</strong> needs the{' '}
-          <strong>{parserLabel}</strong> to run first
-          {typeof count === 'number' && count > 0 ? (
-            <>
-              {' '}
-              — that parses {count.toLocaleString()} replays and can take a
-              while.
-            </>
-          ) : (
-            <> — it parses every replay and can take a while.</>
-          )}
-        </div>
-        <div className="filter-warn-actions">
-          <button
-            type="button"
-            className="filter-warn-btn filter-warn-btn-secondary"
-            onClick={onCancel}
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            className="filter-warn-btn filter-warn-btn-danger"
-            onClick={onConfirm}
-          >
-            Run it
-          </button>
-        </div>
+    <Modal
+      overlayClassName="filter-warn-overlay"
+      className="filter-warn-modal filter-warn-medium"
+      onClose={onCancel}
+      label={`Run the ${parserLabel} first?`}
+    >
+      <div className="filter-warn-title">Run the {parserLabel} first?</div>
+      <div className="filter-warn-body">
+        Running <strong>{targetLabel}</strong> needs the{' '}
+        <strong>{parserLabel}</strong> to run first
+        {typeof count === 'number' && count > 0 ? (
+          <>
+            {' '}
+            — that parses {count.toLocaleString()} replays and can take a while.
+          </>
+        ) : (
+          <> — it parses every replay and can take a while.</>
+        )}
       </div>
-    </div>
+      <div className="filter-warn-actions">
+        <button
+          type="button"
+          className="filter-warn-btn filter-warn-btn-secondary"
+          onClick={onCancel}
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          className="filter-warn-btn filter-warn-btn-danger"
+          onClick={onConfirm}
+        >
+          Run it
+        </button>
+      </div>
+    </Modal>
   )
 }
 
@@ -237,49 +300,48 @@ export function CustomCodeConsentModal({
 }) {
   const many = filterLabels.length > 1
   return (
-    <div className="filter-warn-overlay" role="presentation" onClick={onCancel}>
-      <div
-        className="filter-warn-modal"
-        role="presentation"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="filter-warn-title">Run custom code?</div>
-        <div className="filter-warn-body">
-          {many ? (
-            <>
-              <strong>{filterLabels.length} custom filters</strong> in this run
-              ({filterLabels.join(', ')}) contain code that runs
-            </>
-          ) : (
-            <>
-              <strong>{filterLabels[0]}</strong> contains custom code that runs
-            </>
-          )}{' '}
-          with <strong>full access to your computer</strong> — your files,
-          network, everything. Only run code you wrote yourself or got from
-          someone you trust.
-        </div>
-        <div className="filter-warn-actions">
-          <button
-            type="button"
-            className="filter-warn-btn filter-warn-btn-secondary"
-            onClick={onCancel}
-          >
-            Cancel
-          </button>
-          <button type="button" className="filter-warn-btn" onClick={onRunOnce}>
-            Run once
-          </button>
-          <button
-            type="button"
-            className="filter-warn-btn filter-warn-btn-danger"
-            onClick={onAlwaysTrust}
-          >
-            Always trust
-          </button>
-        </div>
+    <Modal
+      overlayClassName="filter-warn-overlay"
+      className="filter-warn-modal"
+      onClose={onCancel}
+      label="Run custom code?"
+    >
+      <div className="filter-warn-title">Run custom code?</div>
+      <div className="filter-warn-body">
+        {many ? (
+          <>
+            <strong>{filterLabels.length} custom filters</strong> in this run (
+            {filterLabels.join(', ')}) contain code that runs
+          </>
+        ) : (
+          <>
+            <strong>{filterLabels[0]}</strong> contains custom code that runs
+          </>
+        )}{' '}
+        with <strong>full access to your computer</strong> — your files,
+        network, everything. Only run code you wrote yourself or got from
+        someone you trust; code an AI wrote for you counts too, so read it (or ask the AI to explain it) first.
       </div>
-    </div>
+      <div className="filter-warn-actions">
+        <button
+          type="button"
+          className="filter-warn-btn filter-warn-btn-secondary"
+          onClick={onCancel}
+        >
+          Cancel
+        </button>
+        <button type="button" className="filter-warn-btn" onClick={onRunOnce}>
+          Run once
+        </button>
+        <button
+          type="button"
+          className="filter-warn-btn filter-warn-btn-danger"
+          onClick={onAlwaysTrust}
+        >
+          Always trust
+        </button>
+      </div>
+    </Modal>
   )
 }
 
@@ -291,31 +353,26 @@ export function FilterErrorModal({
   onDismiss: () => void
 }) {
   return (
-    <div
-      className="filter-warn-overlay"
-      role="presentation"
-      onClick={onDismiss}
+    <Modal
+      overlayClassName="filter-warn-overlay"
+      className="filter-warn-modal filter-error-modal"
+      onClose={onDismiss}
+      label={`Error in ${filterError.filterLabel}`}
     >
-      <div
-        className="filter-warn-modal filter-error-modal"
-        role="presentation"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="filter-warn-title">
-          Error in {filterError.filterLabel}
-        </div>
-        <div className="filter-warn-body">
-          {filterError.errors.length === 1
-            ? 'An error occurred while running this filter.'
-            : `${filterError.errors.length} errors occurred while running this filter.`}
-          <br />
-          Check the console for details (terminal icon in the footer).
-        </div>
-        <button type="button" className="filter-warn-btn" onClick={onDismiss}>
-          OK
-        </button>
+      <div className="filter-warn-title">
+        Error in {filterError.filterLabel}
       </div>
-    </div>
+      <div className="filter-warn-body">
+        {filterError.errors.length === 1
+          ? 'An error occurred while running this filter.'
+          : `${filterError.errors.length} errors occurred while running this filter.`}
+        <br />
+        Check the console for details (the console button in the top bar).
+      </div>
+      <button type="button" className="filter-warn-btn" onClick={onDismiss}>
+        OK
+      </button>
+    </Modal>
   )
 }
 
@@ -327,42 +384,37 @@ export function FilterLogsModal({
   onDismiss: () => void
 }) {
   return (
-    <div
-      className="filter-warn-overlay"
-      role="presentation"
-      onClick={onDismiss}
+    <Modal
+      overlayClassName="filter-warn-overlay"
+      className="filter-warn-modal filter-logs-modal"
+      onClose={onDismiss}
+      label={`Console output, ${filterLogs.filterLabel}`}
     >
-      <div
-        className="filter-warn-modal filter-logs-modal"
-        role="presentation"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="filter-warn-title">
-          Console Output — {filterLogs.filterLabel}
-        </div>
-        <div className="filter-logs-list">
-          {filterLogs.logs.map((log, i) => (
-            <div key={i} className="filter-logs-item">
-              {log}
-            </div>
-          ))}
-        </div>
-        <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
-          <button
-            type="button"
-            className="filter-warn-btn"
-            onClick={() => {
-              navigator.clipboard.writeText(filterLogs.logs.join('\n'))
-            }}
-          >
-            Copy Logs
-          </button>
-          <button type="button" className="filter-warn-btn" onClick={onDismiss}>
-            Dismiss
-          </button>
-        </div>
+      <div className="filter-warn-title">
+        Console Output — {filterLogs.filterLabel}
       </div>
-    </div>
+      <div className="filter-logs-list">
+        {filterLogs.logs.map((log, i) => (
+          <div key={i} className="filter-logs-item">
+            {log}
+          </div>
+        ))}
+      </div>
+      <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+        <button
+          type="button"
+          className="filter-warn-btn"
+          onClick={() => {
+            navigator.clipboard.writeText(filterLogs.logs.join('\n'))
+          }}
+        >
+          Copy Logs
+        </button>
+        <button type="button" className="filter-warn-btn" onClick={onDismiss}>
+          Dismiss
+        </button>
+      </div>
+    </Modal>
   )
 }
 
@@ -376,31 +428,26 @@ export function ParserWarningModal({
   onDismiss: () => void
 }) {
   return (
-    <div
-      className="filter-warn-overlay"
-      role="presentation"
-      onClick={onDismiss}
+    <Modal
+      overlayClassName="filter-warn-overlay"
+      className="filter-warn-modal"
+      onClose={onDismiss}
+      label={`Cannot delete ${producer}`}
     >
-      <div
-        className="filter-warn-modal"
-        role="presentation"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="filter-warn-title">Cannot delete {producer}</div>
-        <div className="filter-warn-body">
-          Remove these dependent filters first:
-        </div>
-        <div className="filter-warn-list">
-          {dependents.map((name) => (
-            <div key={name} className="filter-warn-item">
-              {name}
-            </div>
-          ))}
-        </div>
-        <button type="button" className="filter-warn-btn" onClick={onDismiss}>
-          Got it
-        </button>
+      <div className="filter-warn-title">Cannot delete {producer}</div>
+      <div className="filter-warn-body">
+        Remove these dependent filters first:
       </div>
-    </div>
+      <div className="filter-warn-list">
+        {dependents.map((name) => (
+          <div key={name} className="filter-warn-item">
+            {name}
+          </div>
+        ))}
+      </div>
+      <button type="button" className="filter-warn-btn" onClick={onDismiss}>
+        Got it
+      </button>
+    </Modal>
   )
 }

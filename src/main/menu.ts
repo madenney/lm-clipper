@@ -1,11 +1,11 @@
 import {
   app,
-  dialog,
   Menu,
   shell,
   BrowserWindow,
   MenuItemConstructorOptions,
 } from 'electron'
+import { askDialog } from './askRenderer'
 
 const REPO_URL = 'https://github.com/madenney/lm-clipper'
 const ISSUES_URL = 'https://github.com/madenney/lm-clipper/issues'
@@ -23,9 +23,24 @@ export default class MenuBuilder {
 
   recentProjects: RecentProject[]
 
-  constructor(mainWindow: BrowserWindow, recentProjects: RecentProject[] = []) {
+  private devMenuReady = false
+
+  /** File > Compact Project… (handled in the main process, controller.ts). */
+  onCompactProject: () => void
+
+  /** File > Extract Replays… (TransferManager.extractFromMenu). */
+  onExtract: (_kind: 'files' | 'folder') => void
+
+  constructor(
+    mainWindow: BrowserWindow,
+    recentProjects: RecentProject[] = [],
+    onCompactProject: () => void = () => {},
+    onExtract: (_kind: 'files' | 'folder') => void = () => {},
+  ) {
     this.mainWindow = mainWindow
     this.recentProjects = recentProjects
+    this.onCompactProject = onCompactProject
+    this.onExtract = onExtract
   }
 
   buildMenu(): Menu {
@@ -33,7 +48,9 @@ export default class MenuBuilder {
       process.env.NODE_ENV === 'development' ||
       process.env.DEBUG_PROD === 'true'
     ) {
-      this.setupDevelopmentEnvironment()
+      // Once: the menu is rebuilt when the recent list changes.
+      if (!this.devMenuReady) this.setupDevelopmentEnvironment()
+      this.devMenuReady = true
     }
 
     const template =
@@ -78,7 +95,7 @@ export default class MenuBuilder {
   }
 
   private showAbout(): void {
-    dialog.showMessageBox(this.mainWindow, {
+    askDialog(this.mainWindow, {
       type: 'info',
       title: 'About Lunar Clipper',
       message: 'Lunar Clipper',
@@ -93,6 +110,12 @@ export default class MenuBuilder {
         label: 'Welcome / Getting Started',
         click: () => {
           this.mainWindow.webContents.send('showWelcome')
+        },
+      },
+      {
+        label: 'What’s New',
+        click: () => {
+          this.mainWindow.webContents.send('showChangelog')
         },
       },
       {
@@ -252,6 +275,14 @@ export default class MenuBuilder {
             this.mainWindow.webContents.send('importSlpClicked')
           },
         },
+        {
+          label: 'Extract Replays from Archives…',
+          click: () => this.onExtract('files'),
+        },
+        {
+          label: 'Extract Replays from Folder…',
+          click: () => this.onExtract('folder'),
+        },
         { type: 'separator' },
         {
           label: 'Refresh Project',
@@ -259,6 +290,10 @@ export default class MenuBuilder {
           click: () => {
             this.mainWindow.webContents.send('refreshProject')
           },
+        },
+        {
+          label: 'Compact Project…',
+          click: () => this.onCompactProject(),
         },
         { type: 'separator' },
         {
@@ -341,6 +376,14 @@ export default class MenuBuilder {
               this.mainWindow.webContents.send('importSlpClicked')
             },
           },
+          {
+            label: 'E&xtract Replays from Archives…',
+            click: () => this.onExtract('files'),
+          },
+          {
+            label: 'Extract Replays from Folder…',
+            click: () => this.onExtract('folder'),
+          },
           { type: 'separator' },
           {
             label: '&Refresh Project',
@@ -348,6 +391,10 @@ export default class MenuBuilder {
             click: () => {
               this.mainWindow.webContents.send('refreshProject')
             },
+          },
+          {
+            label: 'Co&mpact Project…',
+            click: () => this.onCompactProject(),
           },
           { type: 'separator' },
           {

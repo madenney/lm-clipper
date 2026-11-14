@@ -6,9 +6,24 @@
  * and posts the result back. The worker stays alive and handles multiple
  * requests sequentially on its own thread.
  */
+import fs from 'fs'
 import { parentPort } from 'worker_threads'
 import Database from 'better-sqlite3'
+import {
+  RESULTS_TABLE_COLUMNS,
+  readOverviewChunk,
+  readOverviewSignature,
+  type OverviewCursor,
+} from './overview'
 import { archive as defaultArchive } from '../constants/defaults'
+import { getDb as sharedGetDb, closeDb as sharedCloseDb } from './dbConnection'
+import { WORKER_SYNC_FNS } from './db'
+import { validateTableId } from './tableId'
+import { LIBRARY_FNS, closeLibraries } from './replayLibrary'
+import { markManualOrder } from './manualOrder'
+import { durationExpr, selectionFrames, selectionIds } from './selectionSql'
+import { Selection, type SelectionWire } from '../lib/selection'
+import * as removeRows from './removeRows'
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -20,6 +35,13 @@ type DbRequest = {
   | { method: 'getFilterCount'; tableId: string }
   | { method: 'getTableDuration'; tableId: string }
   | { method: 'getAllIds'; tableId: string }
+  | {
+      method: 'selectionIds'
+      tableId: string
+      selection: SelectionWire
+      limit?: number
+    }
+  | { method: 'selectionFrames'; tableId: string; selection: SelectionWire }
   | { method: 'getProcessedSourceIds'; tableId: string }
   | { method: 'deleteRowsBySourceId'; tableId: string; sourceIds: number[] }
   | {
@@ -30,11 +52,30 @@ type DbRequest = {
   | { method: 'getMetadata' }
   | { method: 'getItems'; tableId: string; limit: number; offset: number }
   | { method: 'getItemsLite'; limit: number; offset: number }
+  | { method: 'getOverviewSignature'; tableId: string }
+  | {
+      method: 'getOverviewChunk'
+      tableId: string
+      cursor: OverviewCursor
+      limit: number
+    }
   | { method: 'deleteFilterRun'; filterId: string }
   | { method: 'updateFilterRunProgress'; filterId: string; processed: number }
   | { method: 'deleteFiles'; fileIds: number[] }
   | { method: 'getFilePathsByIds'; fileIds: number[] }
   | { method: 'deleteRows'; tableId: string; rowIds: number[] }
+  | { method: 'removeGames'; fileIds: number[]; filterIds: string[] }
+  | {
+      method: 'removeResultsCascade'
+      tableId: string
+      rowIds: number[]
+      downstream: removeRows.DownstreamStep[]
+    }
+  | {
+      method: 'removeGamesFromProjectFile'
+      projectPath: string
+      paths: string[]
+    }
   | {
       method: 'updateSortOrder'
       tableId: string
@@ -48,6 +89,9 @@ type DbRequest = {
       rowIds: number[]
     }
   | { method: 'updateMetadataField'; field: string; value: string }
+  | { method: 'callSync'; fn: keyof typeof WORKER_SYNC_FNS; args: any[] }
+  | { method: 'library'; fn: keyof typeof LIBRARY_FNS; args: any[] }
+  | { method: 'closeDb' }
 )
 
 type DbResponse =
@@ -59,26 +103,23 @@ type DbResponse =
 let cachedDb: Database.Database | null = null
 let cachedDbPath: string | null = null
 
+// One connection for this thread, shared with the db.ts functions run through
+// 'callSync', so every main-process request uses the same connection in order.
 function getDb(dbPath: string): Database.Database {
   if (cachedDb && cachedDbPath === dbPath) return cachedDb
-  if (cachedDb) {
-    try {
-      cachedDb.close()
-    } catch (_) {
-      // ignore
-    }
-  }
-  cachedDb = new Database(dbPath)
-  cachedDb.pragma('journal_mode = WAL')
-  cachedDb.pragma('busy_timeout = 5000')
+  // eslint-disable-next-line no-use-before-define
+  columnCache.clear()
+  cachedDb = sharedGetDb(dbPath)
   cachedDbPath = dbPath
   return cachedDb
 }
 
-function validateTableId(id: string) {
-  if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(id)) {
-    throw new Error(`Invalid table/filter ID: ${id}`)
-  }
+function closeConnection() {
+  sharedCloseDb() // checkpoints the WAL, then closes
+  cachedDb = null
+  cachedDbPath = null
+  // eslint-disable-next-line no-use-before-define
+  columnCache.clear()
 }
 
 // ── Column cache (mirrors db.ts getTableColumns) ─────────────────────
@@ -155,11 +196,7 @@ function handleGetFilterCount(db: Database.Database, tableId: string): number {
   } catch (_) {
     if (tableId !== 'files') {
       db.exec(`
-        CREATE TABLE IF NOT EXISTS "${tableId}" (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          JSON TEXT,
-          sort_order INTEGER DEFAULT NULL
-        )
+        CREATE TABLE IF NOT EXISTS "${tableId}" (${RESULTS_TABLE_COLUMNS})
       `)
     }
     count = 0
@@ -177,43 +214,10 @@ function handleGetTableDuration(
   tableId: string,
 ): number {
   validateTableId(tableId)
-  const colNames = getTableColumns(db, tableId)
-
-  if (colNames.has('JSON') && !colNames.has('startFrame')) {
-    const startExpr = "COALESCE(json_extract(JSON, '$.startFrame'), 0)"
-    const endExpr = `CASE
-      WHEN COALESCE(json_extract(JSON, '$.endFrame'), 0) > 0
-        THEN json_extract(JSON, '$.endFrame')
-      ELSE COALESCE(json_extract(JSON, '$.lastFrame'), 0)
-    END`
-    const diffExpr = `(${endExpr}) - (${startExpr})`
-    const clampedExpr = `CASE WHEN (${diffExpr}) > 0 THEN (${diffExpr}) ELSE 0 END`
-    const row = db
-      .prepare(`SELECT SUM(${clampedExpr}) AS total FROM "${tableId}"`)
-      .get() as { total: number | null } | undefined
-    return row?.total ?? 0
-  }
-
-  const hasStartFrame = colNames.has('startFrame')
-  const hasEndFrame = colNames.has('endFrame')
-  const hasLastFrame = colNames.has('lastFrame')
-
-  if (!hasStartFrame && !hasEndFrame && !hasLastFrame) return 0
-
-  const startExpr = hasStartFrame ? 'COALESCE(startFrame, 0)' : '0'
-  const endExpr = hasEndFrame
-    ? hasLastFrame
-      ? 'CASE WHEN COALESCE(endFrame, 0) > 0 THEN endFrame ELSE COALESCE(lastFrame, 0) END'
-      : 'COALESCE(endFrame, 0)'
-    : hasLastFrame
-      ? 'COALESCE(lastFrame, 0)'
-      : '0'
-
-  const diffExpr = `(${endExpr}) - (${startExpr})`
-  const clampedExpr = `CASE WHEN (${diffExpr}) > 0 THEN (${diffExpr}) ELSE 0 END`
-
+  const expr = durationExpr(getTableColumns(db, tableId))
+  if (!expr) return 0
   const row = db
-    .prepare(`SELECT SUM(${clampedExpr}) AS total FROM "${tableId}"`)
+    .prepare(`SELECT SUM(${expr}) AS total FROM "${tableId}"`)
     .get() as { total: number | null } | undefined
   return row?.total ?? 0
 }
@@ -263,38 +267,6 @@ function handleGetProcessedSourceIds(
     )
     .all() as { sid: number }[]
   return rows.map((r) => r.sid)
-}
-
-function handleDeleteRowsBySourceId(
-  db: Database.Database,
-  tableId: string,
-  sourceIds: number[],
-): number {
-  if (sourceIds.length === 0) return 0
-  validateTableId(tableId)
-  const placeholders = sourceIds.map(() => '?').join(',')
-  const result = db
-    .prepare(
-      `DELETE FROM "${tableId}" WHERE CAST(JSON_EXTRACT(JSON, '$._sourceId') AS INTEGER) IN (${placeholders})`,
-    )
-    .run(...sourceIds)
-  return result.changes
-}
-
-function handleDeleteRowsByFilePaths(
-  db: Database.Database,
-  tableId: string,
-  filePaths: string[],
-): number {
-  if (filePaths.length === 0) return 0
-  validateTableId(tableId)
-  const placeholders = filePaths.map(() => '?').join(',')
-  const result = db
-    .prepare(
-      `DELETE FROM "${tableId}" WHERE JSON_EXTRACT(JSON, '$.path') IN (${placeholders})`,
-    )
-    .run(...filePaths)
-  return result.changes
 }
 
 // ── Paginated query handlers ─────────────────────────────────────────
@@ -383,11 +355,22 @@ function handleGetMetadata(db: Database.Database) {
     // empty
   }
 
+  // Filter ids become SQL identifiers; a project file from someone else may carry
+  // one that is not a plain name (SQL in a table name). Such steps are left out.
+  const safeFilters = (extra.filters || []).filter(
+    (f: { id?: unknown }) =>
+      typeof f?.id === 'string' && /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(f.id),
+  )
+  if (safeFilters.length !== (extra.filters || []).length)
+    console.error(
+      'Project has steps with unusable ids; they were left out:',
+      (extra.filters || []).length - safeFilters.length,
+    )
   const metadata: any = {
     name: row.name,
     path: row.path,
     createdAt: row.createdAt,
-    filters: extra.filters || [],
+    filters: safeFilters,
     savedCustomFilters: extra.savedCustomFilters || [],
   }
   const cachedCounts: Record<string, number> = extra.cachedCounts || {}
@@ -525,11 +508,8 @@ parentPort.on(
     // -wal/-shm sidecars at quit. Replies 'closed' so the caller can stop waiting.
     if ('__control' in msg) {
       try {
-        if (cachedDb) {
-          cachedDb.close()
-          cachedDb = null
-          cachedDbPath = null
-        }
+        closeConnection()
+        closeLibraries()
       } catch (_) {
         // ignore
       }
@@ -537,7 +517,54 @@ parentPort.on(
       return
     }
 
+    if (msg.method === 'closeDb') {
+      try {
+        closeConnection()
+        post({ id: msg.id, type: 'result', data: null })
+      } catch (error) {
+        const errorText = error instanceof Error ? error.message : String(error)
+        post({ id: msg.id, type: 'error', error: errorText })
+      }
+      return
+    }
+
     try {
+      // The replay library has its own connection; the project one is untouched.
+      if (msg.method === 'library') {
+        const fn = LIBRARY_FNS[msg.fn] as (..._args: any[]) => any
+        if (typeof fn !== 'function') {
+          throw new Error(`Unknown library function: ${String(msg.fn)}`)
+        }
+        post({ id: msg.id, type: 'result', data: fn(...msg.args) })
+        return
+      }
+      // Another project than the open one (My Replays): its own connection,
+      // closed again, so the open project's connection is untouched.
+      if (msg.method === 'removeGamesFromProjectFile') {
+        let games = 0
+        if (fs.existsSync(msg.projectPath)) {
+          const other = new Database(msg.projectPath)
+          try {
+            other.pragma('busy_timeout = 5000')
+            games = removeRows.removeGamesByPaths(other, msg.paths)
+          } finally {
+            other.close()
+          }
+        }
+        post({ id: msg.id, type: 'result', data: games })
+        return
+      }
+      if (msg.method === 'callSync') {
+        const fn = WORKER_SYNC_FNS[msg.fn] as (..._args: any[]) => any
+        if (typeof fn !== 'function') {
+          throw new Error(`Unknown sync function: ${String(msg.fn)}`)
+        }
+        post({ id: msg.id, type: 'result', data: fn(...msg.args) })
+        // db.ts may have opened or switched this thread's connection.
+        cachedDb = null
+        cachedDbPath = null
+        return
+      }
       const db = getDb(msg.dbPath)
       let data: any
 
@@ -554,14 +581,36 @@ parentPort.on(
         case 'getAllIds':
           data = handleGetAllIds(db, msg.tableId)
           break
+        case 'selectionIds':
+          validateTableId(msg.tableId)
+          data = selectionIds(
+            db,
+            msg.tableId,
+            Selection.fromWire(msg.selection),
+            itemsOrderBy(db, msg.tableId),
+            msg.limit && msg.limit > 0 ? msg.limit : Infinity,
+          )
+          break
+        case 'selectionFrames':
+          data = selectionFrames(
+            db,
+            msg.tableId,
+            Selection.fromWire(msg.selection),
+            getTableColumns(db, msg.tableId),
+          )
+          break
         case 'getProcessedSourceIds':
           data = handleGetProcessedSourceIds(db, msg.tableId)
           break
         case 'deleteRowsBySourceId':
-          data = handleDeleteRowsBySourceId(db, msg.tableId, msg.sourceIds)
+          data = removeRows.deleteRowsBySourceId(db, msg.tableId, msg.sourceIds)
           break
         case 'deleteRowsByFilePaths':
-          data = handleDeleteRowsByFilePaths(db, msg.tableId, msg.filePaths)
+          data = removeRows.deleteRowsByFilePaths(
+            db,
+            msg.tableId,
+            msg.filePaths,
+          )
           break
         case 'getMetadata':
           data = handleGetMetadata(db)
@@ -571,6 +620,12 @@ parentPort.on(
           break
         case 'getItemsLite':
           data = handleGetItemsLite(db, msg.limit, msg.offset)
+          break
+        case 'getOverviewSignature':
+          data = readOverviewSignature(db, msg.tableId)
+          break
+        case 'getOverviewChunk':
+          data = readOverviewChunk(db, msg.tableId, msg.cursor, msg.limit)
           break
         case 'deleteFilterRun': {
           const beforeCount = (
@@ -613,14 +668,23 @@ parentPort.on(
           ).run(msg.processed, msg.filterId)
           data = null
           break
-        case 'deleteFiles': {
-          const placeholders = msg.fileIds.map(() => '?').join(',')
-          db.prepare(`DELETE FROM files WHERE id IN (${placeholders})`).run(
-            ...msg.fileIds,
-          )
+        case 'deleteFiles':
+          // Keeps the cached game count true (removeRows.ts).
+          removeRows.deleteFiles(db, msg.fileIds)
           data = null
           break
-        }
+        case 'removeGames':
+          // Games and every filter row made from them; returns their paths.
+          data = removeRows.removeGamesByIds(db, msg.fileIds, msg.filterIds)
+          break
+        case 'removeResultsCascade':
+          data = removeRows.removeResultsCascade(
+            db,
+            msg.tableId,
+            msg.rowIds,
+            msg.downstream,
+          )
+          break
         case 'getFilePathsByIds': {
           if (!msg.fileIds || msg.fileIds.length === 0) {
             data = []
@@ -633,26 +697,17 @@ parentPort.on(
           }
           break
         }
-        case 'deleteRows': {
-          validateTableId(msg.tableId)
-          const placeholders = msg.rowIds.map(() => '?').join(',')
-          db.prepare(
-            `DELETE FROM "${msg.tableId}" WHERE id IN (${placeholders})`,
-          ).run(...msg.rowIds)
+        case 'deleteRows':
+          removeRows.deleteRows(db, msg.tableId, msg.rowIds)
           data = null
           break
-        }
         case 'updateSortOrder': {
           validateTableId(msg.tableId)
-          // Ensure sort_order column exists
-          const cols = (
-            db.pragma(`table_info("${msg.tableId}")`) as { name: string }[]
-          ).map((c) => c.name)
-          if (!cols.includes('sort_order')) {
-            db.exec(
-              `ALTER TABLE "${msg.tableId}" ADD COLUMN sort_order INTEGER DEFAULT NULL`,
-            )
-          }
+          // Adds sort_order if missing and the expression index matching the
+          // custom-sort ORDER BY: it keeps getItems/getAllIds fast, marks the
+          // table as custom-sorted for itemsOrderBy(), and makes the next filter
+          // keep this order (manualOrder.ts). Dropped with the table on a re-run.
+          markManualOrder(db, msg.tableId)
           const stmt = db.prepare(
             `UPDATE "${msg.tableId}" SET sort_order = ? WHERE id = ?`,
           )
@@ -664,13 +719,6 @@ parentPort.on(
             },
           )
           txn(msg.updates)
-          // Create an expression index matching the custom-sort ORDER BY so
-          // getItems/getAllIds stay fast, and so itemsOrderBy() can detect (via
-          // this index's existence) that this table is custom-sorted. Dropped
-          // automatically if the filter table is later recreated on a re-run.
-          db.exec(
-            `CREATE INDEX IF NOT EXISTS "idx_${msg.tableId}_sortorder" ON "${msg.tableId}"(COALESCE(sort_order, id), id)`,
-          )
           data = null
           break
         }

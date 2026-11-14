@@ -1,11 +1,4 @@
-import {
-  Component,
-  useState,
-  useEffect,
-  useMemo,
-  useRef,
-  ReactNode,
-} from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 
 import './styles/App.css'
 import { ArchiveContext, ConfigContext } from './context/AppContext'
@@ -16,7 +9,11 @@ import ConsentNotice from './components/ConsentNotice'
 import SetupWizard from './components/SetupWizard'
 import DevScreenSwitcher from './components/DevScreenSwitcher'
 import { WelcomeModal } from './components/GettingStarted'
-import ProjectIdeas from './components/ProjectIdeas'
+import { importResultNotice, NOTICE_EVENT, showNotice } from './importNotice'
+import ErrorBoundary from './components/ErrorBoundary'
+import { openFailureNotice } from './lib/openNotice'
+import DatabaseDock from './components/DatabaseDock'
+import { OwnerDock } from '../owner/renderer'
 import SlpzWizard from './components/SlpzWizard'
 import ZipWizard from './components/ZipWizard'
 import {
@@ -27,52 +24,19 @@ import {
 import { initPerfObservers } from './perfLogger'
 
 import ipcBridge from './ipcBridge'
-
-class ErrorBoundary extends Component<
-  { children: ReactNode },
-  { hasError: boolean }
-> {
-  constructor(props: { children: ReactNode }) {
-    super(props)
-    this.state = { hasError: false }
-  }
-
-  static getDerivedStateFromError() {
-    return { hasError: true }
-  }
-
-  render() {
-    const { hasError } = this.state
-    const { children } = this.props
-    if (hasError) {
-      return (
-        <div
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            height: '100vh',
-            gap: 12,
-            color: '#ccc',
-          }}
-        >
-          <p>Something went wrong.</p>
-          <button
-            type="button"
-            onClick={() => window.location.reload()}
-            style={{ padding: '6px 16px', cursor: 'pointer' }}
-          >
-            Reload
-          </button>
-        </div>
-      )
-    }
-    return children
-  }
-}
+import { SHOW_WELCOME_EVENT, shouldAutoShowWelcome } from './lib/welcome'
+import { CHANGELOG } from '../constants/changelog'
+import { entriesToShow } from '../lib/changelog'
+import WhatsNew, { SHOW_CHANGELOG_EVENT } from './components/WhatsNew'
+import { chooseStartOption, type StartOption } from './lib/startOptions'
+// Motion last, so its entrances win over older per-dialog ones.
+import './styles/Motion.css'
+// Focus rings and high-contrast rules last, over the per-component outline resets.
+import './styles/Accessibility.css'
 
 export default function App() {
+  // Set when an updater error should reach the user (see the update listeners below).
+  const updateWantedRef = useRef(false)
   const [archive, setArchive] = useState<ShallowArchiveInterface | null>(null)
   const [config, setConfig] = useState<ConfigInterface | null>(null)
   const [updateStatus, setUpdateStatus] = useState<
@@ -93,6 +57,9 @@ export default function App() {
     ipcBridge.getArchive((nextArchive) => {
       if (nextArchive?.error) {
         console.error('Error loading archive:', nextArchive.error)
+        showNotice(
+          "Couldn't open the last project. Open it again from the start screen, or start a new one.",
+        )
         return
       }
       setArchive(nextArchive || null)
@@ -113,6 +80,10 @@ export default function App() {
           if (!newArchive) return
           if (newArchive.error) {
             console.error('Error: ', newArchive.error)
+            showNotice(
+              openFailureNotice('open', newArchive) ??
+                "Couldn't open that project.",
+            )
             return
           }
           setArchive(newArchive)
@@ -126,9 +97,13 @@ export default function App() {
         ipcBridge.importSlpFiles((newArchive) => {
           if (newArchive?.error) {
             console.error('Error importing files: ', newArchive.error)
+            showNotice(
+              openFailureNotice('import', newArchive) ??
+                "Couldn't add those replays.",
+            )
             return
           }
-          setArchive(newArchive)
+          if (newArchive) setArchive(newArchive)
         })
       },
     )
@@ -139,6 +114,8 @@ export default function App() {
         ipcBridge.newProject((newArchive) => {
           if (!newArchive || newArchive.error) {
             console.error('Error creating new project:', newArchive?.error)
+            const failed = openFailureNotice('new', newArchive)
+            if (failed) showNotice(failed)
             return
           }
           setArchive(newArchive)
@@ -175,6 +152,10 @@ export default function App() {
         ipcBridge.openRecentProject(projectPath, (result) => {
           if (!result || result.error) {
             console.error('Error opening recent project:', result?.error)
+            showNotice(
+              openFailureNotice('open', result) ??
+                "Couldn't open that project.",
+            )
             return
           }
           setArchive(result)
@@ -189,6 +170,10 @@ export default function App() {
           if (!result) return
           if (result.error) {
             console.error('Error saving project as:', result.error)
+            showNotice(
+              openFailureNotice('saveAs', result) ??
+                "Couldn't save the project there.",
+            )
             return
           }
           setArchive(result)
@@ -196,9 +181,13 @@ export default function App() {
       },
     )
 
+    // A failed launch check (offline, firewall, no update file published yet) stays quiet: main
+    // forwards every updater error, so only show one the user asked for (Help > Check for
+    // Updates) or one that hits an update that was found and is downloading.
     const removeUpdateAvailable = window.electron.ipcRenderer.on(
       'update-available',
       (version: string) => {
+        updateWantedRef.current = true
         setUpdateStatus({ state: 'available', version })
       },
     )
@@ -220,6 +209,11 @@ export default function App() {
     const removeUpdateError = window.electron.ipcRenderer.on(
       'update-error',
       (message: string) => {
+        if (!updateWantedRef.current) {
+          console.warn('[update] check failed (not shown):', message)
+          return
+        }
+        updateWantedRef.current = false
         setUpdateStatus({ state: 'error', message })
       },
     )
@@ -231,14 +225,20 @@ export default function App() {
 
     const removeUpdateNotAvailable = window.electron.ipcRenderer.on(
       'update-not-available',
-      () => setUpdateStatus({ state: 'not-available' }),
+      () => {
+        updateWantedRef.current = false
+        setUpdateStatus({ state: 'not-available' })
+      },
     )
 
     // Help → Check for Updates. Runs a user-initiated (non-silent) check so the
     // "checking…" / "up to date" / error states surface, not just a found one.
     const removeTriggerUpdateCheck = window.electron.ipcRenderer.on(
       'trigger-update-check',
-      () => window.electron.ipcRenderer.sendMessage('check-for-updates', {}),
+      () => {
+        updateWantedRef.current = true
+        window.electron.ipcRenderer.sendMessage('check-for-updates', {})
+      },
     )
 
     const removeTemplatesUpdated = window.electron.ipcRenderer.on(
@@ -404,12 +404,38 @@ export default function App() {
     if (archive.files == null) requestCount('files')
   }, [archive, setArchive])
 
+  // One short line at the bottom for things the user should know but that
+  // don't deserve a modal (e.g. an import that added nothing, and why).
+  const [notice, setNotice] = useState<string | null>(null)
+  useEffect(() => {
+    const onNotice = (e: Event) => {
+      const message = (e as CustomEvent<string>).detail
+      if (typeof message === 'string' && message) setNotice(message)
+    }
+    window.addEventListener(NOTICE_EVENT, onNotice)
+    return () => window.removeEventListener(NOTICE_EVENT, onNotice)
+  }, [])
+  useEffect(() => {
+    if (!notice) return undefined
+    // Long messages (why an import failed) get longer to read.
+    const timer = setTimeout(
+      () => setNotice(null),
+      Math.min(20000, Math.max(6000, notice.length * 90)),
+    )
+    return () => clearTimeout(timer)
+  }, [notice])
+
   useEffect(() => {
     const removeListener = window.electron.ipcRenderer.on(
       'importingFileUpdate',
-      ({ finished, archive: freshArchive }) => {
+      (update) => {
+        const { finished, archive: freshArchive } = update || {}
         if (finished && freshArchive) {
           setArchive(freshArchive)
+        }
+        if (finished) {
+          const message = importResultNotice(update)
+          if (message) setNotice(message)
         }
       },
     )
@@ -424,29 +450,78 @@ export default function App() {
     null,
   )
   const [welcomeOpen, setWelcomeOpen] = useState(false)
-  const [projectIdeasOpen, setProjectIdeasOpen] = useState(false)
-  // Guards the first-project welcome to fire at most once per session.
-  const projectIdeasFiredRef = useRef(false)
-
-  // Show the "what do you want to make?" onboarding the first time a project
-  // actually has replays in it — i.e. right after the first import — NOT merely
-  // when a project opens. This keeps it from covering the tray's own import
-  // prompt on an empty New Project, and guarantees the cards have data to act on
-  // (picking one builds a chain the user can immediately run). Fires once ever
-  // (config.projectIdeasSeen), after consent is handled, and never while a dev
-  // screen is being force-previewed (that path drives its own visibility below).
+  // A start option chosen in the Welcome while no project was open: it waits for My Replays to
+  // open, then runs (the steps it acts on only exist once a project is).
+  const pendingStartOptionRef = useRef<StartOption | null>(null)
   useEffect(() => {
-    if (projectIdeasFiredRef.current) return
-    if (!config || !archive) return
-    if (!archive.files || archive.files <= 0) return
-    if (config.devForceScreen) return
-    if (config.projectIdeasSeen) return
-    if (!config.consentNoticeSeen) return
-    projectIdeasFiredRef.current = true
-    setProjectIdeasOpen(true)
-  }, [archive, config])
-
+    const option = pendingStartOptionRef.current
+    if (!option || !archive?.path) return undefined
+    pendingStartOptionRef.current = null
+    const t = setTimeout(() => chooseStartOption(option), 0)
+    return () => clearTimeout(t)
+  }, [archive?.path])
+  // The welcome opens by itself the first time a project is open in each session, but only
+  // for a new project (no steps beyond the Replays pool: a project already worked in does not
+  // need the four starting points), and not after "Don't show this again" (config.hideWelcome).
+  const welcomeAutoShownRef = useRef(false)
+  useEffect(() => {
+    if (!archive?.path || !config || welcomeAutoShownRef.current) return
+    welcomeAutoShownRef.current = true
+    if (shouldAutoShowWelcome(archive.filters, config.hideWelcome))
+      setWelcomeOpen(true)
+  }, [archive?.path, archive?.filters, config])
+  // The top bar's ? button (and anything else) opens it with this event.
+  useEffect(() => {
+    const open = () => setWelcomeOpen(true)
+    window.addEventListener(SHOW_WELCOME_EVENT, open)
+    return () => window.removeEventListener(SHOW_WELCOME_EVENT, open)
+  }, [])
   const triggerSetupWizard = (mode: 'play' | 'record') => setWizardMode(mode)
+
+  // "What's new": once after an update (what changed since the version the user last
+  // saw), and the whole history from Settings > About or Help > What's New.
+  const [appVersion, setAppVersion] = useState('')
+  const [whatsNew, setWhatsNew] = useState<'update' | 'history' | null>(null)
+  useEffect(() => {
+    const remove = window.electron.ipcRenderer.on('appVersion', (v: string) =>
+      setAppVersion(v),
+    )
+    window.electron.ipcRenderer.sendMessage('getAppVersion', null)
+    return remove
+  }, [])
+  const updateNotesCheckedRef = useRef(false)
+  const updateNotes = useMemo(
+    () =>
+      config && appVersion
+        ? entriesToShow(CHANGELOG, config.lastSeenVersion, appVersion)
+        : [],
+    // Decided once per launch: closing the popup records the version, which must not re-open it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [Boolean(config), appVersion],
+  )
+  useEffect(() => {
+    if (updateNotesCheckedRef.current || !config || !appVersion) return
+    updateNotesCheckedRef.current = true
+    if (updateNotes.length) setWhatsNew('update')
+  }, [config, appVersion, updateNotes])
+  useEffect(() => {
+    const open = () => setWhatsNew('history')
+    window.addEventListener(SHOW_CHANGELOG_EVENT, open)
+    const removeIpc = window.electron.ipcRenderer.on('showChangelog', open)
+    return () => {
+      window.removeEventListener(SHOW_CHANGELOG_EVENT, open)
+      removeIpc()
+    }
+  }, [])
+  const closeWhatsNew = () => {
+    if (whatsNew === 'update' && appVersion) {
+      setConfig((prev) =>
+        prev ? { ...prev, lastSeenVersion: appVersion } : prev,
+      )
+      ipcBridge.updateConfig({ key: 'lastSeenVersion', value: appVersion })
+    }
+    setWhatsNew(null)
+  }
 
   const [slpzDefaultOutputDir, setSlpzDefaultOutputDir] = useState<
     string | null
@@ -509,10 +584,10 @@ export default function App() {
   }
 
   // Dev-only screen forcer: pin one onboarding screen exclusively while
-  // iterating on it. Honored only in a dev build or with Test Mode on; ignored
-  // for normal users. See DevScreenSwitcher / config.devForceScreen.
-  const devScreensEnabled =
-    process.env.NODE_ENV === 'development' || !!config.testMode
+  // iterating on it. Development builds only: a packaged build never shows it, whatever
+  // lm-clipper.json says (config.testMode used to switch it on). See DevScreenSwitcher /
+  // config.devForceScreen.
+  const devScreensEnabled = process.env.NODE_ENV === 'development'
   const forced = devScreensEnabled ? config.devForceScreen || '' : ''
   const forcing = forced !== ''
   const setForced = (value: string) => {
@@ -520,7 +595,23 @@ export default function App() {
     ipcBridge.updateConfig({ key: 'devForceScreen', value })
   }
   const devSwitcher = devScreensEnabled ? (
-    <DevScreenSwitcher value={forced} onChange={setForced} />
+    <DevScreenSwitcher
+      value={forced}
+      onChange={setForced}
+      // One-click projects from this machine's settings: development builds only.
+      quickProjects={
+        process.env.NODE_ENV === 'development' ? (config.devProjects ?? []) : []
+      }
+      onOpenProject={(projectPath) =>
+        ipcBridge.openRecentProject(projectPath, (result) => {
+          if (!result || result.error) {
+            console.error('Could not open project:', result?.error)
+            return
+          }
+          setArchive(result)
+        })
+      }
+    />
   ) : null
 
   // Forcing 'loading' short-circuits to just the loading screen (+ switcher).
@@ -535,11 +626,10 @@ export default function App() {
 
   // Overlay visibility. When forcing, show ONLY the forced overlay; otherwise
   // normal first-run behavior. Dismissing a forced overlay clears the force.
+  // The usage-stats notice shows on the start screen and in a project alike until the user
+  // clicks OK (it used to vanish the moment a project opened, unread).
   const showConsent = forcing ? forced === 'consent' : !config.consentNoticeSeen
   const showWelcome = forcing ? forced === 'welcome' : welcomeOpen
-  const showProjectIdeas = forcing
-    ? forced === 'project-ideas'
-    : projectIdeasOpen
   const effectiveWizardMode = forcing
     ? forced === 'setup-play'
       ? 'play'
@@ -552,24 +642,14 @@ export default function App() {
 
   return (
     <>
-      {updateStatus && (
-        <UpdateBanner
-          status={updateStatus}
-          onDismiss={() => setUpdateStatus(null)}
-        />
-      )}
-      {showConsent && (
-        // The consent notice is an in-flow top banner; `.main` (absolute,
-        // full-viewport) paints over it. When forcing it for preview, lift it
-        // into a fixed top-bar layer above `.main` so it's actually visible
-        // over the empty-state background.
-        <div
-          style={
-            forcing
-              ? { position: 'fixed', top: 0, left: 0, right: 0, zIndex: 5000 }
-              : undefined
-          }
-        >
+      <ErrorBoundary area="dialogs" fallback="inline">
+        {updateStatus && (
+          <UpdateBanner
+            status={updateStatus}
+            onDismiss={() => setUpdateStatus(null)}
+          />
+        )}
+        {showConsent && (
           <ConsentNotice
             onDismiss={() => {
               if (forcing) {
@@ -582,58 +662,113 @@ export default function App() {
               ipcBridge.updateConfig({ key: 'consentNoticeSeen', value: true })
             }}
           />
-        </div>
-      )}
-      {showSlpz && slpzDefaultOutputDir !== null && (
-        <SlpzWizard
-          defaultOutputDir={slpzDefaultOutputDir}
-          onDismiss={() => setSlpzDefaultOutputDir(null)}
-        />
-      )}
-      {showZip && zipWizardData && (
-        <ZipWizard
-          zipFiles={zipWizardData.zipFiles}
-          defaultOutputDir={zipWizardData.defaultOutputDir}
-          onDismiss={() => setZipWizardData(null)}
-        />
-      )}
-      {effectiveWizardMode && (
-        <SetupWizard
-          config={config}
-          setConfig={setConfig}
-          mode={effectiveWizardMode}
-          onDismiss={(completed) => {
-            if (forcing) {
-              setForced('')
-              return
-            }
-            if (completed) setPendingAction(effectiveWizardMode)
-            setWizardMode(null)
-          }}
-        />
-      )}
-      {showWelcome && (
-        <WelcomeModal
-          config={config}
-          setConfig={setConfig}
-          triggerSetupWizard={triggerSetupWizard}
-          onClose={() => (forcing ? setForced('') : setWelcomeOpen(false))}
-        />
-      )}
-      {showProjectIdeas && (
-        <ProjectIdeas
-          config={config}
-          setConfig={setConfig}
-          setArchive={setArchive}
-          fileCount={archive?.files ?? null}
-          preview={forcing}
-          onClose={() => (forcing ? setForced('') : setProjectIdeasOpen(false))}
-        />
-      )}
+        )}
+        {showSlpz && slpzDefaultOutputDir !== null && (
+          <SlpzWizard
+            defaultOutputDir={slpzDefaultOutputDir}
+            onDismiss={() => setSlpzDefaultOutputDir(null)}
+          />
+        )}
+        {showZip && zipWizardData && (
+          <ZipWizard
+            zipFiles={zipWizardData.zipFiles}
+            defaultOutputDir={zipWizardData.defaultOutputDir}
+            onDismiss={() => setZipWizardData(null)}
+          />
+        )}
+        {effectiveWizardMode && (
+          <SetupWizard
+            config={config}
+            setConfig={setConfig}
+            mode={effectiveWizardMode}
+            onDismiss={(completed) => {
+              if (forcing) {
+                setForced('')
+                return
+              }
+              if (completed) setPendingAction(effectiveWizardMode)
+              setWizardMode(null)
+            }}
+          />
+        )}
+        {showWelcome && (
+          <WelcomeModal
+            config={config}
+            triggerSetupWizard={triggerSetupWizard}
+            onClose={() => (forcing ? setForced('') : setWelcomeOpen(false))}
+            onChoose={(option) => {
+              if (forcing) setForced('')
+              else setWelcomeOpen(false)
+              if (archive) {
+                chooseStartOption(option)
+                return
+              }
+              // No project yet (Help > Welcome on the start screen): open My Replays, then act.
+              pendingStartOptionRef.current = option
+              ipcBridge.openMyReplays((result) => {
+                const failed = openFailureNotice('new', result)
+                if (failed || !result || result.error) {
+                  pendingStartOptionRef.current = null
+                  if (failed) showNotice(failed)
+                  return
+                }
+                setArchive(result)
+              })
+            }}
+            hidden={config.hideWelcome === true}
+            onHiddenChange={(hidden) => {
+              setConfig((prev) =>
+                prev ? { ...prev, hideWelcome: hidden } : prev,
+              )
+              ipcBridge.updateConfig({ key: 'hideWelcome', value: hidden })
+            }}
+          />
+        )}
+        {whatsNew && !showWelcome && !forcing && (
+          <WhatsNew
+            entries={whatsNew === 'history' ? CHANGELOG : updateNotes}
+            history={whatsNew === 'history'}
+            onClose={closeWhatsNew}
+          />
+        )}
+        {/* Dev screen switcher: look at the popup and the history without updating. */}
+        {(forced === 'whats-new' || forced === 'whats-new-history') && (
+          <WhatsNew
+            entries={forced === 'whats-new' ? CHANGELOG.slice(0, 1) : CHANGELOG}
+            history={forced === 'whats-new-history'}
+            onClose={() => setForced('')}
+          />
+        )}
+      </ErrorBoundary>
+      <div role="status" aria-live="polite">
+        {notice && (
+          <button
+            type="button"
+            className="app-notice"
+            onClick={() => setNotice(null)}
+            title="Dismiss"
+          >
+            {notice}
+          </button>
+        )}
+      </div>
       {devSwitcher}
       <ArchiveContext.Provider value={archiveCtx}>
         <ConfigContext.Provider value={configCtx}>
-          <ErrorBoundary>
+          <ErrorBoundary area="Lunar Database panel" fallback="inline">
+            <DatabaseDock />
+          </ErrorBoundary>
+          <ErrorBoundary area="owner tools" fallback="inline">
+            <OwnerDock />
+          </ErrorBoundary>
+          <ErrorBoundary
+            area="workspace"
+            onCloseProject={() => {
+              setArchive(null)
+              ipcBridge.closeArchive()
+            }}
+            onOpenLogs={() => ipcBridge.openLogsFolder()}
+          >
             <Main
               // When forcing an onboarding screen, render Main against the
               // fresh no-project empty state so previews match a new user (and

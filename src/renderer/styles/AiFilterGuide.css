@@ -1,0 +1,408 @@
+/* AI Filter guide (AiFilterGuide.tsx): three numbered steps. */
+.aig-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.6);
+}
+
+.aig-modal {
+  width: min(680px, calc(100% - 60px));
+  max-height: calc(100% - 60px);
+  overflow-y: auto;
+  padding: 26px 28px 24px;
+  background: #131416;
+  border: 1px solid #2d2f34;
+  border-radius: 14px;
+  box-shadow: 0 16px 56px rgba(0, 0, 0, 0.6);
+  color: #e8eaed;
+  font-family: inherit;
+}
+
+.aig-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  margin-bottom: 20px;
+}
+
+.aig-header h2 {
+  margin: 0 0 4px;
+  font-size: 22px;
+}
+
+.aig-header p {
+  margin: 0;
+  font-size: 13.5px;
+  color: #9aa0aa;
+  line-height: 1.45;
+}
+
+.aig-icon {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  color: #a58cff;
+  background: rgba(165, 140, 255, 0.14);
+}
+
+.aig-close {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: #888;
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.aig-close:hover {
+  color: #ddd;
+}
+
+.aig-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.aig-step {
+  display: flex;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid #2c2f35;
+  border-radius: 10px;
+  background: #1a1c1f;
+}
+
+.aig-step--done {
+  border-color: rgba(58, 153, 86, 0.5);
+}
+
+.aig-num {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+  color: #c4b5ff;
+  background: rgba(165, 140, 255, 0.16);
+}
+
+.aig-step--done .aig-num {
+  color: #7fd39a;
+  background: rgba(58, 153, 86, 0.2);
+}
+
+.aig-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.aig-title {
+  font-size: 15px;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+.aig-text {
+  font-size: 13px;
+  line-height: 1.5;
+  color: #aab0ba;
+}
+
+.aig-example {
+  display: block;
+  margin-top: 4px;
+  color: #8b8fa0;
+  font-style: italic;
+}
+
+.aig-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.aig-btn {
+  height: 32px;
+  padding: 0 14px;
+  border: 1px solid #3a3f47;
+  border-radius: 7px;
+  background: #23262b;
+  color: #e8eaed;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.aig-btn:hover:not(:disabled) {
+  border-color: #a58cff;
+  background: #2a2638;
+}
+
+.aig-btn--quiet {
+  border-color: transparent;
+  background: transparent;
+  color: #aab0ba;
+}
+
+.aig-btn--primary {
+  padding: 0 22px;
+  border-color: #3a9956;
+  background: linear-gradient(180deg, #2d7d46 0%, #1f5c32 100%);
+  color: #fff;
+  font-weight: 600;
+}
+
+.aig-btn--primary:hover:not(:disabled) {
+  border-color: #4ab369;
+  background: linear-gradient(180deg, #349950 0%, #267a3d 100%);
+}
+
+.aig-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.aig-ok {
+  font-size: 12.5px;
+  color: #7fd39a;
+}
+
+.aig-err {
+  font-size: 12.5px;
+  color: #f0a07b;
+}
+
+.aig-footer {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 18px;
+}
+
+.aig-header {
+  align-items: center;
+}
+
+.aig-header h2 {
+  margin: 0;
+}
+
+/* ---- Visual 3-step flow (user, 2026-10-06: "less boring") ---------------- */
+.aig-modal {
+  width: min(820px, calc(100% - 60px));
+  padding: 0 0 22px;
+  overflow-x: hidden;
+}
+
+.aig-header {
+  padding: 22px 26px 20px;
+  margin-bottom: 22px;
+  background:
+    radial-gradient(120% 140% at 0% 0%, rgba(165, 140, 255, 0.22), transparent 60%),
+    linear-gradient(180deg, #1b1830 0%, #131416 100%);
+  border-bottom: 1px solid #2a2840;
+}
+
+.aig-header h2 {
+  font-size: 23px;
+  letter-spacing: 0.01em;
+}
+
+.aig-icon {
+  width: 48px;
+  height: 48px;
+  font-size: 22px;
+  color: #c4b5ff;
+  background: rgba(165, 140, 255, 0.18);
+  box-shadow: 0 0 24px rgba(165, 140, 255, 0.35);
+}
+
+.aig-flow {
+  list-style: none;
+  margin: 0;
+  padding: 0 26px;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr auto 1fr;
+  align-items: stretch;
+  gap: 10px;
+}
+
+.aig-card {
+  --accent: #a58cff;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 8px;
+  padding: 20px 16px 18px;
+  border: 1px solid #2c2f35;
+  border-top: 3px solid var(--accent);
+  border-radius: 12px;
+  background: linear-gradient(180deg, #1c1e22 0%, #17181b 100%);
+}
+
+.aig-card--paste {
+  --accent: #5fb7d4;
+}
+
+.aig-card--run {
+  --accent: #3a9956;
+}
+
+.aig-card-icon {
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 19px;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.aig-card-step {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.aig-card-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: #f0f0f0;
+}
+
+.aig-card-text {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: #a6acb6;
+}
+
+/* Tiny mocks of what you'll click / see. */
+.aig-mock {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  width: 100%;
+  margin: 2px 0 4px;
+  border-radius: 8px;
+  background: #121316;
+  border: 1px dashed #2f3238;
+}
+
+.aig-mock-btn {
+  padding: 4px 12px;
+  border: 1px solid #3a3f47;
+  border-radius: 6px;
+  background: #23262b;
+  color: #e8eaed;
+  font-size: 12px;
+}
+
+.aig-mock-code {
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 11px;
+  color: #9fd3e6;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 90%;
+}
+
+.aig-mock-run {
+  padding: 4px 16px;
+  border: 1px solid #3a9956;
+  border-radius: 6px;
+  background: linear-gradient(180deg, #2d7d46 0%, #1f5c32 100%);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.aig-arrow {
+  align-self: center;
+  font-size: 20px;
+  color: #4a4f58;
+}
+
+.aig-footer {
+  padding: 0 26px;
+}
+
+@media (max-width: 760px) {
+  .aig-flow {
+    grid-template-columns: 1fr;
+  }
+
+  .aig-arrow {
+    transform: rotate(90deg);
+    justify-self: center;
+  }
+}
+
+/* Step 1's Copy prompt is a real button. */
+.aig-mock-btn--live {
+  font: inherit;
+  font-size: 12.5px;
+  padding: 6px 16px;
+  cursor: pointer;
+  border-color: #a58cff;
+  color: #e9e3ff;
+  background: rgba(165, 140, 255, 0.14);
+  transition: background 120ms ease;
+}
+
+.aig-mock-btn--live:hover {
+  background: rgba(165, 140, 255, 0.26);
+}
+
+.aig-mock-btn--done {
+  border-color: #3a9956;
+  color: #a6e3b5;
+  background: rgba(58, 153, 86, 0.18);
+}
+
+/* Step 2: a chat bubble with an example request. */
+.aig-mock-chat {
+  max-width: 88%;
+  padding: 5px 10px;
+  border-radius: 10px 10px 2px 10px;
+  background: rgba(95, 183, 212, 0.16);
+  color: #cfeaf3;
+  font-size: 11.5px;
+  line-height: 1.35;
+  font-style: italic;
+}
+
+/* Step 3: pasted code next to the Run button. */
+.aig-mock--pair {
+  gap: 8px;
+  padding: 0 8px;
+}
+
+.aig-mock--pair .aig-mock-code {
+  max-width: 60%;
+}

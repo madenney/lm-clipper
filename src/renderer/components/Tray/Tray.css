@@ -7,21 +7,39 @@
   flex-direction: column;
   flex-grow: 1;
   min-width: 0;
-  height: calc(100vh - 160px); /* Account for top bar + footer */
+  height: 100%; /* fills .mid (the window minus the top bar) */
   background-color: #202020;
   overflow: hidden;
 }
 
 .tray-controls {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  column-gap: 12px;
   align-items: center;
-  justify-content: space-between;
   padding: 8px 12px;
   background-color: #202020;
   border-bottom: 1px solid #2d2d2d;
   flex-shrink: 0;
   height: 48px;
   box-sizing: border-box;
+}
+
+.tray-controls-left {
+  grid-column: 1;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+}
+
+.tray-controls > .tray-view-switch {
+  grid-column: 2;
+}
+
+.tray-controls > .tray-zoom {
+  grid-column: 3;
+  justify-self: end;
 }
 
 .tray-info {
@@ -61,6 +79,13 @@
   background-color: #383838;
 }
 
+.tray-select-note {
+  align-self: center;
+  color: #e88;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
 .tray-zoom {
   display: flex;
   align-items: center;
@@ -68,10 +93,11 @@
 }
 
 .tray-zoom-btn {
-  border: 1px solid #686868;
+  /* No border or fill, like the top bar's icon buttons: it appears on hover. */
+  border: 1px solid transparent;
   border-radius: 6px;
-  background-color: #2b2b2b;
-  color: #f0dede;
+  background-color: transparent;
+  color: #a4a4a4;
   font-size: 16px;
   width: 32px;
   height: 32px;
@@ -82,8 +108,10 @@
   transition: background-color 100ms ease;
 }
 
-.tray-zoom-btn:hover {
-  background-color: #383838;
+.tray-zoom-btn:hover:not(:disabled) {
+  background-color: #2a2a2a;
+  border-color: #444;
+  color: #fff;
 }
 
 .tray-zoom-btn:disabled {
@@ -154,6 +182,24 @@
   margin: 0 1px;
 }
 
+/* The background work bars (CPU players, game lengths) under the clips: they
+   take space, so the clips' last row is never behind them. Nothing showing:
+   no space. */
+.tray-footer-bars {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px;
+  background: #1a1a1a;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.tray-footer-bars:empty {
+  display: none;
+}
+
 .tray-content {
   flex: 1;
   position: relative;
@@ -183,88 +229,7 @@
 .tray-empty-subtitle {
   font-size: 16px;
   color: #555;
-}
-
-/* Import panel (empty import stage). One flat panel — no nested boxes — with a
-   clear hierarchy: headline → path → one primary action → quiet links → drag. */
-.tray-import {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 9px;
-  padding: 30px 40px;
-  border: 1px dashed #3a3a3a;
-  border-radius: 14px;
-  max-width: 440px;
-}
-
-.tray-import-title {
-  font-size: 18px;
-  font-weight: 600;
-  color: #e6e6e6;
-  text-align: center;
-  line-height: 1.35;
-}
-
-.tray-import-path {
-  font-size: 12.5px;
-  color: #707a7e;
-  word-break: break-all;
-  max-width: 360px;
-  text-align: center;
-  margin-top: -3px;
-}
-
-.tray-import-primary {
-  margin-top: 10px;
-  background: linear-gradient(180deg, #1f6b78 0%, #15505a 100%);
-  border: 1px solid #2a8b9a;
-  border-radius: 7px;
-  color: #eafcff;
-  font-size: 15px;
-  font-weight: 600;
-  padding: 10px 30px;
-  cursor: pointer;
-  transition: filter 120ms ease;
-}
-
-.tray-import-primary:hover {
-  filter: brightness(1.12);
-}
-
-.tray-import-actions {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  margin-top: 4px;
-}
-
-.tray-import-link {
-  background: none;
-  border: none;
-  padding: 2px 0;
-  font-size: 13px;
-  color: #8fbcc3;
-  cursor: pointer;
-}
-
-.tray-import-link:hover {
-  color: #cfeef3;
-  text-decoration: underline;
-}
-
-.tray-import-dot {
-  color: #4a4a4a;
-}
-
-.tray-import-drag {
-  font-size: 12.5px;
-  color: #5e6468;
-  margin-top: 8px;
-  text-align: center;
-}
-
-/* Loading indicator */
+} /* Loading indicator */
 .tray-loading {
   position: absolute;
   top: 0;
@@ -345,4 +310,221 @@
   font-size: 13px;
   min-width: 60px;
   text-align: center;
+}
+
+/* Grid | Single view switch: icons only, a green pill slides to the one in use. */
+.tray-view-switch {
+  position: relative;
+  display: inline-grid;
+  grid-template-columns: 1fr 1fr;
+  padding: 3px;
+  border: 1px solid #3a3a3a;
+  border-radius: 999px;
+  background: #1c1c1c;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.45);
+}
+
+.tray-view-switch::before {
+  content: '';
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  left: 3px;
+  width: calc(50% - 3px);
+  border-radius: 999px;
+  background: linear-gradient(180deg, #34914f, #2a7a43);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+  transition: transform 0.22s cubic-bezier(0.3, 0.7, 0.2, 1);
+}
+
+.tray-view-switch.is-single::before {
+  transform: translateX(100%);
+}
+
+.tray-view-switch > span {
+  display: flex;
+}
+
+.tray-view-switch button {
+  position: relative;
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 5px 14px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: #8f8f8f;
+  font-size: 15px;
+  cursor: pointer;
+  transition: color 0.15s;
+}
+
+.tray-view-switch button:hover:not(:disabled) {
+  color: #fff;
+}
+
+.tray-view-switch button.is-active {
+  color: #fff;
+  cursor: default;
+}
+
+.tray-view-switch button:focus-visible {
+  outline: 2px solid #8fd1a3;
+  outline-offset: 1px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tray-view-switch::before {
+    transition: none;
+  }
+}
+
+/* Far-out view: the GPU overview (OverviewCanvas) */
+.overview {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+.overview-canvas {
+  display: block;
+  cursor: pointer;
+}
+
+.overview-canvas--fine {
+  cursor: crosshair;
+}
+
+.overview-scrollbar {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 10px;
+  cursor: pointer;
+}
+
+.overview-thumb {
+  position: absolute;
+  right: 2px;
+  width: 6px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.28);
+}
+
+.overview-scrollbar:hover .overview-thumb {
+  background: rgba(255, 255, 255, 0.45);
+}
+
+.overview-tip {
+  font-family: system-ui, sans-serif;
+  position: absolute;
+  pointer-events: none;
+  /* Looks like the grid cards' tooltip (the system one) and never scales with
+     the tray zoom: same size, same lines. */
+  padding: 5px 8px;
+  border-radius: 4px;
+  background: #121212;
+  border: 1px solid #5a5a5a;
+  color: #f2f2f2;
+  font-size: 13px;
+  line-height: 1.35;
+  white-space: pre;
+  z-index: 20;
+}
+
+.overview-status {
+  font-family: system-ui, sans-serif;
+  position: absolute;
+  left: 8px;
+  bottom: 6px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: rgba(10, 10, 12, 0.75);
+  color: #9aa0ab;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
+.tray-zoom-slider.is-hidden {
+  visibility: hidden;
+}
+
+.tray-zoom-slider {
+  width: 140px;
+  accent-color: #3a9956;
+  cursor: pointer;
+}
+
+/* Hover Play / Record on a GPU tile (lib/overviewButtons.ts places and sizes
+   them like the grid card's, Clip.css `.clip--mode2 .clip-action-btn`). */
+.overview-btns {
+  position: absolute;
+  pointer-events: none;
+  /* Above the tooltip (20), which follows the pointer across the buttons. */
+  z-index: 30;
+}
+
+.overview-btns-row {
+  position: absolute;
+  display: flex;
+  pointer-events: auto;
+}
+
+.overview-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--btn);
+  height: var(--btn);
+  padding: 0;
+  border-radius: 50%;
+  font-size: calc(var(--btn) * 0.5);
+  color: #fff;
+  border: 1.5px solid rgba(255, 255, 255, 0.7);
+  box-shadow: 0 0 0 1.5px rgba(0, 0, 0, 0.55);
+  cursor: pointer;
+}
+
+.overview-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.overview-btn svg {
+  stroke-width: 2.5;
+  fill: currentColor;
+}
+
+.overview-btn--play {
+  background-color: #1fa94f;
+}
+
+.overview-btn--play:not(:disabled):hover {
+  background-color: #25c25c;
+}
+
+.overview-btn--play svg {
+  margin-left: 2px;
+}
+
+.overview-btn--record {
+  background-color: #e0393e;
+}
+
+.overview-btn--record:not(:disabled):hover {
+  background-color: #f04a4f;
+}
+
+.overview-btn--record svg {
+  width: 45%;
+  height: 45%;
+}
+
+.overview-btn:focus-visible {
+  outline: 2px solid #e3ece6;
+  outline-offset: 1px;
 }

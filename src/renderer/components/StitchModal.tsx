@@ -2,9 +2,11 @@
 /* eslint-disable jsx-a11y/click-events-have-key-events */
 import { DragEvent, useCallback, useEffect, useRef, useState } from 'react'
 import { FaFolder, FaFolderOpen, FaCheckCircle } from 'react-icons/fa'
+import Modal from './Modal'
 import { ConfigInterface, StitchFolder } from '../../constants/types'
 import ipcBridge from '../ipcBridge'
 import useIpcListener from '../hooks/useIpcListener'
+import { formatBytes, formatDurationSec } from '../../lib/format'
 import '../styles/StitchModal.css'
 
 type StitchModalProps = {
@@ -62,25 +64,6 @@ const sortFolders = (fs: StitchFolder[]): StitchFolder[] =>
     if (nb !== null) return 1
     return a.name.localeCompare(b.name)
   })
-
-const formatBytes = (n: number): string => {
-  if (!Number.isFinite(n) || n <= 0) return '0 MB'
-  const gib = n / 1024 ** 3
-  if (gib >= 1) return `${gib.toFixed(gib >= 10 ? 0 : 1)} GB`
-  const mib = n / 1024 ** 2
-  return `${mib.toFixed(mib >= 10 ? 0 : 1)} MB`
-}
-
-const formatDuration = (sec: number): string => {
-  if (!Number.isFinite(sec) || sec <= 0) return '0s'
-  const s = Math.round(sec)
-  const h = Math.floor(s / 3600)
-  const m = Math.floor((s % 3600) / 60)
-  const r = s % 60
-  if (h > 0) return `${h}h ${m}m`
-  if (m > 0) return `${m}m ${r}s`
-  return `${r}s`
-}
 
 /**
  * Stitch Clips — join clips from the output folders into one video (ffmpeg
@@ -204,15 +187,6 @@ export default function StitchModal({
     }, 2000)
     return () => clearInterval(id)
   }, [applyScan])
-
-  // Close on Escape (but not mid-stitch).
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !busy) onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose, busy])
 
   // ffmpeg stitch progress (0–100), pushed from the main process.
   useIpcListener('stitchProgress', (p: number) => setProgress(p))
@@ -450,7 +424,7 @@ export default function StitchModal({
     const sizePart =
       estBytes != null ? `≈ ${formatBytes(estBytes)}` : probing ? '…' : '—'
     const durPart =
-      durationSec > 0 ? formatDuration(durationSec) : probing ? '…' : '—'
+      durationSec > 0 ? formatDurationSec(durationSec) : probing ? '…' : '—'
     return `${sizePart} · ${durPart}`
   })()
   const estimateHint =
@@ -459,303 +433,295 @@ export default function StitchModal({
       : 'Estimated size and running time of the stitched file, re-encoded to the selected bitrate for a smaller, upload-friendly video.'
 
   return (
-    <div
-      className="settings-overlay"
-      role="presentation"
-      onClick={() => !busy && onClose()}
+    <Modal
+      overlayClassName="settings-overlay"
+      className="settings-modal settings-modal--stitch"
+      // Not mid-stitch.
+      onClose={busy ? undefined : onClose}
+      label="Stitch clips"
     >
-      <div
-        className="settings-modal settings-modal--stitch"
-        role="presentation"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="settings-header">
-          <h2 className="settings-title">Stitch Clips</h2>
-          <div className="stitch-header-actions">
-            <button
-              type="button"
-              className="stitch-open-folder"
-              onClick={() =>
-                window.electron.ipcRenderer.sendMessage(
-                  'openFolder',
-                  config.outputPath,
-                )
-              }
-              title={`Open the output folder\n${config.outputPath}`}
-              aria-label="Open output folder in file explorer"
-            >
-              <FaFolderOpen />
-            </button>
-            <button
-              type="button"
-              className="settings-close"
-              onClick={onClose}
-              aria-label="Close stitch clips"
-              disabled={busy}
-            >
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                <path
-                  d="M1 1L13 13M1 13L13 1"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                />
-              </svg>
-            </button>
-          </div>
-        </div>
-
-        <div className="settings-body">
-          <div className="stitch-content">
-            <p className="stitch-root" title={config.outputPath}>
-              {liveFolders.length} folder{liveFolders.length === 1 ? '' : 's'}{' '}
-              with clips in{' '}
-              <span className="stitch-root-path">{config.outputPath}</span>
-            </p>
-
-            <div className="stitch-toolbar">
-              <button
-                type="button"
-                className="stitch-link"
-                onClick={() => setEvery(true)}
-              >
-                Select all
-              </button>
-              <button
-                type="button"
-                className="stitch-link"
-                onClick={() => setEvery(false)}
-              >
-                Clear
-              </button>
-              <span className="stitch-toolbar-count">
-                {selection.length} selected
-                {folderCount > 1 ? ` · ${folderCount} folders` : ''}
-              </span>
-            </div>
-
-            <div className="stitch-tree">
-              {orderedFolders.map((f) => {
-                const open = expanded.has(f.path)
-                const st = ui[f.path]
-                if (!st) return null
-                const sel = st.order.filter((c) => st.checked[c]).length
-                const allSel = sel === f.clips.length
-                const noneSel = sel === 0
-                return (
-                  <div
-                    key={f.path}
-                    className={`stitch-folder${
-                      folderDrag === f.path ? ' stitch-folder--dragging' : ''
-                    }`}
-                  >
-                    <div
-                      className="stitch-folder-row"
-                      role="button"
-                      tabIndex={0}
-                      aria-expanded={open}
-                      onClick={() => toggleFolder(f.path)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === ' ') {
-                          e.preventDefault()
-                          toggleFolder(f.path)
-                        }
-                      }}
-                      onDragOver={(e) => onFolderDragOver(f.path, e)}
-                      onDrop={(e) => e.preventDefault()}
-                    >
-                      <span
-                        className="stitch-folder-handle"
-                        title="Drag to reorder folders"
-                        draggable
-                        onClick={(e) => e.stopPropagation()}
-                        onDragStart={(e) => onFolderDragStart(f.path, e)}
-                        onDragEnd={() => setFolderDrag(null)}
-                      >
-                        ⠿
-                      </span>
-                      <span className="stitch-caret">{open ? '▾' : '▸'}</span>
-                      <input
-                        type="checkbox"
-                        className="stitch-check"
-                        checked={allSel}
-                        ref={(el) => {
-                          if (el) el.indeterminate = !allSel && !noneSel
-                        }}
-                        onClick={(e) => e.stopPropagation()}
-                        onChange={() => setAll(f.path, !allSel)}
-                        aria-label={`Select all clips in ${f.name}`}
-                      />
-                      {open ? (
-                        <FaFolderOpen className="stitch-folder-icon" />
-                      ) : (
-                        <FaFolder className="stitch-folder-icon" />
-                      )}
-                      <span className="stitch-folder-name">{f.name}</span>
-                      {f.path === mostRecentPath && (
-                        <span className="stitch-latest">latest</span>
-                      )}
-                      <span className="stitch-folder-count">
-                        {sel}/{f.clips.length}
-                      </span>
-                    </div>
-
-                    {open && (
-                      <ul
-                        className={`stitch-clip-list${
-                          drag?.folder === f.path
-                            ? ' stitch-clip-list--dragging'
-                            : ''
-                        }`}
-                      >
-                        {st.order.map((c, i) => (
-                          <li
-                            key={c}
-                            className={`stitch-clip${
-                              drag?.folder === f.path && drag.from === i
-                                ? ' stitch-clip--dragging'
-                                : ''
-                            }`}
-                            style={{ transform: clipShift(f.path, i) }}
-                            draggable
-                            onDragStart={(e) => onClipDragStart(f.path, i, e)}
-                            onDragOver={(e) => onClipDragOver(f.path, i, e)}
-                            onDragEnd={commitDrag}
-                          >
-                            <span className="stitch-drag-handle">⠿</span>
-                            <label className="stitch-clip-label">
-                              <input
-                                type="checkbox"
-                                className="stitch-check"
-                                checked={!!st.checked[c]}
-                                onChange={() => toggleClip(f.path, c)}
-                              />
-                              <span className="stitch-clip-name">{c}</span>
-                            </label>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-        </div>
-
-        <div className="stitch-options">
-          <div
-            className="stitch-quality"
-            role="radiogroup"
-            aria-label="Quality"
+      <div className="settings-header">
+        <h2 className="settings-title">Stitch Clips</h2>
+        <div className="stitch-header-actions">
+          <button
+            type="button"
+            className="stitch-open-folder"
+            onClick={() =>
+              window.electron.ipcRenderer.sendMessage(
+                'openFolder',
+                config.outputPath,
+              )
+            }
+            title={`Open the output folder\n${config.outputPath}`}
+            aria-label="Open output folder in file explorer"
           >
-            <span className="stitch-quality-label">Quality</span>
-            {QUALITY.map((q) => (
-              <button
-                key={q.key}
-                type="button"
-                role="radio"
-                aria-checked={quality === q.key}
-                disabled={busy}
-                className={`stitch-quality-opt${
-                  quality === q.key ? ' stitch-quality-opt--on' : ''
-                }`}
-                onClick={() => {
-                  setQuality(q.key)
-                  setResult(null)
-                }}
-                title={
-                  q.kbps === 0
-                    ? 'Stream-copy — identical to the source, largest file'
-                    : `Re-encode to ~${q.sub} — smaller, good for uploading`
-                }
-              >
-                {q.label}
-                <span className="stitch-quality-sub">{q.sub}</span>
-              </button>
-            ))}
-          </div>
-          <div className="stitch-estimate" title={estimateHint}>
-            <span className="stitch-estimate-label">Est. output</span>
-            <span className="stitch-estimate-val">{estimateValue}</span>
-          </div>
+            <FaFolderOpen />
+          </button>
+          <button
+            type="button"
+            className="settings-close"
+            onClick={onClose}
+            aria-label="Close stitch clips"
+            disabled={busy}
+          >
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+              <path
+                d="M1 1L13 13M1 13L13 1"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+              />
+            </svg>
+          </button>
         </div>
+      </div>
 
-        <div className="stitch-footer">
-          <div className="stitch-footer-status">
-            {busy ? (
-              <div className="stitch-progress">
-                <div className="stitch-progress-track">
-                  {progress > 0 ? (
-                    <div
-                      className="stitch-progress-fill"
-                      style={{ width: `${progress}%` }}
+      <div className="settings-body">
+        <div className="stitch-content">
+          <p className="stitch-root" title={config.outputPath}>
+            {liveFolders.length} folder{liveFolders.length === 1 ? '' : 's'}{' '}
+            with clips in{' '}
+            <span className="stitch-root-path">{config.outputPath}</span>
+          </p>
+
+          <div className="stitch-toolbar">
+            <button
+              type="button"
+              className="stitch-link"
+              onClick={() => setEvery(true)}
+            >
+              Select all
+            </button>
+            <button
+              type="button"
+              className="stitch-link"
+              onClick={() => setEvery(false)}
+            >
+              Clear
+            </button>
+            <span className="stitch-toolbar-count">
+              {selection.length} selected
+              {folderCount > 1 ? ` · ${folderCount} folders` : ''}
+            </span>
+          </div>
+
+          <div className="stitch-tree">
+            {orderedFolders.map((f) => {
+              const open = expanded.has(f.path)
+              const st = ui[f.path]
+              if (!st) return null
+              const sel = st.order.filter((c) => st.checked[c]).length
+              const allSel = sel === f.clips.length
+              const noneSel = sel === 0
+              return (
+                <div
+                  key={f.path}
+                  className={`stitch-folder${
+                    folderDrag === f.path ? ' stitch-folder--dragging' : ''
+                  }`}
+                >
+                  <div
+                    className="stitch-folder-row"
+                    role="button"
+                    tabIndex={0}
+                    aria-expanded={open}
+                    onClick={() => toggleFolder(f.path)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        toggleFolder(f.path)
+                      }
+                    }}
+                    onDragOver={(e) => onFolderDragOver(f.path, e)}
+                    onDrop={(e) => e.preventDefault()}
+                  >
+                    <span
+                      className="stitch-folder-handle"
+                      title="Drag to reorder folders"
+                      draggable
+                      onClick={(e) => e.stopPropagation()}
+                      onDragStart={(e) => onFolderDragStart(f.path, e)}
+                      onDragEnd={() => setFolderDrag(null)}
+                    >
+                      ⠿
+                    </span>
+                    <span className="stitch-caret">{open ? '▾' : '▸'}</span>
+                    <input
+                      type="checkbox"
+                      className="stitch-check"
+                      checked={allSel}
+                      ref={(el) => {
+                        if (el) el.indeterminate = !allSel && !noneSel
+                      }}
+                      onClick={(e) => e.stopPropagation()}
+                      onChange={() => setAll(f.path, !allSel)}
+                      aria-label={`Select all clips in ${f.name}`}
                     />
-                  ) : (
-                    <div className="stitch-progress-indet" />
+                    {open ? (
+                      <FaFolderOpen className="stitch-folder-icon" />
+                    ) : (
+                      <FaFolder className="stitch-folder-icon" />
+                    )}
+                    <span className="stitch-folder-name">{f.name}</span>
+                    {f.path === mostRecentPath && (
+                      <span className="stitch-latest">latest</span>
+                    )}
+                    <span className="stitch-folder-count">
+                      {sel}/{f.clips.length}
+                    </span>
+                  </div>
+
+                  {open && (
+                    <ul
+                      className={`stitch-clip-list${
+                        drag?.folder === f.path
+                          ? ' stitch-clip-list--dragging'
+                          : ''
+                      }`}
+                    >
+                      {st.order.map((c, i) => (
+                        <li
+                          key={c}
+                          className={`stitch-clip${
+                            drag?.folder === f.path && drag.from === i
+                              ? ' stitch-clip--dragging'
+                              : ''
+                          }`}
+                          style={{ transform: clipShift(f.path, i) }}
+                          draggable
+                          onDragStart={(e) => onClipDragStart(f.path, i, e)}
+                          onDragOver={(e) => onClipDragOver(f.path, i, e)}
+                          onDragEnd={commitDrag}
+                        >
+                          <span className="stitch-drag-handle">⠿</span>
+                          <label className="stitch-clip-label">
+                            <input
+                              type="checkbox"
+                              className="stitch-check"
+                              checked={!!st.checked[c]}
+                              onChange={() => toggleClip(f.path, c)}
+                            />
+                            <span className="stitch-clip-name">{c}</span>
+                          </label>
+                        </li>
+                      ))}
+                    </ul>
                   )}
                 </div>
-                <span className="stitch-progress-pct">
-                  {progress > 0 ? `${progress}%` : 'Estimating time…'}
-                </span>
-              </div>
-            ) : result?.ok ? (
-              <span className="stitch-result--ok">
-                <FaCheckCircle className="stitch-result-icon" />
-                <span className="stitch-result-msg">
-                  Saved <strong>{basename(result.output || '')}</strong>
-                </span>
-                <button
-                  type="button"
-                  className="stitch-show-btn"
-                  onClick={() =>
-                    window.electron.ipcRenderer.sendMessage(
-                      'openFolder',
-                      result.dir || config.outputPath,
-                    )
-                  }
-                  title="Reveal the stitched file in your file explorer"
-                >
-                  <FaFolderOpen />
-                  Show in folder
-                </button>
-              </span>
-            ) : result && !result.ok ? (
-              <span className="stitch-result--err">
-                {result.error || 'Stitch failed'}
-              </span>
-            ) : (
-              <span className="stitch-status-count">
-                {selection.length} clip{selection.length === 1 ? '' : 's'}{' '}
-                selected
-                {folderCount > 1 ? ` across ${folderCount} folders` : ''}
-              </span>
-            )}
-          </div>
-          <div className="stitch-footer-actions">
-            <button
-              type="button"
-              className="stitch-close-btn"
-              onClick={onClose}
-              disabled={busy}
-            >
-              Close
-            </button>
-            <button
-              type="button"
-              className="stitch-go-btn"
-              onClick={doStitch}
-              disabled={selection.length < 2 || busy}
-            >
-              {busy
-                ? 'Stitching…'
-                : `Stitch ${selection.length} clip${
-                    selection.length === 1 ? '' : 's'
-                  }`}
-            </button>
+              )
+            })}
           </div>
         </div>
       </div>
-    </div>
+
+      <div className="stitch-options">
+        <div className="stitch-quality" role="radiogroup" aria-label="Quality">
+          <span className="stitch-quality-label">Quality</span>
+          {QUALITY.map((q) => (
+            <button
+              key={q.key}
+              type="button"
+              role="radio"
+              aria-checked={quality === q.key}
+              disabled={busy}
+              className={`stitch-quality-opt${
+                quality === q.key ? ' stitch-quality-opt--on' : ''
+              }`}
+              onClick={() => {
+                setQuality(q.key)
+                setResult(null)
+              }}
+              title={
+                q.kbps === 0
+                  ? 'Stream-copy — identical to the source, largest file'
+                  : `Re-encode to ~${q.sub} — smaller, good for uploading`
+              }
+            >
+              {q.label}
+              <span className="stitch-quality-sub">{q.sub}</span>
+            </button>
+          ))}
+        </div>
+        <div className="stitch-estimate" title={estimateHint}>
+          <span className="stitch-estimate-label">Est. output</span>
+          <span className="stitch-estimate-val">{estimateValue}</span>
+        </div>
+      </div>
+
+      <div className="stitch-footer">
+        <div className="stitch-footer-status">
+          {busy ? (
+            <div className="stitch-progress">
+              <div className="stitch-progress-track">
+                {progress > 0 ? (
+                  <div
+                    className="stitch-progress-fill"
+                    style={{ width: `${progress}%` }}
+                  />
+                ) : (
+                  <div className="stitch-progress-indet" />
+                )}
+              </div>
+              <span className="stitch-progress-pct">
+                {progress > 0 ? `${progress}%` : 'Estimating time…'}
+              </span>
+            </div>
+          ) : result?.ok ? (
+            <span className="stitch-result--ok">
+              <FaCheckCircle className="stitch-result-icon" />
+              <span className="stitch-result-msg">
+                Saved <strong>{basename(result.output || '')}</strong>
+              </span>
+              <button
+                type="button"
+                className="stitch-show-btn"
+                onClick={() =>
+                  window.electron.ipcRenderer.sendMessage(
+                    'openFolder',
+                    result.dir || config.outputPath,
+                  )
+                }
+                title="Reveal the stitched file in your file explorer"
+              >
+                <FaFolderOpen />
+                Show in folder
+              </button>
+            </span>
+          ) : result && !result.ok ? (
+            <span className="stitch-result--err">
+              {result.error || 'Stitch failed'}
+            </span>
+          ) : (
+            <span className="stitch-status-count">
+              {selection.length} clip{selection.length === 1 ? '' : 's'}{' '}
+              selected
+              {folderCount > 1 ? ` across ${folderCount} folders` : ''}
+            </span>
+          )}
+        </div>
+        <div className="stitch-footer-actions">
+          <button
+            type="button"
+            className="stitch-close-btn"
+            onClick={onClose}
+            disabled={busy}
+          >
+            Close
+          </button>
+          <button
+            type="button"
+            className="stitch-go-btn"
+            onClick={doStitch}
+            disabled={selection.length < 2 || busy}
+          >
+            {busy
+              ? 'Stitching…'
+              : `Stitch ${selection.length} clip${
+                  selection.length === 1 ? '' : 's'
+                }`}
+          </button>
+        </div>
+      </div>
+    </Modal>
   )
 }

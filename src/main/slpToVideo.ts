@@ -8,24 +8,59 @@ https://github.com/kevinsung/slp-to-video
 
 */
 
-import {
-  ChildProcess,
-  ChildProcessWithoutNullStreams,
-  spawn,
-} from 'child_process'
+import { ChildProcess, spawn } from 'child_process'
 import { app } from 'electron'
 import crypto from 'crypto'
-import fs, { promises as fsPromises } from 'fs'
+import { promises as fsPromises } from 'fs'
 import path from 'path'
-import readline from 'readline'
-import { SlippiGame } from '@slippi/slippi-js'
 import os from 'os'
+// Every Dolphin this app spawns goes through slippi-dolphin-runner: the throwaway
+// profile, the comm file, the --cout frame watch, the stall watchdog and the tree
+// kill. Don't hand-roll any of those here again (its MIGRATING.md lists why).
+import {
+  BACKGROUND_RECORD,
+  buildProfile,
+  healRealProfile,
+  killTree as killPidTree,
+  profileAt,
+  realProfileExists,
+  realProfileRoot,
+  record,
+  type ProfileOptions,
+  type RunnerWarning,
+} from 'slippi-dolphin-runner'
+import { SlippiGame } from '../lib/slippiGame'
+import { readLastFrame } from '../lib/lastFrame'
+import { playableSlp } from './slpCache'
+import { checkIso } from './isoCheck'
 import { GAME_START_FRAME } from '../constants/frames'
 
 import { buildReplayVars, applyPattern } from '../lib/overlayTokens'
 import { getFFMPEGPath, getAssetPath } from './util'
 import { renderOverlayPng } from './overlayRenderer'
 import { logMain, getLogPath } from './logger'
+import { isFileLockedText } from './fsRetry'
+import { hideLauncherPath } from './hideLauncher'
+import { shownError } from './errorText'
+import {
+  WINDOWS_PATH_LIMIT,
+  clipDiskBytes,
+  dolphinTempRoot,
+  driveLabel,
+  dumpPlanFor,
+  dumpCodecProblem,
+  isWindowsPlatform,
+  freeBytesAt,
+  isDiskFullError,
+  isDiskFullText,
+  moveFile,
+  preflightRecordingDisk,
+  recordingFormatOf as recordingFormatOfConfig,
+  removeTree,
+  scratchDirFor,
+  stripQuotes,
+  unlinkQuiet,
+} from './diskSpace'
 import {
   ConfigInterface,
   ReplayInterface,
@@ -57,21 +92,46 @@ export type VideoJobController = {
 type VideoSignal = {
   stopped: boolean
   cancelled: boolean
+  // Set when the run stops itself (disk full, Dolphin not starting): the one
+  // message the user sees instead of a failure per remaining clip.
+  abortReason: string | null
+  // ffmpeg children, killed directly.
   activeProcesses: Set<ChildProcess>
+  // One per recording Dolphin; aborting SIGKILLs its whole tree (the package's).
+  activeRecordings: Set<AbortController>
+}
+
+const halted = (signal: VideoSignal) =>
+  signal.stopped || signal.cancelled || signal.abortReason !== null
+
+/** A run that stopped itself; its message is meant for the user as is. */
+export class RecordingStoppedError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'RecordingStoppedError'
+  }
 }
 
 let ffmpegPath = getFFMPEGPath()
 logMain('slpToVideo: resolved ffmpeg path', { ffmpegPath })
 
 export function setFFMPEGPathOverride(overridePath: string) {
-  if (overridePath && overridePath.trim()) {
-    ffmpegPath = overridePath.trim()
+  // Windows Explorer's "Copy as path" wraps the path in double quotes; spawn
+  // would look for a file literally named "C:\...\ffmpeg.exe" (quotes included).
+  const cleaned = overridePath ? stripQuotes(overridePath) : ''
+  if (cleaned) {
+    ffmpegPath = cleaned
     logMain('slpToVideo: ffmpeg path overridden', { ffmpegPath })
   } else {
     ffmpegPath = getFFMPEGPath()
     logMain('slpToVideo: ffmpeg path reset to default', { ffmpegPath })
   }
 }
+
+/** The ffmpeg every recording/stitch spawns: the Settings override if set,
+ *  else the bundled one. Other callers (probes, Test ffmpeg) should use this
+ *  rather than getFFMPEGPath, which ignores the override. */
+export const getEffectiveFFMPEGPath = (): string => ffmpegPath
 
 const getAppDataPath = () => {
   if (app && typeof app.getPath === 'function') return app.getPath('appData')
@@ -85,36 +145,68 @@ const getAppDataPath = () => {
   return process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config')
 }
 
-// --- Robustness knobs for the recording pipeline (watchdog + Stop below).
-// Tuned to kill genuine hangs quickly without false-positiving healthy work.
-//
-// The two Dolphin timers are LENGTH-INDEPENDENT on purpose: the stale timer
-// measures the gap BETWEEN frames, not total runtime, so a 3-minute game (which
-// streams [CURRENT_FRAME] continuously) keeps resetting it and never trips —
-// only genuine silence does. Boot grace is about ISO load, also length-agnostic.
-const DOLPHIN_BOOT_STALE_MS = 90_000 // no first frame within 90s of spawn = hung boot
-const DOLPHIN_FRAME_STALE_MS = 30_000 // frames stopped for 30s mid-record = frozen
-const SIGKILL_ESCALATION_MS = 5_000 // POSIX: SIGTERM, then SIGKILL after 5s
+// --- Robustness knobs for the recording pipeline. Dolphin's own watchdog (no
+// first frame within 90 s, frames stopped for 30 s) lives in slippi-dolphin-runner.
 const STOP_GRACE_MS = 45_000 // Stop: force-kill anything still alive after 45s
+// Accept a recording only if it holds this much of the expected footage. Dumps
+// are not frame-exact (3504-3534 of 3600 frames across codecs and speeds,
+// runner docs "Dumps are NOT frame-count stable"), so this is a ratio.
+const MIN_FOOTAGE_RATIO = 0.9
+// Kept free while recording; below it the run stops ("disk full") rather than
+// letting Dolphin and ffmpeg write truncated files.
+const RUN_FLOOR_BYTES = 512 * 1024 * 1024
+// The first clips all failing with no frame at all means Dolphin isn't starting
+// (wrong build, missing ISO access, GPU driver): stop after this many attempts
+// rather than retrying every clip in the queue.
+const NO_FRAME_ABORT_AFTER = 3
 
-// The ffmpeg steps (merge + mp4 convert) RE-ENCODE, so their runtime scales with
-// clip length — a fixed cap would false-kill a legit long game. Scale the timeout
-// off the clip's footage seconds instead, with a generous ~10x-realtime headroom
-// so even a slow machine never trips it; it's only a backstop against a truly
-// wedged process, not a performance budget. e.g. 7s clip → ~3 min, 3-min game →
-// ~32 min. Frames are 60fps.
+// The final encode RE-ENCODES, so its runtime scales with clip length — a fixed
+// cap would false-kill a legit long game. Scale the timeout off the clip's
+// footage seconds instead, with a generous ~10x-realtime headroom so even a slow
+// machine never trips it; it's only a backstop against a truly wedged process,
+// not a performance budget. e.g. 7s clip → ~3 min, 3-min game → ~32 min.
+// Frames are 60fps.
 const FFMPEG_TIMEOUT_BASE_MS = 120_000 // fixed startup/overhead allowance
 const FFMPEG_TIMEOUT_PER_SEC_MS = 10_000 // + per second of footage (10x realtime)
 const ffmpegTimeoutFor = (clipFrames: number) =>
   FFMPEG_TIMEOUT_BASE_MS +
   Math.max(0, clipFrames / 60) * FFMPEG_TIMEOUT_PER_SEC_MS
 
-// Video-encoder args for the SINGLE final re-encode of Dolphin's lossless FFV1
-// dump. Recording used to re-encode twice (FFV1 → mpeg4 at merge → H.264), so
-// the mpeg4 middle hop threw away quality the final encode couldn't recover.
-// Now the merge is a lossless stream-copy and this is the only lossy step.
-// Defaults preserve the classic libx264 + target-bitrate behavior.
-const buildVideoEncodeArgs = (config: ConfigInterface): string[] => {
+/**
+ * Wall-clock cap for one Dolphin recording: boot allowance + the clip at the
+ * slowest speed we expect for its dump codec. FFV1 is single-threaded and
+ * encoder-bound: 0.34x at 2x and 0.10x at 3x on an idle box, and a loaded box
+ * runs ~half its idle speed (runner docs: 0.6x → 0.33x under load), so ffv1 at
+ * 2x and above assumes 0.03x. Everything else assumes 0.1x (utvideo at 3x is
+ * 0.8x contended; mpeg4, Windows' "Fast", 1.26x at 2x and 0.62x at 3x idle). The runner's own stall watchdog catches
+ * a frozen Dolphin long before this; it only ends one that keeps crawling.
+ */
+export const recordHardTimeoutMs = (
+  config: ConfigInterface,
+  clipFrames: number,
+): number => {
+  const slow =
+    dumpPlanFor(config).dumpCodec === 'ffv1' && config.resolution >= 4
+  const floorSpeed = slow ? 0.03 : 0.1
+  return 180_000 + Math.ceil((clipFrames / 60 / floorSpeed) * 1000)
+}
+
+/** Encoder threads per final encode: the CPUs shared between the workers, so
+ *  N parallel x264s don't each start a thread per core and thrash. */
+export const encodeThreadsFor = (
+  numProcesses: number,
+  cpus: number = os.cpus().length || 1,
+) => Math.max(1, Math.floor(cpus / Math.max(1, numProcesses)))
+
+// Video-encoder args for the SINGLE final encode of Dolphin's dump (UT Video /
+// FFV1 lossless, or mpeg4 in Fast draft). Recording used to re-encode twice
+// (FFV1 → mpeg4 at merge → H.264), then stream-copy twice (merge, trim) before
+// encoding; now this is the only pass. Defaults preserve the classic libx264 +
+// target-bitrate behavior.
+export const buildVideoEncodeArgs = (
+  config: ConfigInterface,
+  threads?: number,
+): string[] => {
   const codec = config.videoCodec === 'h265' ? 'libx265' : 'libx264'
   const args = ['-c:v', codec, '-preset', config.videoPreset || 'medium']
   // hvc1 tag so HEVC .mp4s play in QuickTime / Apple ecosystems.
@@ -125,6 +217,7 @@ const buildVideoEncodeArgs = (config: ConfigInterface): string[] => {
   } else {
     args.push('-b:v', `${config.bitrateKbps}k`)
   }
+  if (threads) args.push('-threads', String(threads))
   return args
 }
 
@@ -135,55 +228,109 @@ const buildVideoEncodeArgs = (config: ConfigInterface): string[] => {
 const wantsWidescreen1080 = (config: ConfigInterface): boolean =>
   config.resolution === 4 && config.widescreen !== false
 const buildScaleExpr = (config: ConfigInterface): string =>
-  wantsWidescreen1080(config)
-    ? 'scale=1920:1080'
-    : 'scale=trunc(iw/2)*2:trunc(ih/2)*2'
+  `${
+    wantsWidescreen1080(config)
+      ? 'scale=1920:1080'
+      : 'scale=trunc(iw/2)*2:trunc(ih/2)*2'
+  },${TO_BT709}`
 
-// Custom/HD texture packs to install into a render profile. The bundled
-// "Definitive Melee HD" pack (assets/Melee_HD_Textures/GALE01) is included when
-// hdTexturesEnabled; user-imported packs are included when their toggle is on.
-type ResolvedTexturePack = { id: string; path: string }
-const resolveEnabledTexturePacks = (
-  config: ConfigInterface,
-): ResolvedTexturePack[] => {
-  const packs: ResolvedTexturePack[] = []
-  if (config.hdTexturesEnabled) {
-    packs.push({
-      id: 'melee-hd',
-      path: getAssetPath('Melee_HD_Textures', 'GALE01'),
-    })
+// Dolphin dumps RGB. Convert it the way every player expects an HD video:
+// BT.709, limited (TV) range, 4:2:0, and say so in the stream (VIDEO_COLOR_TAGS).
+// Before this the encode was untagged 4:4:4 converted with BT.601: phones and
+// some browsers can't decode High 4:4:4 in hardware, and players that guess the
+// range wrong showed Melee's blacks as grey.
+const TO_BT709 = 'scale=out_color_matrix=bt709:out_range=tv,format=yuv420p'
+export const VIDEO_COLOR_TAGS = [
+  '-colorspace',
+  'bt709',
+  '-color_primaries',
+  'bt709',
+  '-color_trc',
+  'bt709',
+  '-color_range',
+  'tv',
+]
+
+// Overlay compositing filter. When normalizing to 1080p, scale the base there
+// first so the (1080p) overlay lines up 1:1; otherwise scale the overlay to the
+// base. Always pad to even dims for H.264/H.265. `ovr` is the overlay PNG's
+// input index.
+const buildOverlayFilter = (normalizeTo1080: boolean, ovr: number) =>
+  normalizeTo1080
+    ? `[0:v]scale=1920:1080[b];[b][${ovr}:v]scale2ref[base][ovr];` +
+      `[base][ovr]overlay=0:0,pad=ceil(iw/2)*2:ceil(ih/2)*2,${TO_BT709}[outv]`
+    : `[0:v][${ovr}:v]scale2ref[base][ovr];` +
+      `[base][ovr]overlay=0:0,pad=ceil(iw/2)*2:ceil(ih/2)*2,${TO_BT709}[outv]`
+
+// Seconds of lead-in dropped from the dump: the clip starts 60 frames early so
+// Dolphin's boot/first-frame hiccups land outside it.
+const LEAD_TRIM_SEC = 1
+
+/**
+ * The single ffmpeg pass that turns Dolphin's raw dump into the final clip. It
+ * replaces three: merge (stream copy of -unmerged.avi + .wav), trim (-ss 1 copy)
+ * and the encode. It reads the dump and its WAV directly, drops the 1 s lead-in
+ * with an INPUT seek on each (frame-accurate here because both are decoded),
+ * and composites the overlay, scales and encodes in one go.
+ *
+ * `wav` null (Dolphin wrote no audio dump) encodes a silent track (anullsrc)
+ * instead of losing the clip: concatenation and players expect an audio stream.
+ */
+export const buildFinalEncodeArgs = (o: {
+  config: ConfigInterface
+  avi: string
+  wav: string | null
+  overlayPng: string | null
+  output: string
+  threads?: number
+}): string[] => {
+  const { config } = o
+  const args = ['-hide_banner', '-y']
+  args.push('-ss', String(LEAD_TRIM_SEC), '-i', o.avi)
+  if (o.wav) args.push('-ss', String(LEAD_TRIM_SEC), '-i', o.wav)
+  else
+    args.push(
+      '-f',
+      'lavfi',
+      '-i',
+      'anullsrc=channel_layout=stereo:sample_rate=48000',
+    )
+  if (o.overlayPng) {
+    args.push('-i', o.overlayPng)
+    args.push(
+      '-filter_complex',
+      buildOverlayFilter(wantsWidescreen1080(config), 2),
+      '-map',
+      '[outv]',
+    )
+  } else {
+    args.push('-map', '0:v', '-vf', buildScaleExpr(config))
   }
-  for (const p of config.texturePacks || []) {
-    if (p.enabled && p.path) packs.push({ id: p.id, path: p.path })
-  }
-  return packs
+  args.push('-map', '1:a')
+  args.push(...buildVideoEncodeArgs(config, o.threads), ...VIDEO_COLOR_TAGS)
+  // MP4 carries AAC; the AVI output keeps PCM like the old copied WAV did.
+  if (config.convertToMp4) args.push('-c:a', 'aac', '-b:a', '128k')
+  else args.push('-c:a', 'pcm_s16le')
+  // anullsrc never ends: stop with the video.
+  if (!o.wav) args.push('-shortest')
+  args.push(o.output)
+  return args
 }
 
-// Symlink each enabled texture pack into <profile>/Load/Textures/GALE01/<id>.
-// Dolphin scans that folder recursively, so a pack's internal nesting doesn't
-// matter. Symlinks (junctions on Windows — no admin needed) avoid copying
-// hundreds of MB per worker; deleting the temp profile removes only the links,
-// never the real packs.
-const installTexturePacks = async (
-  userDir: string,
-  packs: ResolvedTexturePack[],
-): Promise<void> => {
-  if (packs.length === 0) return
-  const dest = path.join(userDir, 'Load', 'Textures', 'GALE01')
-  await fsPromises.mkdir(dest, { recursive: true })
-  const linkType = process.platform === 'win32' ? 'junction' : 'dir'
-  await Promise.all(
-    packs.map((pack) =>
-      fsPromises
-        .symlink(pack.path, path.join(dest, pack.id), linkType)
-        .catch((err) =>
-          logMain('record: texture pack symlink failed', {
-            pack: pack.id,
-            err: String(err),
-          }),
-        ),
-    ),
-  )
+// Custom/HD texture packs for a Dolphin profile. The bundled "Definitive Melee
+// HD" pack is included when hdTexturesEnabled; user-imported packs when their
+// toggle is on. buildProfile links each under Load/Textures/GALE01/<folder name>
+// (Dolphin scans it recursively), so the bundled pack goes in as its parent
+// folder: its own folder is called GALE01, a name user packs often share. Packs
+// whose folders have the same name all load: since dolphin_runner 0.5.2 the later
+// ones are linked as <name>-2, <name>-3 (the folder name is organisational only).
+export const enabledTexturePacks = (config: ConfigInterface): string[] => {
+  const packs: string[] = []
+  if (config.hdTexturesEnabled) packs.push(getAssetPath('Melee_HD_Textures'))
+  for (const p of config.texturePacks || []) {
+    if (p.enabled && p.path) packs.push(p.path)
+  }
+  return packs
 }
 
 // Await a child's exit. CRITICAL: also settle on 'error' — a spawn that fails
@@ -210,41 +357,20 @@ const isDead = (proc: ChildProcess) =>
   proc.exitCode !== null ||
   proc.signalCode !== null
 
-// Forcefully terminate a process AND its children, cross-platform. Windows has
-// no real signals (kill() maps to TerminateProcess and won't reap children, and
-// Dolphin can spawn helpers) so we use `taskkill /T /F` to take down the whole
-// tree. On POSIX we SIGTERM, then escalate to SIGKILL if it's still alive. Used
-// by the stale watchdog, Stop's backstop, and Cancel — the force paths. The
-// normal per-clip end-frame stop still uses a plain proc.kill() (below).
+// Forcefully terminate an ffmpeg AND its children: SIGTERM, then SIGKILL if
+// still alive (taskkill /T /F on Windows), via the package's pid-tree walk.
+// Used by the length-scaled ffmpeg timeouts, Stop's backstop and Cancel.
 const killTree = (proc: ChildProcess) => {
-  if (isDead(proc)) return
-  const { pid } = proc
-  if (process.platform === 'win32') {
-    try {
-      spawn('taskkill', ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore' })
-    } catch {
-      try {
-        proc.kill()
-      } catch {
-        /* already gone */
-      }
-    }
-    return
-  }
+  if (isDead(proc) || proc.pid == null) return
   try {
-    proc.kill('SIGTERM')
+    // Not graceful: ffmpeg runs hidden as a console process, which refuses
+    // Windows' polite "taskkill /T" ("can only be terminated forcefully"), and
+    // the quit watchdog exits the app before the 5 s escalation would fire,
+    // leaving ffmpeg encoding as an orphan (launch review WIN-16).
+    killPidTree(proc.pid, false)
   } catch {
     /* already gone */
   }
-  setTimeout(() => {
-    if (!isDead(proc)) {
-      try {
-        proc.kill('SIGKILL')
-      } catch {
-        /* already gone */
-      }
-    }
-  }, SIGKILL_ESCALATION_MS)
 }
 
 // Await a child's exit, but give up after `timeoutMs` — a wedged ffmpeg (e.g.
@@ -268,67 +394,76 @@ const awaitExitWithTimeout = async (
   return code
 }
 
-// Watch a recording Dolphin: kill it when it reaches the target end frame (the
-// normal per-clip stop), and — the missing safety net — kill it if it FREEZES.
-// A Dolphin that hangs on load (never emits a frame) or stalls mid-record (frames
-// stop arriving) would otherwise hold a worker slot forever, since it never
-// reaches its end frame and never exits. Mirrors the playback path's stale timer,
-// with a longer boot grace so a slow ISO load isn't mistaken for a hang. Returns
-// a cleanup fn to clear the timer once the process has exited.
-const monitorDolphinRecording = (
-  proc: ChildProcessWithoutNullStreams,
-  onStale: (_sawAnyFrame: boolean) => void,
-) => {
-  let endFrame = Infinity
-  let sawAnyFrame = false
-  let staleTimer: ReturnType<typeof setTimeout> | null = null
-  const clearStale = () => {
-    if (staleTimer) {
-      clearTimeout(staleTimer)
-      staleTimer = null
-    }
-  }
-  const armStale = () => {
-    clearStale()
-    staleTimer = setTimeout(
-      () => {
-        onStale(sawAnyFrame)
-        killTree(proc)
-      },
-      sawAnyFrame ? DOLPHIN_FRAME_STALE_MS : DOLPHIN_BOOT_STALE_MS,
-    )
-  }
-  const rl = readline.createInterface({ input: proc.stdout })
-  rl.on('line', (line) => {
-    if (line.includes('[PLAYBACK_END_FRAME]')) {
-      const match = /\[PLAYBACK_END_FRAME\] ([0-9]+)/.exec(line)
-      if (match?.[1]) endFrame = Math.min(endFrame, parseInt(match[1], 10))
-    } else if (line.includes('[GAME_END_FRAME]')) {
-      const match = /\[GAME_END_FRAME\] ([0-9]+)/.exec(line)
-      if (match?.[1]) endFrame = Math.min(endFrame, parseInt(match[1], 10))
-    } else if (line.includes('[CURRENT_FRAME]')) {
-      sawAnyFrame = true
-      armStale()
-      if (
-        endFrame !== Infinity &&
-        line.includes(`[CURRENT_FRAME] ${endFrame}`)
-      ) {
-        proc.kill() // reached the end normally — gentle stop is enough
-      }
-    }
+/** Spawn ffmpeg hidden (no console window flashing up per clip on Windows),
+ *  tracked so Stop/Cancel can kill it, with the stderr tail kept. */
+const runFfmpeg = async (
+  args: string[],
+  signal: VideoSignal | null,
+  timeoutMs: number,
+  label: string,
+): Promise<{ code: number | null; stderr: string }> => {
+  const proc = spawn(ffmpegPath, args, {
+    stdio: ['ignore', 'ignore', 'pipe'],
+    windowsHide: true,
   })
-  armStale() // start the boot-grace clock immediately
-  return () => {
-    clearStale()
-    rl.close()
+  signal?.activeProcesses.add(proc)
+  let stderr = ''
+  proc.on('error', (err) => {
+    stderr += `\nspawn error: ${String(err)}`
+    logMain(`record: ${label} spawn error`, err)
+  })
+  proc.stderr?.setEncoding('utf8')
+  proc.stderr?.on('data', (chunk: string) => {
+    stderr += chunk
+    // Keep the head (stream info, for the overlay dims) and the tail (errors).
+    if (stderr.length > 128_000)
+      stderr = stderr.slice(0, 32_000) + stderr.slice(-64_000)
+  })
+  const code = await awaitExitWithTimeout(proc, timeoutMs, label)
+  signal?.activeProcesses.delete(proc)
+  return { code, stderr }
+}
+
+// Duration (seconds) and frame size of a dump, from ffmpeg's header read (we
+// ship ffmpeg, not ffprobe); 0 / null if it can't be read.
+const probeDump = async (
+  file: string,
+): Promise<{ sec: number; dims: { width: number; height: number } | null }> => {
+  const { stderr } = await runFfmpeg(
+    ['-hide_banner', '-i', file],
+    null,
+    30_000,
+    'dump probe',
+  )
+  const m = /Duration: (\d+):(\d+):(\d+(?:\.\d+)?)/.exec(stderr)
+  return {
+    sec: m ? Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]) : 0,
+    dims: parseVideoDimensions(stderr),
   }
+}
+
+// Windows refuses these as file or folder names, with or without an extension
+// ("CON.mp4" is still the console device), and silently drops trailing dots and
+// spaces, so "Fox vs. " and "Fox vs" collide.
+const WINDOWS_RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i
+const sanitizeSegment = (segment: string): string => {
+  // The pattern's own text, not only the token values: "Clip: {index}" on NTFS
+  // creates an alternate data stream "Clip" and the video is invisible
+  // (launch review WIN-14).
+  let s = segment
+    .replace(/[<>:"|?*\x00-\x1f]/g, '_') // eslint-disable-line no-control-regex
+    .replace(/[. ]+$/, '')
+  if (WINDOWS_RESERVED.test(s)) s = `_${s}`
+  return s || '_'
 }
 
 /**
  * Resolve a filename pattern using replay metadata.
  * Supports {character1}, {character2}, {player1}, {player2}, {stage},
  * {date}, {time}, {index}, {kills}, {damage}, {moves}.
- * Slashes in the pattern create subdirectories.
+ * Slashes (either way) in the pattern create subdirectories; every segment is
+ * made safe on Windows (reserved device names, trailing dots/spaces), which
+ * also turns a ".." segment into "_" so a pattern can't leave the output folder.
  */
 export const resolveFilenamePattern = (
   pattern: string,
@@ -344,7 +479,118 @@ export const resolveFilenamePattern = (
   const vars: Record<string, string> = {}
   for (const key of Object.keys(raw)) vars[key] = sanitize(raw[key])
 
-  return pattern.replace(/\{(\w+)\}/g, (match, key) => vars[key] ?? match)
+  const resolved = pattern.replace(
+    /\{(\w+)\}/g,
+    (match, key) => vars[key] ?? match,
+  )
+  return resolved
+    .split(/[\\/]+/)
+    .filter((seg, i, all) => seg !== '' || all.length === 1)
+    .map(sanitizeSegment)
+    .join('/')
+}
+
+/** Shorten a file's base name so `<dir>/<base><longest suffix>` stays under
+ *  Windows' path limit (only on Windows). */
+const fitWindowsPath = (
+  dir: string,
+  base: string,
+  longestSuffix: string,
+  platform = process.platform,
+): string => {
+  if (platform !== 'win32') return base
+  const room = WINDOWS_PATH_LIMIT - (dir.length + 1 + longestSuffix.length)
+  if (base.length <= room) return base
+  return base.slice(0, Math.max(8, room)).replace(/[. ]+$/, '') || '_'
+}
+
+/** How one clip ended. `noFrame`: Dolphin never produced a frame (it didn't
+ *  start, or died at boot); `diskFull`: a drive ran out of room. */
+type ClipOutcome =
+  | { ok: true; file: string }
+  | {
+      ok: false
+      kind: 'halted' | 'failed' | 'noFrame' | 'diskFull'
+      detail?: string
+    }
+
+/** What the exit codes a Windows Dolphin (or its hidden-window launcher) ends with
+ *  mean, so "exit code 91" is not all a user is told (launch review REC-13). */
+const EXIT_CODE_NOTES: Record<number, string> = {
+  90: 'the hidden-window helper was given bad arguments',
+  91: 'the hidden-window helper could not create its hidden desktop',
+  92: 'the hidden-window helper could not start Dolphin',
+  3221225781:
+    'a Windows library (DLL) is missing; install the Visual C++ runtime',
+  3221226505:
+    'Dolphin crashed (0xC0000409, a fatal error in a driver or library)',
+  3221225595: 'a Windows library is the wrong kind (bad image)',
+}
+
+/** Did the hidden-window launcher itself fail (not Dolphin)? Its exit codes 90-92,
+ *  or the launcher blocked from running (antivirus, AppLocker, Smart App Control):
+ *  a spawn error naming it, EPERM/EACCES/UNKNOWN. */
+const LAUNCHER_FAILURE =
+  /exit code 9[0-2]\b|hidden[- ]?(window )?(helper|launcher)|lunar-hidden-launcher|\bEPERM\b|\bEACCES\b|\bUNKNOWN\b/i
+
+/** Once the launcher has failed, the rest of the session records with visible
+ *  windows rather than failing every clip. */
+let hideDisabledForSession = false
+/** Tests only. */
+export const resetHideFallback = () => {
+  hideDisabledForSession = false
+}
+export const hideLauncherFailed = (
+  detail: string,
+  platform: NodeJS.Platform,
+): boolean => platform === 'win32' && LAUNCHER_FAILURE.test(detail)
+
+/** A short reason from a record() result/error (0.5.7 adds exitCode,
+ *  exitSignal and stderrTail; read defensively so 0.5.6 still works). */
+const dolphinExitDetail = (src: unknown): string => {
+  const r = (src || {}) as {
+    exitCode?: number | null
+    exitSignal?: string | null
+    stderrTail?: string[]
+    diagnostic?: { stderrTail?: string[]; reason?: string } | null
+    message?: string
+  }
+  const tail = (r.stderrTail?.length ? r.stderrTail : r.diagnostic?.stderrTail)
+    ?.map((l) => l.trim())
+    .filter(Boolean)
+  const parts: string[] = []
+  if (tail?.length) parts.push(tail[tail.length - 1].slice(0, 200))
+  else if (r.message) parts.push(r.message.split('\n')[0].slice(0, 200))
+  if (r.exitCode != null)
+    parts.push(
+      EXIT_CODE_NOTES[r.exitCode]
+        ? `exit code ${r.exitCode}: ${EXIT_CODE_NOTES[r.exitCode]}`
+        : `exit code ${r.exitCode}`,
+    )
+  else if (r.exitSignal) parts.push(`signal ${r.exitSignal}`)
+  if (r.diagnostic?.reason) parts.push(r.diagnostic.reason)
+  return parts.join(', ') || 'no output from Dolphin'
+}
+
+/** The hidden-window launcher could not start (blocked, or no desktop to hide
+ *  on): record this clip again, and the rest of the session, with visible
+ *  windows. Returned as a plain failure so the clip is retried and the run does
+ *  not stop with "Dolphin isn't starting" (launch review WIN-11, REC-13). */
+const fallBackToVisible = (
+  detail: string,
+  onNotice?: (_msg: string) => void,
+): ClipOutcome => {
+  hideDisabledForSession = true
+  logMain(
+    'record: hidden-window launcher failed, recording with visible windows',
+    {
+      detail,
+    },
+  )
+  onNotice?.(
+    `Note: the helper that hides the recording windows could not start (${detail}). Clipper is recording with visible windows instead; the clips are not affected. A virus scanner may have blocked lunar-hidden-launcher.exe; turn off Hide Recording Windows in Settings > Recording to stop trying it.`,
+  )
+  return { ok: false, kind: 'failed', detail }
 }
 
 const processOneReplay = async (
@@ -354,10 +600,18 @@ const processOneReplay = async (
   // processReplays. Every Dolphin spawn in this run is isolated to it, so the
   // user's real Slippi profile is never read or written during recording.
   userDir: string,
+  // This attempt's own folder inside the run's scratch dir: Dolphin's dump, its
+  // WAV, the comm file, the overlay PNG and the encode all live here until the
+  // final file is moved to the output folder.
+  clipScratch: string,
   signal: VideoSignal,
   onRecorded?: () => void,
   onError?: (_msg: string) => void,
-): Promise<boolean> => {
+  // How far Dolphin is through this clip (0-1), as frames come in.
+  onFrameProgress?: (_fraction: number) => void,
+  // A non-blocking note for the app's console (warn level).
+  onNotice?: (_msg: string) => void,
+): Promise<ClipOutcome> => {
   const outputPattern = config.outputFilenamePattern || '{index}'
   const resolvedName = resolveFilenamePattern(
     outputPattern,
@@ -366,58 +620,53 @@ const processOneReplay = async (
   )
   // resolvedName may contain path separators for folder structure
   const outputDir = path.resolve(config.outputPath, path.dirname(resolvedName))
-  const fileBasename = path.basename(resolvedName)
-
-  // Ensure output subdirectories exist
-  await fsPromises.mkdir(outputDir, { recursive: true })
-
-  const basePath = (suffix: string) =>
+  const ext = config.convertToMp4 ? '.mp4' : '.avi'
+  const fileBasename = fitWindowsPath(
+    outputDir,
+    path.basename(resolvedName),
+    config.keepLosslessMaster ? '.master.avi' : `${ext}.partial`,
+  )
+  const outputFile = (suffix: string) =>
     path.resolve(outputDir, `${fileBasename}${suffix}`)
+  const finalOutput = outputFile(ext)
 
-  // Overlay PNG path, set later if an overlay is rendered. Declared here so the
-  // cleanup helper can always reach it regardless of which path we exit through.
-  let overlayPngPath: string | null = null
+  const failed = (detail: string): ClipOutcome => {
+    onError?.(`Error: ${detail}`)
+    return { ok: false, kind: 'failed', detail }
+  }
 
-  // Remove every non-final scratch file for this clip. Never touches the final
-  // `.mp4`/`.avi`. Called on success AND on every failure/stop exit so a long
-  // run with retries doesn't slowly litter the output folder with -unmerged/
-  // -merged debris.
-  const cleanupIntermediates = () =>
-    Promise.all([
-      fsPromises.unlink(basePath('.json')).catch(() => {}),
-      fsPromises.unlink(basePath('-unmerged.avi')).catch(() => {}),
-      fsPromises.unlink(basePath('-unmerged.wav')).catch(() => {}),
-      fsPromises.unlink(basePath('-merged.avi')).catch(() => {}),
-      // Lossless FFV1 intermediate — unless kept as a `.master.avi` (already
-      // renamed away by then, so this unlink is a no-op in that case).
-      fsPromises.unlink(basePath('-lossless.avi')).catch(() => {}),
-      fsPromises.unlink(basePath('-final.avi')).catch(() => {}),
-      ...(overlayPngPath
-        ? [fsPromises.unlink(overlayPngPath).catch(() => {})]
-        : []),
-    ])
-
-  // 1. Write JSON config for this replay
-  // Check file exists before trying to parse
+  // 1. Read the replay's length.
   try {
     await fsPromises.access(replay.path)
   } catch {
     logMain('record: replay file not found', { path: replay.path })
-    onError?.(`Error: Replay file not found: ${replay.path}`)
-    return false
+    return failed(`Replay file not found: ${replay.path}`)
   }
 
+  // Dolphin plays only .slp: a .slpz is decoded into Clipper's cache first
+  // (main/slpCache.ts), and that copy is what's read and recorded.
+  let slpPath: string
   let game
   try {
-    game = new SlippiGame(replay.path)
+    slpPath = await playableSlp(replay.path)
+    game = new SlippiGame(slpPath)
   } catch (e) {
     logMain('record: broken/unreadable replay file', { path: replay.path })
-    onError?.(`Error: Could not read replay: ${replay.path}`)
-    return false
+    return failed(`Could not read replay: ${replay.path}`)
   }
 
-  const metadata = game.getMetadata()
-  const gameLastFrame = metadata?.lastFrame ?? game.getLatestFrame()?.frame
+  let gameLastFrame: number | undefined
+  try {
+    const metadata = game.getMetadata()
+    // Anonymized replays have no metadata: read the end of the replay (a few
+    // bytes) before falling back to parsing every frame.
+    gameLastFrame =
+      metadata?.lastFrame ??
+      readLastFrame(slpPath) ??
+      game.getLatestFrame()?.frame
+  } catch {
+    gameLastFrame = undefined
+  }
 
   let endFrame: number
   if (gameLastFrame) {
@@ -429,220 +678,246 @@ const processOneReplay = async (
     endFrame = replay.endFrame
   } else {
     logMain('record: cannot determine game length', { path: replay.path })
-    onError?.(`Error: Cannot determine game length: ${replay.path}`)
-    return false
+    return failed(`Cannot determine game length: ${replay.path}`)
   }
 
-  const dolphinConfig = {
-    mode: 'normal',
-    replay: replay.path,
-    startFrame:
-      replay.startFrame - 60 < GAME_START_FRAME
-        ? GAME_START_FRAME
-        : replay.startFrame - 60,
-    endFrame,
-    isRealTimeMode: false,
-    commandId: `${crypto.randomBytes(12).toString('hex')}`,
-  }
-  await fsPromises.writeFile(basePath('.json'), JSON.stringify(dolphinConfig))
+  const startFrame =
+    replay.startFrame - 60 < GAME_START_FRAME
+      ? GAME_START_FRAME
+      : replay.startFrame - 60
 
-  // Footage length in frames (60fps) — drives the length-scaled ffmpeg timeouts
-  // so a long game's re-encode isn't false-killed. Includes the 60-frame lead-in.
-  const clipFrames = Math.max(1, endFrame - dolphinConfig.startFrame)
+  // Footage length in frames (60fps) — drives the length-scaled timeouts so a
+  // long game isn't false-killed. Includes the 60-frame lead-in.
+  const clipFrames = Math.max(1, endFrame - startFrame)
   const ffmpegTimeoutMs = ffmpegTimeoutFor(clipFrames)
 
-  // 2. Record with Dolphin, isolated to this worker's throwaway --user profile.
-  // (No more leftover-dump-file cleanup: dumps land under `userDir` and that
-  // whole dir is deleted when the run ends, so a stale dtkdump.wav can never
-  // prompt on a later playback — the bug that cleanup existed to paper over.)
-  const dolphinArgs = [
-    '-i',
-    basePath('.json'),
-    '-o',
-    `${fileBasename}-unmerged`,
-    `--output-directory=${outputDir}`,
-    ...(config.fullscreen !== false ? ['-b'] : []),
-    '-e',
-    config.ssbmIsoPath,
-    '--user',
-    userDir,
-    '--cout',
-  ]
-
-  logMain('record: spawning Dolphin', {
-    dolphinPath: config.dolphinPath,
-    args: dolphinArgs,
-    replay: replay.path,
-    startFrame: dolphinConfig.startFrame,
-    endFrame: dolphinConfig.endFrame,
-  })
-
-  const dolphinProcess = spawn(config.dolphinPath, dolphinArgs, {})
-  signal.activeProcesses.add(dolphinProcess)
-
-  let dolphinStderr = ''
-  dolphinProcess.stderr.setEncoding('utf8')
-  dolphinProcess.stderr.on('data', (chunk: string) => {
-    dolphinStderr += chunk
-  })
-  dolphinProcess.on('error', (err) => {
-    logMain('record: Dolphin spawn error', err)
-  })
-
-  const dolphinExit = exit(dolphinProcess)
-  let staleKill = false
-  const stopMonitor = monitorDolphinRecording(dolphinProcess, (sawAnyFrame) => {
-    staleKill = true
-    logMain('record: Dolphin watchdog killed a frozen recording', {
-      replay: replay.path,
-      reason: sawAnyFrame
-        ? 'frames stopped mid-record'
-        : 'no frames within boot grace',
-    })
-  })
-  const dolphinExitCode = await dolphinExit
-  stopMonitor()
-  signal.activeProcesses.delete(dolphinProcess)
-
-  logMain('record: Dolphin exited', {
-    code: dolphinExitCode,
-    staleKill,
-    stderr: dolphinStderr.slice(-2000),
-    replay: replay.path,
-  })
-
-  if (signal.stopped || signal.cancelled) {
-    await cleanupIntermediates()
-    return false
+  // 2. Room for this clip? Checked before every clip, not just at the start:
+  // other programs fill disks too, and a long run outlives the preflight.
+  const need = clipDiskBytes(
+    { ...replay, lastFrame: gameLastFrame ?? null },
+    config,
+  )
+  const [scratchFree, outputFree] = await Promise.all([
+    freeBytesAt(clipScratch),
+    freeBytesAt(outputDir),
+  ])
+  if (scratchFree !== null && scratchFree < need.scratch + RUN_FLOOR_BYTES) {
+    return { ok: false, kind: 'diskFull', detail: driveLabel(clipScratch) }
+  }
+  if (
+    outputFree !== null &&
+    outputFree < need.final + need.master + RUN_FLOOR_BYTES
+  ) {
+    return { ok: false, kind: 'diskFull', detail: driveLabel(outputDir) }
   }
 
-  // Recording must have produced a non-empty video dump. If it didn't — a spawn
-  // 'error', a crash, or a watchdog kill of a frozen Dolphin — treat the clip as
-  // failed (retried/counted below) rather than feeding a missing/partial input
-  // into ffmpeg and silently emitting nothing. This is also what keeps the usage
-  // telemetry honest: only clips that actually recorded advance the counter.
   try {
-    const dump = await fsPromises.stat(basePath('-unmerged.avi'))
-    if (dump.size === 0) throw new Error('empty dump')
-  } catch {
-    logMain('record: no video dump produced', {
-      code: dolphinExitCode,
-      staleKill,
+    await fsPromises.mkdir(clipScratch, { recursive: true })
+    await fsPromises.mkdir(outputDir, { recursive: true })
+  } catch (err) {
+    if (isDiskFullError(err))
+      return { ok: false, kind: 'diskFull', detail: driveLabel(clipScratch) }
+    logMain('record: could not create folders', { err: String(err) })
+    return failed(`Could not create folder: ${String(err)}`)
+  }
+
+  // A dump codec this platform's Dolphin lacks runs the whole replay and
+  // writes nothing (Windows Playback has no UT Video encoder): refuse up front,
+  // by name, instead of after a full-length "produced no video".
+  const dumpCodec = dumpPlanFor(config).dumpCodec
+  const codecProblem = dumpCodecProblem(dumpCodec)
+  if (codecProblem) {
+    logMain('record: dump codec unavailable', { dumpCodec })
+    onError?.(`Error: ${codecProblem}`)
+    return failed(codecProblem)
+  }
+
+  // 3. Record with Dolphin in this worker's throwaway --user profile, into the
+  // clip's scratch folder (so the comm file and dump names can't clash with
+  // another worker's).
+  logMain('record: recording', {
+    replay: replay.path,
+    startFrame,
+    endFrame,
+    clipScratch,
+  })
+  const recording = new AbortController()
+  signal.activeRecordings.add(recording)
+  let result: Awaited<ReturnType<typeof record>> | null = null
+  let recordError: unknown = null
+  const runnerWarnings: RunnerWarning[] = []
+  try {
+    result = await record(
+      { dolphinPath: config.dolphinPath, isoPath: config.ssbmIsoPath },
+      slpPath,
+      {
+        outDir: clipScratch,
+        baseName: 'clip-unmerged',
+        commPath: path.join(clipScratch, 'comm.json'),
+        userDir,
+        startFrame,
+        endFrame,
+        ...(gameLastFrame ? { lastFrame: gameLastFrame } : {}),
+        // A Dolphin that keeps printing frames but never reaches the end isn't
+        // a stall; cap the run by the slowest speed its codec can reach.
+        hardTimeoutMs: recordHardTimeoutMs(config, clipFrames),
+        onFrame: (current: number) =>
+          onFrameProgress?.(
+            Math.max(0, Math.min(1, (current - startFrame) / clipFrames)),
+          ),
+        signal: recording.signal,
+        // Same value buildProfile got (recordProfileOptions).
+        ...recordHideOptions(config),
+        onWarning: (w: RunnerWarning) => {
+          runnerWarnings.push(w)
+          logMain('record: dolphin-runner warning', w)
+        },
+      },
+    )
+    logMain('record: dolphin done', {
       replay: replay.path,
-      stderr: dolphinStderr.slice(-500),
+      dumpCodec,
+      dumpBitrateKbps: dumpPlanFor(config).bitrateKbps ?? null,
+      hide: result.hide
+        ? {
+            method: result.hide.method,
+            verified: result.hide.verified,
+            launcher: result.hide.desktop?.launcher ?? null,
+            warnings: result.hide.warnings,
+          }
+        : null,
+      forcedStop: result.forcedStop,
+      wavRepaired: result.wavRepaired,
     })
+  } catch (err) {
+    // A bad path, an abort (Stop's backstop / Cancel), or a Dolphin that left
+    // no video at all ("produced no video"; 0.5.7 adds how it exited). Anything
+    // with footage resolves instead (below).
+    recordError = err
+    logMain('record: Dolphin produced no recording', {
+      replay: replay.path,
+      dumpCodec,
+      err: String(err),
+      detail: dolphinExitDetail(err),
+    })
+  } finally {
+    signal.activeRecordings.delete(recording)
+  }
+
+  // Hiding was asked for and didn't happen: say so once, without stopping.
+  if (recordHideFor(config) && !hideNoticeShown) {
+    const failure = hideFailure([
+      ...(result?.hide?.warnings ?? []),
+      ...runnerWarnings,
+    ])
+    if (failure) {
+      hideNoticeShown = true
+      logMain('record: recording windows could not be hidden', failure)
+      onNotice?.(
+        `Note: the recording Dolphin windows could not be hidden on this computer (${failure.code}), so they may show up on screen. The clips are not affected. Turn off Hide Recording Windows in Settings > Recording to stop this note.`,
+      )
+    }
+  }
+
+  if (halted(signal)) return { ok: false, kind: 'halted' }
+
+  if (!result) {
+    if (isDiskFullError(recordError))
+      return { ok: false, kind: 'diskFull', detail: driveLabel(clipScratch) }
+    const detail = dolphinExitDetail(recordError)
+    if (
+      recordHideFor(config) &&
+      hideLauncherFailed(`${recordError} ${detail}`, recorderPlatform())
+    )
+      return fallBackToVisible(detail, onNotice)
+    onError?.(
+      `Error: recording produced no video: ${path.basename(replay.path)} (dump codec ${dumpCodec})`,
+    )
+    return {
+      ok: false,
+      kind: 'noFrame',
+      detail: dolphinExitDetail(recordError),
+    }
+  }
+
+  // Dolphin died before its first frame (0.5.7's "early-exit"), or the
+  // watchdog found a hung boot: counts toward "Dolphin isn't starting".
+  const diag = result.diagnostic as {
+    reason?: string
+    hungOnBoot?: boolean
+  } | null
+  const neverStarted =
+    diag?.reason === 'early-exit' || diag?.hungOnBoot === true
+
+  // 4. Judge the footage on EVERY dump, not only stalled ones: a Dolphin that
+  // exits early on its own (crash, GPU reset) leaves a short, valid-looking
+  // file with no stall flagged. A stall is not a verdict either: dumps at the
+  // moment of a stall have been 27-94% complete.
+  const probe = await probeDump(result.avi)
+  const expected = clipFrames / 60
+  const short = probe.sec < expected * MIN_FOOTAGE_RATIO
+  if (result.stalled || short || neverStarted) {
+    logMain('record: dump check', {
+      replay: replay.path,
+      stalled: result.stalled,
+      reason: result.diagnostic?.reason,
+      gotSec: probe.sec,
+      expectedSec: expected,
+      detail: dolphinExitDetail(result),
+    })
+  }
+
+  // Recording must have produced a non-empty video dump of the right length;
+  // otherwise the clip failed (retried/counted by the caller) rather than
+  // feeding a missing/partial input into ffmpeg and silently emitting nothing.
+  // This is also what keeps the usage telemetry honest: only clips that
+  // actually recorded advance the counter.
+  let dumpOk = false
+  try {
+    dumpOk = !short && (await fsPromises.stat(result.avi)).size > 0
+  } catch {
+    dumpOk = false
+  }
+  if (!dumpOk) {
+    logMain('record: no usable video dump', {
+      stalled: result.stalled,
+      short,
+      replay: replay.path,
+    })
+    // A dump that stopped short on a full disk is a disk problem, not a clip one.
+    const free = await freeBytesAt(clipScratch)
+    if (free !== null && free < RUN_FLOOR_BYTES)
+      return { ok: false, kind: 'diskFull', detail: driveLabel(clipScratch) }
+    if (
+      neverStarted &&
+      recordHideFor(config) &&
+      hideLauncherFailed(dolphinExitDetail(result), recorderPlatform())
+    )
+      return fallBackToVisible(dolphinExitDetail(result), onNotice)
     onError?.(
       `Error: recording produced no video: ${path.basename(replay.path)}`,
     )
-    await cleanupIntermediates()
-    return false
+    return {
+      ok: false,
+      kind: neverStarted || probe.sec === 0 ? 'noFrame' : 'failed',
+      detail: dolphinExitDetail(result),
+    }
   }
 
   onRecorded?.()
 
-  // 3. Merge video and audio with ffmpeg — LOSSLESS stream-copy (mux only).
-  // No re-encode here: the FFV1 dump is copied straight through, so quality is
-  // preserved for the single final encode below. (Any scaling / bitrate now
-  // happens once, at the final encode.)
-  const ffmpegMergeArgs = [
-    '-i',
-    basePath('-unmerged.avi'),
-    '-i',
-    basePath('-unmerged.wav'),
-    '-c:v',
-    'copy',
-    '-c:a',
-    'copy',
-    basePath('-merged.avi'),
-  ]
-
-  logMain('record: spawning ffmpeg merge', {
-    ffmpegPath,
-    args: ffmpegMergeArgs,
-  })
-
-  const mergeProcess = spawn(ffmpegPath, ffmpegMergeArgs, {
-    stdio: ['ignore', 'ignore', 'pipe'],
-  })
-  signal.activeProcesses.add(mergeProcess)
-  mergeProcess.on('error', (err) => {
-    logMain('record: ffmpeg merge spawn error', err)
-  })
-  let mergeStderr = ''
-  mergeProcess.stderr!.on('data', (chunk: Buffer) => {
-    mergeStderr += chunk.toString()
-  })
-  const mergeCode = await awaitExitWithTimeout(
-    mergeProcess,
-    ffmpegTimeoutMs,
-    'ffmpeg merge',
-  )
-  signal.activeProcesses.delete(mergeProcess)
-  if (mergeCode !== 0) {
-    logMain(`record: ffmpeg merge failed (code ${mergeCode})`, {
-      stderr: mergeStderr.slice(-2000),
-    })
-  }
-
-  if (signal.stopped || signal.cancelled) {
-    await cleanupIntermediates()
-    return false
-  }
-
-  // 4. Trim buffer frames — still a lossless stream-copy of the FFV1, into the
-  // lossless intermediate that the single final encode (below) reads from.
-  const ffmpegTrimArgs = [
-    '-ss',
-    '1',
-    '-i',
-    basePath('-merged.avi'),
-    '-c',
-    'copy',
-    basePath('-lossless.avi'),
-  ]
-
-  logMain('record: spawning ffmpeg trim', { args: ffmpegTrimArgs })
-
-  const trimProcess = spawn(ffmpegPath, ffmpegTrimArgs, {
-    stdio: ['ignore', 'ignore', 'pipe'],
-  })
-  signal.activeProcesses.add(trimProcess)
-  trimProcess.on('error', (err) => {
-    logMain('record: ffmpeg trim spawn error', err)
-  })
-  let trimStderr = ''
-  trimProcess.stderr!.on('data', (chunk: Buffer) => {
-    trimStderr += chunk.toString()
-  })
-  const trimCode = await awaitExitWithTimeout(
-    trimProcess,
-    ffmpegTimeoutMs,
-    'ffmpeg trim',
-  )
-  signal.activeProcesses.delete(trimProcess)
-  if (trimCode !== 0) {
-    logMain(`record: ffmpeg trim failed (code ${trimCode})`, {
-      stderr: trimStderr.slice(-2000),
-    })
-  }
-
-  if (signal.stopped || signal.cancelled) {
-    await cleanupIntermediates()
-    return false
-  }
-
-  // 4b. Build the overlay PNG (optional). Rendered at the FINAL output resolution
-  // — 1080p for the 2x-widescreen preset, else the native internal-res dims from
-  // ffmpeg's stderr — so composited text stays crisp after the single final encode.
-  const normalizeTo1080 = wantsWidescreen1080(config)
+  // 5. Build the overlay PNG (optional). Rendered at the FINAL output resolution
+  // — 1080p for the 2x-widescreen preset, else the dump's dims from the probe —
+  // so composited text stays crisp after the single final encode.
+  let overlayPngPath: string | null = null
   if (config.overlayEnabled) {
     const vars = buildReplayVars(replay, config.overlaySourceRules)
     const overlayText = applyPattern(config.overlayPattern || '', vars).trim()
-    const dims = normalizeTo1080
+    const dims = wantsWidescreen1080(config)
       ? { width: 1920, height: 1080 }
-      : parseVideoDimensions(trimStderr)
+      : probe.dims
     if (overlayText && dims) {
-      const pngPath = basePath('-overlay.png')
+      const pngPath = path.join(clipScratch, 'overlay.png')
       try {
         const ok = await renderOverlayPng(
           overlayText,
@@ -663,179 +938,156 @@ const processOneReplay = async (
     }
   }
 
-  // Overlay compositing filter. When normalizing to 1080p, scale the base there
-  // first so the (1080p) overlay lines up 1:1; otherwise scale the overlay to the
-  // base. Always pad to even dims for H.264/H.265.
-  const overlayFilter = normalizeTo1080
-    ? '[0:v]scale=1920:1080[b];[b][1:v]scale2ref[base][ovr];' +
-      '[base][ovr]overlay=0:0,pad=ceil(iw/2)*2:ceil(ih/2)*2[outv]'
-    : '[0:v][1:v]scale2ref[base][ovr];' +
-      '[base][ovr]overlay=0:0,pad=ceil(iw/2)*2:ceil(ih/2)*2[outv]'
+  if (halted(signal)) return { ok: false, kind: 'halted' }
 
-  if (signal.stopped || signal.cancelled) {
-    await cleanupIntermediates()
-    return false
+  // 6. The single ffmpeg pass (buildFinalEncodeArgs): dump + wav → final, with
+  // the lead-in trimmed, the overlay composited and the configured codec. It
+  // writes into scratch; only a finished, non-empty file moves to the output.
+  if (!result.wav) {
+    logMain('record: no audio dump, encoding with a silent track', {
+      replay: replay.path,
+    })
   }
-
-  // 5. Final encode — the SINGLE lossy step, from the lossless FFV1 intermediate,
-  // using the configured codec / quality (buildVideoEncodeArgs). Overlay is
-  // composited here in the same pass; scaling happens here too (buildScaleExpr).
-  const encodeArgs = buildVideoEncodeArgs(config)
-  const losslessInput = basePath('-lossless.avi')
-  if (config.convertToMp4) {
-    const mp4Args = overlayPngPath
-      ? [
-          '-i',
-          losslessInput,
-          '-i',
-          overlayPngPath,
-          '-filter_complex',
-          overlayFilter,
-          '-map',
-          '[outv]',
-          '-map',
-          '0:a?',
-          ...encodeArgs,
-          '-c:a',
-          'aac',
-          '-b:a',
-          '128k',
-          basePath('.mp4'),
-        ]
-      : [
-          '-i',
-          losslessInput,
-          '-vf',
-          buildScaleExpr(config),
-          ...encodeArgs,
-          '-c:a',
-          'aac',
-          '-b:a',
-          '128k',
-          basePath('.mp4'),
-        ]
-    logMain('record: spawning ffmpeg mp4 encode', { args: mp4Args })
-
-    const mp4Process = spawn(ffmpegPath, mp4Args, {
-      stdio: ['ignore', 'ignore', 'pipe'],
+  const scratchOut = path.join(clipScratch, `final${ext}`)
+  const encodeArgs = buildFinalEncodeArgs({
+    config,
+    avi: result.avi,
+    wav: result.wav,
+    overlayPng: overlayPngPath,
+    output: scratchOut,
+    threads: encodeThreadsFor(config.numProcesses),
+  })
+  logMain('record: spawning ffmpeg encode', { args: encodeArgs })
+  let enc = await runFfmpeg(
+    encodeArgs,
+    signal,
+    ffmpegTimeoutMs,
+    'ffmpeg encode',
+  )
+  // Dolphin or Defender can still hold the dump's wav/avi for a moment after
+  // Dolphin exits (ffmpeg: "Permission denied"): wait and try again before the
+  // whole clip is recorded a second time.
+  for (
+    let again = 1;
+    again <= 3 &&
+    enc.code !== 0 &&
+    !halted(signal) &&
+    isFileLockedText(enc.stderr);
+    again++
+  ) {
+    logMain('record: ffmpeg input is locked, retrying the encode', {
+      attempt: again,
     })
-    signal.activeProcesses.add(mp4Process)
-    mp4Process.on('error', (err) => {
-      logMain('record: ffmpeg mp4 encode spawn error', err)
+    await new Promise((resolve) => {
+      setTimeout(resolve, 1000 * again)
     })
-    let mp4Stderr = ''
-    mp4Process.stderr!.on('data', (chunk: Buffer) => {
-      mp4Stderr += chunk.toString()
+    enc = await runFfmpeg(encodeArgs, signal, ffmpegTimeoutMs, 'ffmpeg encode')
+  }
+  if (halted(signal)) return { ok: false, kind: 'halted' }
+  if (enc.code !== 0) {
+    logMain(`record: ffmpeg encode failed (code ${enc.code})`, {
+      stderr: enc.stderr.slice(-2000),
     })
-    const mp4Code = await awaitExitWithTimeout(
-      mp4Process,
-      ffmpegTimeoutMs,
-      'ffmpeg mp4 encode',
+    if (isDiskFullText(enc.stderr))
+      return { ok: false, kind: 'diskFull', detail: driveLabel(clipScratch) }
+    return failed(
+      `encoding failed (ffmpeg exit ${enc.code ?? 'timeout'}): ${path.basename(
+        replay.path,
+      )}`,
     )
-    signal.activeProcesses.delete(mp4Process)
-    if (mp4Code !== 0) {
-      logMain(`record: ffmpeg mp4 encode failed (code ${mp4Code})`, {
-        stderr: mp4Stderr.slice(-2000),
-      })
-    }
-  } else {
-    // AVI output: re-encode the lossless intermediate to the chosen codec (with
-    // the overlay composited if present) into the final .avi.
-    const aviOut = basePath('-final.avi')
-    const aviArgs = overlayPngPath
-      ? [
-          '-i',
-          losslessInput,
-          '-i',
-          overlayPngPath,
-          '-filter_complex',
-          overlayFilter,
-          '-map',
-          '[outv]',
-          '-map',
-          '0:a?',
-          ...encodeArgs,
-          '-c:a',
-          'copy',
-          aviOut,
-        ]
-      : [
-          '-i',
-          losslessInput,
-          '-vf',
-          buildScaleExpr(config),
-          ...encodeArgs,
-          '-c:a',
-          'copy',
-          aviOut,
-        ]
-    logMain('record: spawning ffmpeg avi encode', { args: aviArgs })
-
-    const aviProcess = spawn(ffmpegPath, aviArgs, {
-      stdio: ['ignore', 'ignore', 'pipe'],
-    })
-    signal.activeProcesses.add(aviProcess)
-    aviProcess.on('error', (err) => {
-      logMain('record: ffmpeg avi encode spawn error', err)
-    })
-    let aviStderr = ''
-    aviProcess.stderr!.on('data', (chunk: Buffer) => {
-      aviStderr += chunk.toString()
-    })
-    const aviCode = await awaitExitWithTimeout(
-      aviProcess,
-      ffmpegTimeoutMs,
-      'ffmpeg avi encode',
-    )
-    signal.activeProcesses.delete(aviProcess)
-    if (aviCode === 0) {
-      await fsPromises.rename(aviOut, basePath('.avi')).catch((err) => {
-        logMain('record: avi encode rename failed', err)
-      })
-    } else {
-      logMain(`record: ffmpeg avi encode failed (code ${aviCode})`, {
-        stderr: aviStderr.slice(-2000),
-      })
-      await fsPromises.unlink(aviOut).catch(() => {})
-    }
   }
 
-  // Keep the lossless FFV1 master next to the output if requested (pristine
-  // source for editing/archival); otherwise cleanupIntermediates deletes it.
-  if (config.keepLosslessMaster) {
-    await fsPromises
-      .rename(losslessInput, basePath('.master.avi'))
-      .catch((err) =>
-        logMain('record: keep-lossless-master rename failed', err),
-      )
-  }
-
-  // 6. Delete intermediates
-  await cleanupIntermediates()
-
-  // 7. Validate the final output actually exists and is non-empty. An ffmpeg
-  // step can fail (or time out) yet leave a 0-byte or missing final file; without
-  // this check that clip was counted as a success, inflating the usage stats and
-  // producing the "holes" seen when forensically recounting a run. A real output
-  // is the only thing that returns true.
-  const finalOutput = config.convertToMp4 ? basePath('.mp4') : basePath('.avi')
+  // 7. Validate the encode actually wrote something before it counts. An ffmpeg
+  // can exit 0 yet leave a 0-byte file; counting it inflated the usage stats and
+  // produced the "holes" seen when forensically recounting a run.
   try {
-    const st = await fsPromises.stat(finalOutput)
+    const st = await fsPromises.stat(scratchOut)
     if (st.size === 0) throw new Error('empty output')
   } catch {
     logMain('record: final output missing or empty', {
-      finalOutput,
+      scratchOut,
       replay: replay.path,
     })
-    onError?.(
-      `Error: clip produced no output file: ${path.basename(replay.path)}`,
-    )
-    await fsPromises.unlink(finalOutput).catch(() => {})
-    return false
+    return failed(`clip produced no output file: ${path.basename(replay.path)}`)
   }
 
-  return true
+  // 8. Into the output folder: a rename on the same drive, copy + delete across
+  // drives (moveFile handles EXDEV and never leaves a partial under the real name).
+  try {
+    await moveFile(scratchOut, finalOutput)
+  } catch (err) {
+    if (isDiskFullError(err))
+      return { ok: false, kind: 'diskFull', detail: driveLabel(outputDir) }
+    logMain('record: could not move clip to the output folder', {
+      finalOutput,
+      err: String(err),
+    })
+    return failed(`could not write ${finalOutput}`)
+  }
+
+  // "Keep Lossless Master": keep Dolphin's RAW dump next to the clip, moved
+  // rather than copied. It is the untouched recording: video only, in the dump
+  // codec (UT Video/FFV1 lossless; mpeg4 in Fast draft), with the 1 s lead-in
+  // still at the start; its audio is the matching .master.wav.
+  if (config.keepLosslessMaster) {
+    try {
+      await moveFile(result.avi, outputFile('.master.avi'))
+      if (result.wav) await moveFile(result.wav, outputFile('.master.wav'))
+    } catch (err) {
+      logMain('record: keep-lossless-master move failed', {
+        err: String(err),
+      })
+      if (isDiskFullError(err))
+        return { ok: false, kind: 'diskFull', detail: driveLabel(outputDir) }
+    }
+  }
+
+  return { ok: true, file: finalOutput }
 }
+
+// Never concatenated: kept masters, leftovers of the old in-place pipeline
+// (-unmerged/-merged/-lossless/-final), half-copied clips, and the previous
+// concat result.
+const NOT_A_CLIP =
+  /(\.master\.(avi|wav)$|-unmerged|-merged|-lossless\.|-final\.|\.partial$)/i
+
+/**
+ * The finished clips to concatenate, in name order, including those the
+ * filename pattern put in subfolders (relative paths sort folder by folder).
+ */
+export const listConcatInputs = async (
+  outputPath: string,
+  ext: string,
+): Promise<string[]> => {
+  const found: string[] = []
+  const walk = async (dir: string, rel: string) => {
+    let entries: import('fs').Dirent[] = []
+    try {
+      entries = await fsPromises.readdir(dir, { withFileTypes: true })
+    } catch {
+      return
+    }
+    for (const e of entries) {
+      const relPath = rel ? `${rel}/${e.name}` : e.name
+      if (e.isDirectory()) {
+        await walk(path.join(dir, e.name), relPath)
+      } else if (
+        e.isFile() &&
+        e.name.toLowerCase().endsWith(ext) &&
+        !NOT_A_CLIP.test(e.name) &&
+        !(rel === '' && e.name === `final${ext}`)
+      ) {
+        found.push(relPath)
+      }
+    }
+  }
+  await walk(outputPath, '')
+  return found.sort().map((r) => path.resolve(outputPath, ...r.split('/')))
+}
+
+/** One `file '...'` line for ffmpeg's concat demuxer, quotes escaped. */
+export const concatLine = (file: string) =>
+  `file '${file.replace(/'/g, "'\\''")}'`
 
 const processReplays = async (
   replays: ReplayInterface[],
@@ -843,8 +1095,12 @@ const processReplays = async (
   eventEmitter: (_msg: string) => void,
   signal: VideoSignal,
   workerStatuses: VideoWorkerStatus[],
+  // This run's scratch folder (scratchDirFor); removed when the run ends.
+  scratchDir: string,
+  abortJob: (_reason: string) => void,
   onClipEncoded?: (_replay: ReplayInterface) => void,
   onClipFailed?: (_replay: ReplayInterface) => void,
+  onNotice?: (_msg: string) => void,
 ) => {
   const queue = [...replays]
   const total = replays.length
@@ -852,10 +1108,21 @@ const processReplays = async (
   // Clips that failed every attempt (not stop/cancel) — surfaced to the user and
   // written to failures.json so a run that silently drops clips is visible.
   const failures: ReplayInterface[] = []
+  // "Dolphin isn't starting": attempts with no frame before anything worked.
+  let anyFrame = false
+  let noFrameAttempts = 0
 
+  // Each worker's progress through the clip it is recording (0-1), so the
+  // status moves during a long clip, not only when one finishes.
+  const inFlight: number[] = []
+  let lastPct = -1
   const emitStatus = () => {
     if (progress.recorded < total) {
-      eventEmitter(`recording ${progress.recorded}/${total}`)
+      const done =
+        progress.recorded + inFlight.reduce((sum, f) => sum + (f || 0), 0)
+      const pct = Math.min(99, Math.floor((done / total) * 100))
+      lastPct = pct
+      eventEmitter(`recording ${progress.recorded}/${total} · ${pct}%`)
     } else {
       eventEmitter(`encoding ${progress.encoded}/${total}`)
     }
@@ -863,24 +1130,34 @@ const processReplays = async (
   emitStatus()
 
   const onRecorded = () => {
+    anyFrame = true
     progress.recorded += 1
     emitStatus()
   }
-  // One throwaway Dolphin `--user` profile per worker (see buildWorkerProfile),
+  const onFrameProgress = (workerIndex: number, fraction: number) => {
+    if (fraction > 0) anyFrame = true
+    inFlight[workerIndex] = fraction
+    const done =
+      progress.recorded + inFlight.reduce((sum, f) => sum + (f || 0), 0)
+    if (Math.floor((done / total) * 100) !== lastPct) emitStatus()
+  }
+  // One throwaway Dolphin `--user` profile per worker (recordProfileOptions),
   // indexed by workerIndex. Populated before the workers start, deleted in the
   // finally below — recording never touches the user's real Slippi profile.
   const workerProfiles: string[] = []
 
   const MAX_ATTEMPTS = 2 // one retry on a genuine failure
+  let clipSeq = 0
   const worker = async (workerIndex: number) => {
     let replay = queue.shift()
     while (replay !== undefined) {
-      if (signal.stopped || signal.cancelled) break
+      if (halted(signal)) break
 
-      // A failed clip after recording (e.g. merge error) already bumped the
+      // A failed clip after recording (e.g. encode error) already bumped the
       // recorded counter; guard so a retry that re-records doesn't count twice.
       let recordedCounted = false
       const onRecordedOnce = () => {
+        inFlight[workerIndex] = 0
         workerStatuses[workerIndex].phase = 'encoding'
         if (!recordedCounted) {
           recordedCounted = true
@@ -888,32 +1165,70 @@ const processReplays = async (
         }
       }
 
-      let ok = false
+      let outcome: ClipOutcome = { ok: false, kind: 'halted' }
       for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-        if (signal.stopped || signal.cancelled) break
+        if (halted(signal)) break
         workerStatuses[workerIndex] = {
           replayPath: replay.path,
           phase: 'recording',
           replayIndex: replay.index,
         }
-        // eslint-disable-next-line no-await-in-loop
-        ok = await processOneReplay(
-          replay,
-          config,
-          workerProfiles[workerIndex],
-          signal,
-          onRecordedOnce,
-          eventEmitter,
-        )
-        if (ok || signal.stopped || signal.cancelled) break
+        // Short, per-attempt names: the scratch path stays well under Windows'
+        // path limit whatever the output pattern makes, and a retry never sees
+        // the failed attempt's files.
+        clipSeq += 1
+        const clipScratch = path.join(scratchDir, `c${clipSeq}`)
+        try {
+          outcome = await processOneReplay(
+            replay,
+            config,
+            workerProfiles[workerIndex],
+            clipScratch,
+            signal,
+            onRecordedOnce,
+            eventEmitter,
+            (fraction) => onFrameProgress(workerIndex, fraction),
+            onNotice,
+          )
+        } catch (err) {
+          // Anything unexpected is this clip's failure, not the run's.
+          logMain('record: clip threw', {
+            replay: replay.path,
+            err: String(err),
+          })
+          outcome = isDiskFullError(err)
+            ? { ok: false, kind: 'diskFull', detail: driveLabel(scratchDir) }
+            : { ok: false, kind: 'failed', detail: String(err) }
+        } finally {
+          // Every attempt's scratch goes, success or not (a kept master was
+          // moved out already).
+          await removeTree(clipScratch)
+        }
+        inFlight[workerIndex] = 0
+        if (outcome.ok || outcome.kind === 'halted') break
+        if (outcome.kind === 'diskFull') {
+          abortJob(`Stopped: disk full on ${outcome.detail}`)
+          break
+        }
+        if (outcome.kind === 'noFrame' && !anyFrame) {
+          noFrameAttempts += 1
+          if (noFrameAttempts >= NO_FRAME_ABORT_AFTER) {
+            abortJob(
+              `Stopped: Dolphin isn't starting (last error: ${outcome.detail})`,
+            )
+            break
+          }
+        }
         logMain('record: clip failed, retrying', {
           replay: replay.path,
           attempt,
+          kind: outcome.kind,
+          detail: outcome.detail,
         })
       }
 
-      if (!ok && (signal.stopped || signal.cancelled)) break
-      if (ok) {
+      if (!outcome.ok && halted(signal)) break
+      if (outcome.ok) {
         progress.encoded += 1
         emitStatus()
         onClipEncoded?.(replay)
@@ -931,29 +1246,28 @@ const processReplays = async (
     }
   }
 
-  // Build the per-worker profiles up front, run, then delete them in the
-  // finally so an error/stop can never leave temp profiles behind.
+  // Build the per-worker profiles up front, run, then delete them (and the
+  // run's scratch folder) in the finally so an error/stop/cancel can never
+  // leave temp profiles or GBs of dumps behind.
   try {
     eventEmitter('Preparing Dolphin...')
+    await fsPromises.mkdir(scratchDir, { recursive: true })
     for (let i = 0; i < config.numProcesses; i++) {
-      // eslint-disable-next-line no-await-in-loop
       const dir = await fsPromises.mkdtemp(
-        path.join(os.tmpdir(), 'lmclip-dolphin-'),
+        path.join(dolphinTempRoot(), 'lmclip-dolphin-'),
       )
-      // eslint-disable-next-line no-await-in-loop
-      await buildWorkerProfile(config, dir)
-      workerProfiles.push(dir)
+      workerProfiles.push(dir) // pushed first, so the finally removes it on failure
+      await buildProfileWithFallback(dir, recordProfileOptions(config, i))
     }
 
     const workers = []
     for (let i = 0; i < config.numProcesses; i++) workers.push(worker(i))
     await Promise.all(workers)
   } finally {
-    await Promise.all(
-      workerProfiles.map((d) =>
-        fsPromises.rm(d, { recursive: true, force: true }).catch(() => {}),
-      ),
-    )
+    await Promise.all([
+      ...workerProfiles.map((d) => removeTree(d)),
+      removeTree(scratchDir),
+    ])
   }
 
   // Persist a manifest of failed clips so they can be inspected or re-run later.
@@ -975,33 +1289,29 @@ const processReplays = async (
           2,
         ),
       )
-      .catch(() => {})
+      .catch((err) => logMain('record: could not write failures.json', err))
   }
+
+  // The run stopped itself: one message, no concat (a full disk can't hold it,
+  // and a Dolphin that won't start made nothing to join).
+  if (signal.abortReason) throw new RecordingStoppedError(signal.abortReason)
 
   // Concatenate the finished clips into a single video. Runs on a normal finish
   // AND on Stop — Stop means "keep completed clips": it lets the in-flight clip
-  // finish and kills nothing, so every per-clip final on disk is complete and
-  // safe to concat (partial `-unmerged`/`-merged` intermediates are filtered out
-  // below regardless). Only Cancel — which kills active processes and can leave a
-  // half-written clip — skips concatenation.
+  // finish and kills nothing, so every clip in the output folder is complete
+  // (clips are only moved there once encoded). Only Cancel skips it.
   if (config.concatenate && !signal.cancelled) {
-    console.log('Concatenating clips...')
     eventEmitter('Concatenating clips...')
 
     const ext = config.convertToMp4 ? '.mp4' : '.avi'
-    const outputFiles = (await fsPromises.readdir(config.outputPath))
-      .filter(
-        (f) =>
-          f.endsWith(ext) && !f.includes('-unmerged') && !f.includes('-merged'),
-      )
-      .sort()
+    const outputFiles = await listConcatInputs(config.outputPath, ext)
 
     if (outputFiles.length > 1) {
       const concatListPath = path.resolve(config.outputPath, 'concat_list.txt')
-      const concatLines = outputFiles.map(
-        (f) => `file '${path.resolve(config.outputPath, f)}'`,
+      await fsPromises.writeFile(
+        concatListPath,
+        outputFiles.map(concatLine).join('\n'),
       )
-      await fsPromises.writeFile(concatListPath, concatLines.join('\n'))
 
       const finalPath = path.resolve(config.outputPath, `final${ext}`)
       const concatArgs = [
@@ -1034,29 +1344,29 @@ const processReplays = async (
       concatArgs.push(finalPath)
 
       logMain('record: spawning ffmpeg concat', { args: concatArgs })
-
-      const concatProcess = spawn(ffmpegPath, concatArgs, {
-        stdio: ['ignore', 'ignore', 'pipe'],
-      })
-
-      signal.activeProcesses.add(concatProcess)
-      concatProcess.on('error', (err) => {
-        logMain('record: ffmpeg concat spawn error', err)
-      })
-      let concatStderr = ''
-      concatProcess.stderr!.on('data', (chunk: Buffer) => {
-        concatStderr += chunk.toString()
-      })
-      const concatCode = await exit(concatProcess)
-      signal.activeProcesses.delete(concatProcess)
-      if (concatCode !== 0) {
-        logMain(`record: ffmpeg concat failed (code ${concatCode})`, {
-          stderr: concatStderr.slice(-2000),
+      // A stream copy: bounded by the bytes, so a generous size-free cap.
+      const concat = await runFfmpeg(
+        concatArgs,
+        signal,
+        6 * 60 * 60 * 1000,
+        'ffmpeg concat',
+      )
+      if (concat.code !== 0) {
+        logMain(`record: ffmpeg concat failed (code ${concat.code})`, {
+          stderr: concat.stderr.slice(-2000),
         })
+        await unlinkQuiet(finalPath)
+        eventEmitter(
+          isDiskFullText(concat.stderr)
+            ? `Error: could not join the clips: disk full on ${driveLabel(
+                config.outputPath,
+              )} (the clips are kept)`
+            : 'Error: could not join the clips (the clips are kept)',
+        )
       }
 
       // Clean up concat list
-      await fsPromises.unlink(concatListPath).catch(() => {})
+      await unlinkQuiet(concatListPath)
     }
   }
 
@@ -1065,49 +1375,40 @@ const processReplays = async (
       ? `Done — ${failures.length} clip(s) failed (see failures.json) :)`
       : 'Done :)',
   )
+  // Clears the status line; never keeps a process (or a test run) alive.
   setTimeout(
     () => {
       eventEmitter('')
     },
     failures.length > 0 ? 6000 : 2000,
-  )
+  ).unref?.()
 }
 
-// Resolves the three Dolphin ini paths (game settings, graphics, dolphin)
-// for the active platform.
-const resolveDolphinIniPaths = (config: ConfigInterface) => {
-  // Linux
-  if (os.type() === 'Linux') {
-    const dolphinDirname = path.resolve(getAppDataPath(), 'SlippiPlayback')
-    return {
-      gameSettingsPath: path.join(dolphinDirname, 'GameSettings', 'GALE01.ini'),
-      graphicsSettingsPath: path.join(dolphinDirname, 'Config', 'GFX.ini'),
-      dolphinSettingsPath: path.join(dolphinDirname, 'Config', 'Dolphin.ini'),
-    }
-  }
-  // Windows
-  const dolphinDirname = path.dirname(config.dolphinPath)
-  return {
-    gameSettingsPath: path.join(
-      dolphinDirname,
-      'User',
-      'GameSettings',
-      'GALE01.ini',
-    ),
-    graphicsSettingsPath: path.join(
-      dolphinDirname,
-      'User',
-      'Config',
-      'GFX.ini',
-    ),
-    dolphinSettingsPath: path.join(
-      dolphinDirname,
-      'User',
-      'Config',
-      'Dolphin.ini',
-    ),
+const DUMP_FLAG_ON =
+  /^\s*(DumpFrames|DumpFramesSilent|DumpAudio|DumpAudioSilent)\s*=\s*True\s*$/im
+
+/** Does the real profile's Dolphin.ini have a dump flag switched on (a profile an
+ *  older Clipper recorded in place)? Unreadable or missing: no. */
+export const dumpFlagsAreOn = async (profile: unknown): Promise<boolean> => {
+  const ini = (profile as { dolphinIni?: string } | null)?.dolphinIni
+  if (!ini) return false
+  try {
+    return DUMP_FLAG_ON.test(await fsPromises.readFile(ini, 'utf8'))
+  } catch {
+    return false
   }
 }
+
+// The user's real Slippi Playback profile, which the throwaway profiles copy
+// (and healRealProfile repairs). Windows keeps it portable next to the binary;
+// elsewhere it is under Electron's appData, which we pass on explicitly rather
+// than let the package guess it.
+const realProfileOf = (config: ConfigInterface) =>
+  profileAt(
+    os.type() === 'Windows_NT'
+      ? realProfileRoot(config.dolphinPath, 'Windows_NT')
+      : path.resolve(getAppDataPath(), 'SlippiPlayback'),
+  )
 
 // Builds the GALE01.ini [Gecko] / [Gecko_Enabled] / [Gecko_Disabled] body from
 // the current config. Shared by recording (configureDolphin) and playback so
@@ -1262,6 +1563,7 @@ const probeConcatInfo = (
       ['-f', 'concat', '-safe', '0', '-i', listPath],
       {
         stdio: ['ignore', 'ignore', 'pipe'],
+        windowsHide: true,
       },
     )
     let err = ''
@@ -1293,7 +1595,7 @@ export async function probeFilesInfo(
     path.dirname(files[0]),
     `probe_list_${crypto.randomBytes(6).toString('hex')}.txt`,
   )
-  const lines = files.map((f) => `file '${f.replace(/'/g, "'\\''")}'`)
+  const lines = files.map(concatLine)
   try {
     await fsPromises.writeFile(listPath, lines.join('\n'))
     return await probeConcatInfo(listPath)
@@ -1336,7 +1638,7 @@ export async function concatClips(
     `stitch_list_${crypto.randomBytes(6).toString('hex')}.txt`,
   )
   // ffmpeg concat demuxer: one `file '…'` line per input. Escape single quotes.
-  const lines = files.map((f) => `file '${f.replace(/'/g, "'\\''")}'`)
+  const lines = files.map(concatLine)
   await fsPromises.writeFile(listPath, lines.join('\n'))
 
   const args = [
@@ -1418,6 +1720,7 @@ export async function concatClips(
 
     const proc = spawn(ffmpegPath, args, {
       stdio: ['ignore', 'ignore', 'pipe'],
+      windowsHide: true,
     })
     let stderr = ''
     let lastPct = -1
@@ -1456,233 +1759,220 @@ export async function concatClips(
   }
 }
 
-// Build a throwaway `--user` profile for one recording worker at `userDir`.
-//
-// Recording used to mutate the user's REAL Slippi profile (dump flags on,
-// aspect ratio, EFB scale, gecko) and never restore it — so afterwards opening
-// Dolphin just to watch a replay inherited our recording rig (framedump +
-// fullscreen), and N concurrent workers raced on that one shared profile.
-// Instead every worker now gets its own temp profile built here: we read the
-// real profile's inis as a base and write the recording-tweaked COPIES under
-// `userDir`, then pass `--user userDir` to Dolphin (processOneReplay). Nothing
-// global is touched and the dir is deleted when the run ends. `Sys/` is NOT
-// copied — Dolphin finds it relative to its own binary (verified on Linux;
-// spike: scratchpad/dolphin-user-spike.js).
-export const buildWorkerProfile = async (
+// The throwaway `--user` profiles. Recording and previews never touch the user's
+// real Slippi profile: buildProfile copies its inis and applies these options to
+// the copies (one profile per worker, deleted when the run ends).
+
+// Dolphin's dump codec is the recording-speed lever (it encodes on one thread).
+// slippi-dolphin-runner's measurements, EFB 4 (2x), one minute of footage:
+//   utvideo 1.81x realtime, lossless (identical to FFV1 after 4:2:0), ~3 GB/min
+//   mpeg4   1.66x at 150 Mb/s (lossy, ~42 dB), 0.57 GB/min
+//   ffv1    0.34x, lossless, 3.8 GB/min (0.10x at 3x)
+// utvideo needs an even dump width and native (resolution 2) is 939 wide, so
+// native stays FFV1 (lossless) or mpeg4 (draft). Windows Playback has no
+// utvideo encoder: its "auto" above native is mpeg4 at 150 Mb/s (1.26x at 2x,
+// 0.62x at 3x on the Windows rig, 49-51 dB against FFV1). Never h264: Dolphin drops the
+// last ~50 frames of an h264 dump. Each clip's dump is deleted once encoded.
+// The decision itself lives in diskSpace.ts (dumpPlanFor), which the disk
+// estimate shares, so the two can never disagree about what will be dumped.
+export type RecordingFormat = 'auto' | 'lossless' | 'draft'
+
+/** The format this config records in (Fast draft from before the setting). */
+export const recordingFormatOf = (config: ConfigInterface): RecordingFormat =>
+  recordingFormatOfConfig(config)
+
+/** The dump codec (and bitrate) Dolphin records with. */
+export const dumpCodecFor = (
   config: ConfigInterface,
-  userDir: string,
-): Promise<void> => {
-  const { graphicsSettingsPath, dolphinSettingsPath } =
-    resolveDolphinIniPaths(config)
+): Partial<Pick<ProfileOptions, 'dumpCodec' | 'bitrateKbps'>> =>
+  dumpPlanFor(config)
 
-  const destConfigDir = path.join(userDir, 'Config')
-  const destGameSettingsDir = path.join(userDir, 'GameSettings')
-  await fsPromises.mkdir(destConfigDir, { recursive: true })
-  await fsPromises.mkdir(destGameSettingsDir, { recursive: true })
-
-  // Game settings (gecko codes) — generated fresh from config
-  await fsPromises.writeFile(
-    path.join(destGameSettingsDir, 'GALE01.ini'),
-    buildGeckoSettings(config).join('\n'),
+const shaderCacheRoot = () =>
+  path.join(
+    app && typeof app.getPath === 'function'
+      ? app.getPath('userData')
+      : path.join(os.tmpdir(), 'lunar-clipper'),
+    'shader-cache',
   )
 
-  // Custom/HD texture packs to symlink in (and whether to flip HiresTextures on).
-  const texturePacks = resolveEnabledTexturePacks(config)
-  const texturesEnabled = texturePacks.length > 0
+/** A worker slot's own shader cache, kept between runs (never shared: two
+ *  Dolphins writing one cache corrupt it). */
+const shaderCacheDirOf = (slot: number) =>
+  path.join(shaderCacheRoot(), `worker-${slot}`)
 
-  // Graphics settings — transform the real GFX.ini into the temp copy
-  let rl = readline.createInterface({
-    input: fs.createReadStream(graphicsSettingsPath),
-    crlfDelay: Infinity,
-  })
-  let newSettings: string[] = []
-  const aspectRatioSetting = config.widescreen !== false ? 6 : 5
-  // eslint-disable-next-line no-restricted-syntax
-  for await (const line of rl) {
-    if (line.startsWith('AspectRatio')) {
-      newSettings.push(`AspectRatio = ${aspectRatioSetting}`)
-    } else if (line.startsWith('InternalResolutionFrameDumps')) {
-      newSettings.push(`InternalResolutionFrameDumps = True`)
-    } else if (line.startsWith('BitrateKbps')) {
-      newSettings.push(`BitrateKbps = ${config.bitrateKbps}`)
-    } else if (line.startsWith('EFBScale')) {
-      newSettings.push(`EFBScale = ${config.resolution}`)
-    } else if (line.startsWith('HiresTextures')) {
-      newSettings.push(`HiresTextures = ${texturesEnabled ? 'True' : 'False'}`)
-    } else if (line.startsWith('CacheHiresTextures')) {
-      // Never prefetch: this is offline per-clip framedump, so lazy-loading only
-      // the textures each short clip actually shows is far faster than loading
-      // the whole (multi-hundred-MB) pack up front on every clip's Dolphin boot.
-      newSettings.push(`CacheHiresTextures = False`)
-    } else {
-      newSettings.push(line)
+/** Previews' shader cache: their own, so a preview opened during a recording
+ *  never writes into a recording slot's cache. */
+const previewShaderCacheDir = () => path.join(shaderCacheRoot(), 'preview')
+
+/** "Hide Recording Windows" (on unless turned off). */
+const hideSettingOn = (config: ConfigInterface) =>
+  (config as { hideRecordingWindows?: boolean }).hideRecordingWindows !== false
+
+/** The OS the recorder runs on (tests mock os.type for Windows). */
+const recorderPlatform = (): NodeJS.Platform =>
+  isWindowsPlatform() ? 'win32' : process.platform
+
+/**
+ * Pass the runner's `hide` (identically to buildProfile and record())? The
+ * setting is on, and the OS is Windows (hidden desktop through the launcher)
+ * or Linux (parked on the last workspace). Not macOS: the runner's Mac path is
+ * unverified, so recordings there stay small background windows, as before.
+ */
+export const recordHideFor = (
+  config: ConfigInterface,
+  platform: NodeJS.Platform = recorderPlatform(),
+): boolean =>
+  hideSettingOn(config) && !hideDisabledForSession && platform !== 'darwin'
+
+/** record()'s hide options: `hide` plus, on Windows, the unpacked launcher. */
+export const recordHideOptions = (
+  config: ConfigInterface,
+  platform: NodeJS.Platform = recorderPlatform(),
+  launcherPath: () => string = hideLauncherPath,
+): { hide?: true; hideLauncherPath?: string } => {
+  if (!recordHideFor(config, platform)) return {}
+  return platform === 'win32'
+    ? { hide: true, hideLauncherPath: launcherPath() }
+    : { hide: true }
+}
+
+// Warnings that mean a recording could NOT be kept off screen. Not
+// hide-native-unavailable (optional extras on top of the hidden desktop) or
+// dump-codec-fallback (not about windows).
+const HIDE_FAILED_CODES = new Set([
+  'hide-unsupported',
+  'hide-desktop-unavailable',
+  'hide-session-unsupported',
+  'hide-failed',
+  'placement-unsupported',
+  'placement-no-wm',
+  'placement-no-workspace',
+  'placement-ignored',
+])
+
+/** The first warning saying hiding didn't happen, or null. */
+export const hideFailure = (
+  warnings: ReadonlyArray<{ code: string; detail?: string }>,
+): { code: string; detail?: string } | null =>
+  warnings.find((w) => HIDE_FAILED_CODES.has(w.code)) ?? null
+
+// Once per app session, not per clip: a machine that can't hide can't hide
+// any of its clips.
+let hideNoticeShown = false
+/** Tests only. */
+export const resetHideNotice = () => {
+  hideNoticeShown = false
+}
+
+// Recording. Every recording runs unthrottled (EmulationSpeed 0): the dump is
+// identical, Dolphin boots in ~1.1 s instead of ~3.8 s, and short clips are
+// mostly boot. Muted by default (the WAV dump is unaffected). With "Hide
+// Recording Windows" on (the default), out of the way (BACKGROUND_RECORD) and,
+// on Windows and Linux, off screen entirely (`hide`, recordHideFor).
+export const recordProfileOptions = (
+  config: ConfigInterface,
+  slot?: number,
+): ProfileOptions & { dolphinPath: string } => {
+  const packs = enabledTexturePacks(config)
+  const c = config as {
+    muteRecordings?: boolean
+  }
+  return {
+    mode: 'record',
+    dolphinPath: config.dolphinPath,
+    sourceProfile: realProfileOf(config),
+    ...(hideSettingOn(config) ? BACKGROUND_RECORD : {}),
+    // The ini half of `hide` (Windows: one small main window on OGL); the same
+    // value goes to record() (processOneReplay).
+    ...(recordHideFor(config) ? { hide: true as const } : {}),
+    // Never gate a recording on the display, shown or not: a copied profile
+    // with VSync on (Slippi's default) holds a visible recording to exactly
+    // 1.0x (measured on the Windows rig: 1.00x with VSync, 1.2x without, the
+    // rest is the encoder).
+    vsync: false,
+    // Windows: OGL, never the blank default (= DX11), which DROPS frames from
+    // the dump: 3240 of 3600 measured, visible or hidden; OGL is frame-exact.
+    ...(isWindowsPlatform() ? { gfxBackend: 'OGL' as const } : {}),
+    efbScale: config.resolution,
+    aspectRatio: config.widescreen !== false ? 6 : 5,
+    ...dumpCodecFor(config),
+    emulationSpeed: 0,
+    // Synchronous shader compilation. The async modes (1-3) draw a frame
+    // without objects whose shaders aren't ready yet, and a dump keeps that
+    // frame: missing characters/effects for the first moments of a clip.
+    shaderCompilationMode: 0,
+    ...(c.muteRecordings !== false ? { silent: true } : {}),
+    ...(slot !== undefined ? { shaderCacheDir: shaderCacheDirOf(slot) } : {}),
+    geckoIni: buildGeckoSettings(config).join('\n'),
+    texturePacks: packs,
+    hiresTextures: packs.length > 0,
+    // Offline per-clip dumps: lazy-load what each clip shows rather than
+    // prefetching a multi-hundred-MB pack on every Dolphin boot.
+    cacheHiresTextures: false,
+  }
+}
+
+// Clip preview and Test Dolphin: the same look, no dump, at the playback
+// resolution (default native), at real speed. A copied profile can carry
+// EmulationSpeed 0 or VSync off from a user's own tinkering, and a preview at
+// unlimited speed plays in fast-forward; vsync keeps it from tearing.
+export const playbackProfileOptions = (
+  config: ConfigInterface,
+): ProfileOptions & { dolphinPath: string } => {
+  const packs = enabledTexturePacks(config)
+  return {
+    mode: 'play',
+    dolphinPath: config.dolphinPath,
+    sourceProfile: realProfileOf(config),
+    efbScale:
+      (config as { playbackResolution?: number }).playbackResolution ?? 2,
+    // The preview matches the recording's shape, and opens fullscreen when
+    // "Fullscreen preview" is on (otherwise in a window).
+    aspectRatio: config.widescreen !== false ? 6 : 5,
+    window: config.fullscreen !== false ? { fullscreen: true } : undefined,
+    emulationSpeed: 1,
+    vsync: true,
+    // Kept between previews (a cold cache stutters the first seconds of play).
+    shaderCacheDir: previewShaderCacheDir(),
+    geckoIni: buildGeckoSettings(config).join('\n'),
+    texturePacks: packs,
+    hiresTextures: packs.length > 0,
+    cacheHiresTextures: false,
+  }
+}
+
+const NO_PROFILE_RE = /no Slippi Playback profile/i
+
+/**
+ * buildProfile, but a user who has never opened Slippi Playback (no real
+ * profile to copy) still gets a working profile: built fresh from Dolphin's
+ * defaults plus every option we set, with a warning in the log. Their own
+ * Playback settings (controller, audio device) aren't there to copy anyway.
+ */
+export const buildProfileWithFallback = async (
+  userDir: string,
+  opts: ProfileOptions & { dolphinPath: string },
+): Promise<void> => {
+  const missing =
+    opts.sourceProfile !== undefined && !realProfileExists(opts.sourceProfile)
+  if (!missing) {
+    try {
+      await buildProfile(userDir, opts)
+      return
+    } catch (err) {
+      if (!NO_PROFILE_RE.test(String((err as Error)?.message ?? err))) throw err
     }
   }
-  await fsPromises.writeFile(
-    path.join(destConfigDir, 'GFX.ini'),
-    newSettings.join('\n'),
-  )
-
-  // Dolphin settings — transform the real Dolphin.ini into the temp copy,
-  // forcing the frame/audio dump flags on (in the isolated profile only)
-  rl = readline.createInterface({
-    input: fs.createReadStream(dolphinSettingsPath),
-    crlfDelay: Infinity,
+  logMain('dolphin profile: no Slippi Playback profile, building a fresh one', {
+    source: opts.sourceProfile?.configDir,
   })
-  newSettings = []
-  // eslint-disable-next-line no-restricted-syntax
-  for await (const line of rl) {
-    if (line.startsWith('DumpFrames ')) {
-      newSettings.push(`DumpFrames = True`)
-    } else if (line.startsWith('DumpFramesSilent ')) {
-      newSettings.push(`DumpFramesSilent = True`)
-    } else if (line.startsWith('DumpAudio ')) {
-      newSettings.push(`DumpAudio = True`)
-    } else if (line.startsWith('DumpAudioSilent ')) {
-      newSettings.push(`DumpAudioSilent = True`)
-    } else {
-      newSettings.push(line)
-    }
-  }
-  await fsPromises.writeFile(
-    path.join(destConfigDir, 'Dolphin.ini'),
-    newSettings.join('\n'),
-  )
-
-  // Isolate input: a headless recording worker must not grab the user's real
-  // controllers/hotkeys (mirrors slp2mp4's throwaway profile).
-  await fsPromises.writeFile(
-    path.join(destConfigDir, 'Hotkeys.ini'),
-    '[Hotkeys1]\nDevice = /0/\n',
-  )
-
-  // Symlink any enabled HD/custom texture packs into this profile's Load dir.
-  await installTexturePacks(userDir, texturePacks)
+  await buildProfile(userDir, { ...opts, freshProfile: true })
 }
 
-// Rewrite an ini file in place, mapping each line through `fn`. Used by the
-// playback profile builder to apply a couple of targeted overrides to copied
-// ini files. A missing file is a no-op.
-const rewriteIniLines = async (
-  file: string,
-  fn: (_line: string) => string,
-): Promise<void> => {
-  let contents: string
-  try {
-    contents = await fsPromises.readFile(file, 'utf8')
-  } catch {
-    return
-  }
-  await fsPromises.writeFile(file, contents.split(/\r?\n/).map(fn).join('\n'))
-}
-
-// Build a throwaway `--user` profile for interactive clip PLAYBACK at `userDir`.
-//
-// Playback used to mutate the user's REAL profile every time a clip was
-// previewed — EFBScale (updateEfbScale), gecko/rendering toggles
-// (writeGeckoCodes) and dump flags (setDolphinDumping) — so watching a clip
-// silently changed their own Dolphin's settings. Instead we COPY the real
-// profile's inis into `userDir` (preserving window/interface/audio settings so
-// the play window looks the same) and apply only the playback overrides to the
-// copies, then launch Dolphin with `--user userDir`. Nothing real is touched;
-// `Sys/` is found relative to the binary. Unlike recording this leaves dump
-// flags OFF — playback must never framedump.
-export const buildPlaybackProfile = async (
+export const buildPlaybackProfile = (
   config: ConfigInterface,
   userDir: string,
-): Promise<void> => {
-  const { graphicsSettingsPath } = resolveDolphinIniPaths(config)
-  const srcConfigDir = path.dirname(graphicsSettingsPath)
-  const destConfigDir = path.join(userDir, 'Config')
-  const destGameSettingsDir = path.join(userDir, 'GameSettings')
-  await fsPromises.mkdir(destConfigDir, { recursive: true })
-  await fsPromises.mkdir(destGameSettingsDir, { recursive: true })
-
-  // Copy every real Config/*.ini as a base (window/interface/DSP/etc.), then
-  // override just the playback-specific settings below.
-  const entries = await fsPromises
-    .readdir(srcConfigDir)
-    .catch(() => [] as string[])
-  await Promise.all(
-    entries
-      .filter((n) => n.endsWith('.ini'))
-      .map((n) =>
-        fsPromises
-          .copyFile(path.join(srcConfigDir, n), path.join(destConfigDir, n))
-          .catch(() => {}),
-      ),
-  )
-
-  // Gecko / rendering toggles (Hide HUD, widescreen, etc.) from current config
-  await fsPromises.writeFile(
-    path.join(destGameSettingsDir, 'GALE01.ini'),
-    buildGeckoSettings(config).join('\n'),
-  )
-
-  // GFX.ini: playback resolution + HD/custom textures.
-  const playbackResolution =
-    (config as { playbackResolution?: number }).playbackResolution ?? 2
-  const texturePacks = resolveEnabledTexturePacks(config)
-  const texturesEnabled = texturePacks.length > 0
-  const hires = texturesEnabled ? 'True' : 'False'
-  await rewriteIniLines(path.join(destConfigDir, 'GFX.ini'), (line) => {
-    if (line.startsWith('EFBScale')) return `EFBScale = ${playbackResolution}`
-    if (line.startsWith('HiresTextures')) return `HiresTextures = ${hires}`
-    // No prefetch — lazy-load only what's shown (see buildWorkerProfile).
-    if (line.startsWith('CacheHiresTextures'))
-      return 'CacheHiresTextures = False'
-    return line
-  })
-
-  // Dolphin.ini: playback must never framedump
-  const dumpKeys = [
-    'DumpFrames',
-    'DumpFramesSilent',
-    'DumpAudio',
-    'DumpAudioSilent',
-  ]
-  await rewriteIniLines(path.join(destConfigDir, 'Dolphin.ini'), (line) => {
-    const key = dumpKeys.find((k) => line.startsWith(`${k} `))
-    return key ? `${key} = False` : line
-  })
-
-  // Symlink any enabled HD/custom texture packs into this profile's Load dir.
-  await installTexturePacks(userDir, texturePacks)
-}
-
-// Force Dolphin's frame/audio dump flags on or off in the REAL profile's
-// Dolphin.ini. Neither recording nor playback writes the real profile anymore
-// (both use isolated `--user` profiles — buildWorkerProfile / buildPlaybackProfile),
-// so this is now only ever called with `false`, once at the start of a
-// recording run, to HEAL the real profile: it undoes dump flags left on by an
-// older app version that recorded in-place, so a user who opens Dolphin
-// directly to watch a replay never inherits a framedump rig (which on Windows
-// also throws a blocking "overwrite dtkdump.wav?" dialog).
-// Only existing lines are rewritten; a missing Dolphin.ini is a no-op.
-export const setDolphinDumping = async (
-  config: ConfigInterface,
-  enabled: boolean,
-): Promise<void> => {
-  const { dolphinSettingsPath } = resolveDolphinIniPaths(config)
-  let contents: string
-  try {
-    contents = await fsPromises.readFile(dolphinSettingsPath, 'utf8')
-  } catch {
-    return // never recorded yet — no flags to turn off
-  }
-  const value = enabled ? 'True' : 'False'
-  const keys = [
-    'DumpFrames',
-    'DumpFramesSilent',
-    'DumpAudio',
-    'DumpAudioSilent',
-  ]
-  const lines = contents.split(/\r?\n/).map((line) => {
-    const key = keys.find((k) => line.startsWith(`${k} `))
-    return key ? `${key} = ${value}` : line
-  })
-  await fsPromises.writeFile(dolphinSettingsPath, lines.join('\n'))
-}
+) => buildProfileWithFallback(userDir, playbackProfileOptions(config))
 
 const slpToVideo = (
   replays: ReplayInterface[],
@@ -1695,11 +1985,15 @@ const slpToVideo = (
   // Called once per clip that failed every attempt (not a Stop/Cancel), so the
   // caller can surface a running "N failed" count.
   onClipFailed?: (_replay: ReplayInterface) => void,
+  // A non-blocking note for the app's console (e.g. windows couldn't be hidden).
+  onNotice?: (_msg: string) => void,
 ): VideoJobController => {
   const signal: VideoSignal = {
     stopped: false,
     cancelled: false,
+    abortReason: null,
     activeProcesses: new Set(),
+    activeRecordings: new Set(),
   }
 
   const workerStatuses: VideoWorkerStatus[] = Array.from(
@@ -1717,59 +2011,132 @@ const slpToVideo = (
   // hang forever. Cleared the moment the job settles.
   let stopBackstop: ReturnType<typeof setTimeout> | null = null
   const forceKillAll = (reason: string) => {
-    if (signal.activeProcesses.size > 0) {
-      logMain(`record: force-killing ${signal.activeProcesses.size} process(es)`, { reason }) // prettier-ignore
+    const n = signal.activeProcesses.size + signal.activeRecordings.size
+    if (n > 0) {
+      logMain(`record: force-killing ${n} process(es)`, { reason }) // prettier-ignore
     }
     signal.activeProcesses.forEach((p) => killTree(p))
     signal.activeProcesses.clear()
+    signal.activeRecordings.forEach((r) => r.abort())
+    signal.activeRecordings.clear()
   }
+
+  // The run stops itself (disk full, Dolphin not starting): remember the one
+  // message, stop the workers and kill what's in flight (their clips can't
+  // finish anyway). processReplays throws it as a RecordingStoppedError.
+  // Said with "Dolphin isn't starting" when the ISO looks incomplete (isoCheck.ts).
+  let isoHint: string | null = null
+  const abortJob = (reason: string) => {
+    if (signal.abortReason !== null) return
+    signal.abortReason =
+      isoHint && reason.includes("Dolphin isn't starting")
+        ? `${reason}. ${isoHint}`
+        : reason
+    logMain('record: run stopped itself', { reason })
+    forceKillAll(reason)
+  }
+
+  // Dolphin's dumps and every intermediate go here, never into the output
+  // folder; removed when the run ends, however it ends.
+  const scratchDir = scratchDirFor(config)
 
   const promise = (async () => {
     try {
-      await fsPromises
-        .access(config.ssbmIsoPath)
-        .catch((err) => {
-          if (err.code === 'ENOENT') {
+      try {
+        await fsPromises.access(config.ssbmIsoPath).catch((err) => {
+          if (err.code === 'ENOENT')
             throw new Error(
-              `Error: Could not read SSBM iso from path ${config.ssbmIsoPath}. `,
+              `Could not read SSBM iso from path ${config.ssbmIsoPath}.`,
             )
-          } else {
-            throw err
-          }
+          throw err
         })
-        .then(() => fsPromises.access(config.dolphinPath))
-        .catch((err) => {
-          if (err.code === 'ENOENT') {
+        await fsPromises.access(config.dolphinPath).catch((err) => {
+          if (err.code === 'ENOENT')
             throw new Error(
-              `Error: Could not open Dolphin from path ${config.dolphinPath}. `,
+              `Could not open Dolphin from path ${config.dolphinPath}.`,
             )
-          } else {
-            throw err
-          }
+          throw err
         })
+        const iso = await checkIso(config.ssbmIsoPath)
+        if (iso.fatal) throw new RecordingStoppedError(iso.fatal)
+        isoHint = iso.hint
         // Recording renders in isolated per-worker profiles (built in
         // processReplays), so nothing here touches the real Slippi profile.
         // We proactively turn the dump flags OFF in the REAL profile to HEAL
         // installs poisoned by older app versions that recorded in-place —
         // after this, opening Dolphin to watch a replay never inherits a
-        // recording rig. No-op on a clean profile.
-        .then(() => setDolphinDumping(config, false))
-        .then(() =>
-          processReplays(
+        // recording rig. No-op on a clean profile. Best-effort: a profile it
+        // can't write (EPERM under Program Files) or that doesn't exist yet
+        // must not stop a recording, which never reads it for dumping.
+        // Only when a dump flag really is on: the runner's heal rewrites the file
+        // whenever its text differs, and on a Windows Dolphin.ini (CRLF) it always
+        // does, touching the user's real settings under a Dolphin that may be
+        // open (launch review WIN-12).
+        const realProfile = realProfileOf(config)
+        if (await dumpFlagsAreOn(realProfile))
+          await healRealProfile(config.dolphinPath, realProfile).catch(
+            (err: unknown) =>
+              logMain('record: healRealProfile failed (continuing)', {
+                err: String(err),
+              }),
+          )
+
+        // Windows' path limit: Dolphin and ffmpeg aren't long-path aware, and
+        // the longest scratch file is <scratch>/c<n>/clip-unmerged.avi.
+        const longestScratchFile = path.join(
+          scratchDir,
+          'c999999',
+          'clip-unmerged.avi',
+        )
+        if (
+          process.platform === 'win32' &&
+          longestScratchFile.length > WINDOWS_PATH_LIMIT
+        ) {
+          throw new RecordingStoppedError(
+            `The scratch folder's path is too long for Windows ` +
+              `(${scratchDir}). Choose a shorter scratch folder in Settings.`,
+          )
+        }
+
+        // Will it fit? Falls back to Fast draft, then fewer workers, or
+        // refuses with what's needed where (diskSpace.ts).
+        eventEmitter('Checking disk space...')
+        const disk = await preflightRecordingDisk(replays, config, {
+          scratch: scratchDir,
+          output: config.outputPath,
+        })
+        logMain('record: disk preflight', disk)
+        if (!disk.ok)
+          throw new RecordingStoppedError(
+            disk.message || 'Not enough disk space for this recording.',
+          )
+        const jobConfig = { ...config, ...(disk.fallback || {}) }
+        if (disk.fallback && disk.message) eventEmitter(disk.message)
+
+        if (!halted(signal))
+          await processReplays(
             replays,
-            config,
+            jobConfig,
             eventEmitter,
             signal,
             workerStatuses,
+            scratchDir,
+            abortJob,
             onClipEncoded,
             onClipFailed,
-          ),
-        )
-        .catch((err) => {
-          logMain('slpToVideo: error', err)
-          eventEmitter(`${err} — Check ${getLogPath()}/main.log`)
-          throw new Error(err)
-        })
+            onNotice,
+          )
+      } catch (err) {
+        logMain('slpToVideo: error', err)
+        // A run that stopped itself says why in plain words; the caller shows
+        // the rejection (VideoManager: "Error: <message>"), so no log pointer.
+        if (!(err instanceof RecordingStoppedError))
+          eventEmitter(`${shownError(err)} — Check ${getLogPath()}/main.log`)
+        throw err instanceof Error ? err : new Error(String(err))
+      } finally {
+        // processReplays removes it too; this covers a throw before it ran.
+        await removeTree(scratchDir)
+      }
 
       if (signal.stopped) {
         eventEmitter('Stopped.')

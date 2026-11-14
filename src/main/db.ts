@@ -1,15 +1,14 @@
 import { FileInterface } from 'constants/types'
 import { getDb, setOnCloseCallback } from './dbConnection'
 import { archive as defaultArchive } from '../constants/defaults'
+import { RESULTS_TABLE_COLUMNS } from './overview'
+import { ID_BATCH } from './selectionSql'
+import { validateTableId } from './tableId'
+
+export { validateTableId }
 
 // Cache table column info to avoid repeated PRAGMA calls
 const schemaCache = new Map<string, Set<string>>()
-
-export function validateTableId(id: string) {
-  if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(id)) {
-    throw new Error(`Invalid table/filter ID: ${id}`)
-  }
-}
 
 function getTableColumns(path: string, tableId: string): Set<string> {
   validateTableId(tableId)
@@ -122,11 +121,9 @@ export function createDB(
   `)
 
   for (const filter of metadata.filters) {
+    validateTableId(filter.id)
     db.exec(`
-      CREATE TABLE IF NOT EXISTS "${filter.id}" (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        JSON TEXT
-      )
+      CREATE TABLE IF NOT EXISTS "${filter.id}" (${RESULTS_TABLE_COLUMNS})
     `)
   }
 }
@@ -165,8 +162,6 @@ function migrateMetadataIfNeeded(db: ReturnType<typeof getDb>) {
     db.exec('DROP TABLE metadata_old')
   }
 }
-
-export { getMetaDataAsync as getMetaData } from './dbAsync'
 
 export function updateMetaData(
   path: string,
@@ -337,25 +332,74 @@ export function getConnectCodeCounts(
 }
 
 export function getAllFromTable(path: string, tableId: string) {
+  validateTableId(tableId)
   const db = getDb(path)
   return db.prepare(`SELECT * FROM "${tableId}"`).all()
 }
 
+/** Clips-index ids already in a "Lunar Database clips" table (no duplicates). */
+export function getLunarClipIds(path: string, tableId: string): string[] {
+  validateTableId(tableId)
+  const db = getDb(path)
+  return (
+    db
+      .prepare(
+        `SELECT json_extract(JSON, '$.lunarClip.id') AS id FROM "${tableId}" WHERE id IS NOT NULL`,
+      )
+      .all() as { id: string | null }[]
+  )
+    .map((r) => r.id)
+    .filter((id): id is string => !!id)
+}
+
+/** Append result rows (already-built clip JSON) to a filter's table. */
+export function insertFilterRows(
+  path: string,
+  tableId: string,
+  rows: string[],
+) {
+  validateTableId(tableId)
+  const db = getDb(path)
+  const ins = db.prepare(`INSERT INTO "${tableId}" (JSON) VALUES (?)`)
+  db.transaction(() => {
+    for (const r of rows) ins.run(r)
+  })()
+  return (
+    db.prepare(`SELECT COUNT(*) AS c FROM "${tableId}"`).get() as { c: number }
+  ).c
+}
+
 export function getItemsByIds(path: string, tableId: string, ids: number[]) {
+  validateTableId(tableId)
   if (ids.length === 0) return []
   const db = getDb(path)
-  const placeholders = ids.map(() => '?').join(',')
   const colNames = getTableColumns(path, tableId)
   const hasSortOrder = colNames.has('sort_order')
   const orderBy = hasSortOrder ? 'COALESCE(sort_order, id), id' : 'id'
-  return db
-    .prepare(
-      `SELECT * FROM "${tableId}" WHERE id IN (${placeholders}) ORDER BY ${orderBy}`,
+  // At most ID_BATCH ids per statement (SQLite's bound-value limit); more come
+  // back in one list, put in the same order.
+  const rows: Record<string, any>[] = []
+  for (let i = 0; i < ids.length; i += ID_BATCH) {
+    const batch = ids.slice(i, i + ID_BATCH)
+    const placeholders = batch.map(() => '?').join(',')
+    rows.push(
+      ...(db
+        .prepare(
+          `SELECT * FROM "${tableId}" WHERE id IN (${placeholders}) ORDER BY ${orderBy}`,
+        )
+        .all(...batch) as Record<string, any>[]),
     )
-    .all(...ids)
+  }
+  if (ids.length > ID_BATCH) {
+    const key = (r: Record<string, any>) =>
+      hasSortOrder ? (r.sort_order ?? r.id) : r.id
+    rows.sort((a, b) => key(a) - key(b) || a.id - b.id)
+  }
+  return rows
 }
 
 export function insertRow(path: string, tableId: string, rowJSON: any) {
+  validateTableId(tableId)
   const db = getDb(path)
   db.prepare(`INSERT INTO "${tableId}" (JSON) VALUES (?)`).run(
     JSON.stringify(rowJSON),
@@ -363,23 +407,22 @@ export function insertRow(path: string, tableId: string, rowJSON: any) {
 }
 
 export function getItem(path: string, tableId: string, itemId: number) {
+  validateTableId(tableId)
   const db = getDb(path)
   return db.prepare(`SELECT * FROM "${tableId}" WHERE id = ?`).get(itemId)
 }
 
 export function createFilter(path: string, id: string) {
+  validateTableId(id)
   const db = getDb(path)
   db.exec(`
-    CREATE TABLE IF NOT EXISTS "${id}" (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      JSON TEXT,
-      sort_order INTEGER DEFAULT NULL
-    )
+    CREATE TABLE IF NOT EXISTS "${id}" (${RESULTS_TABLE_COLUMNS})
   `)
   invalidateSchemaCache(path, id)
 }
 
 export function deleteFilter(path: string, id: string) {
+  validateTableId(id)
   const db = getDb(path)
   db.exec(`DROP TABLE IF EXISTS "${id}"`)
   invalidateSchemaCache(path, id)
@@ -437,6 +480,7 @@ export function deleteFiles(path: string, fileIds: number[]) {
 }
 
 export function deleteRows(path: string, tableId: string, rowIds: number[]) {
+  validateTableId(tableId)
   if (rowIds.length === 0) return
   const db = getDb(path)
   const placeholders = rowIds.map(() => '?').join(',')
@@ -450,6 +494,7 @@ export function updateSortOrder(
   tableId: string,
   updates: { id: number; sort_order: number }[],
 ) {
+  validateTableId(tableId)
   if (updates.length === 0) return
   const db = getDb(path)
   // Ensure sort_order column exists (migration for old tables)
@@ -468,3 +513,28 @@ export function updateSortOrder(
   })
   updateMany(updates)
 }
+
+/**
+ * Synchronous functions the main process runs in DbWorker instead of on its
+ * own thread (see dbAsync.dbSync). better-sqlite3 blocks the calling thread,
+ * and a busy database (a filter or import worker holding the write lock, a big
+ * DROP TABLE, a WAL checkpoint) could freeze the main process for seconds:
+ * "not responding". Main-process code must not call these directly.
+ */
+export const WORKER_SYNC_FNS = {
+  createDB,
+  updateMetaData,
+  getFileByPath,
+  insertFiles,
+  getPlayerNameCounts,
+  getConnectCodeCounts,
+  getAllFromTable,
+  getItemsByIds,
+  createFilter,
+  deleteFilter,
+  upsertFilterRun,
+  getFilterRun,
+  getLunarClipIds,
+  insertFilterRows,
+}
+export type WorkerSyncFns = typeof WORKER_SYNC_FNS

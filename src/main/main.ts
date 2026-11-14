@@ -8,18 +8,33 @@
  * When running `npm run build` or `npm run build:main`, this file is compiled to
  * `./src/main.js` using webpack. This gives us some performance wins.
  */
+// First: a test run's own folders (LM_CLIPPER_TEST_HOME) before anything asks for a path.
+import './testHome'
 import path from 'path'
 import fs from 'fs'
-import { app, BrowserWindow, shell, ipcMain } from 'electron'
+import { app, BrowserWindow, dialog, shell, ipcMain } from 'electron'
 import type { Event } from 'electron'
 import { autoUpdater } from 'electron-updater'
 import MenuBuilder from './menu'
 import { resolveHtmlPath } from './util'
 import Controller from './controller'
 import { runWorkflow } from './workflow'
+import { runAutorunDownload, runAutorunFullDbInfo } from './autorunDownload'
 import { logMain } from './logger'
+import { flushTelemetry } from './telemetry'
+import { isLocalTestFeed, shortUpdateError } from './updaterUtils'
+import {
+  registerTimedHandlers,
+  startMainWatchdog,
+  watchWindow,
+} from './hangWatchdog'
 import { closeDb } from './dbConnection'
 import { terminateDbWorker, shutdownDbWorker } from './dbAsync'
+import { handleViewerScheme, registerViewerScheme } from './viewerAssets'
+import { isLocalUpdateFeed } from '../lib/updateFeed'
+
+// The Watch panel's animation packs (viewerAssets.ts): must be before ready.
+registerViewerScheme()
 
 // Set WM_CLASS so Linux desktop environments use our window icon
 app.setName('Lunar Clipper')
@@ -36,6 +51,8 @@ let controller: Controller | null = null
 // renderer flow. `pendingOpenPath` buffers the path until the renderer is ready.
 let pendingOpenPath: string | null = null
 let rendererReady = false
+// The updater's handlers are registered once per run (see createWindow).
+let updaterReady = false
 
 // Single-instance lock so a double-clicked file opens in the EXISTING window
 // instead of spawning a second heavy app instance. If we don't get the lock,
@@ -130,12 +147,52 @@ process.on('uncaughtException', (error) => {
   if (/Object has been destroyed/i.test(message)) {
     return
   }
-  shutdownCleanup()
+  // Anything else: do not half-tear-down (workers and databases closed under a
+  // window that stays open and does nothing) and do not stay silent. Say so and
+  // offer a restart; whatever is running keeps running until the user answers
+  // (launch review REL-1, WIN-23).
+  offerRestartAfterCrash(message)
 })
+
+let crashDialogOpen = false
+function offerRestartAfterCrash(message: string) {
+  if (crashDialogOpen) return
+  crashDialogOpen = true
+  let choice = 1
+  try {
+    choice = dialog.showMessageBoxSync({
+      type: 'error',
+      title: 'Lunar Clipper',
+      message: 'Lunar Clipper ran into an unexpected problem.',
+      detail: `${message.slice(0, 300)}\n\nRestart to carry on. Your projects and replay files are not touched.`,
+      buttons: ['Restart', 'Keep going', 'Quit'],
+      defaultId: 0,
+      cancelId: 1,
+      noLink: true,
+    })
+  } catch (error) {
+    logMain('crash-dialog-failed', error)
+  }
+  crashDialogOpen = false
+  if (choice === 0) {
+    // eslint-disable-next-line no-use-before-define
+    shutdownCleanup()
+    app.relaunch()
+    app.exit(0)
+  } else if (choice === 2) {
+    // eslint-disable-next-line no-use-before-define
+    shutdownCleanup()
+    app.exit(0)
+  }
+}
 
 process.on('unhandledRejection', (reason) => {
   logMain('unhandledRejection', reason)
 })
+
+// Reloads of a crashed window in the last minute (a window that crashes again
+// at once is not reloaded forever).
+const rendererReloads: number[] = []
 
 app.on('render-process-gone', (_event, contents, details) => {
   logMain('render-process-gone', {
@@ -143,13 +200,82 @@ app.on('render-process-gone', (_event, contents, details) => {
     reason: details.reason,
     exitCode: details.exitCode,
   })
+  // A window that was closed on purpose is not a crash.
+  if (details.reason === 'clean-exit') return
+  // A crashed or out-of-memory window leaves a blank page. Bring it back: the
+  // work in the main process (downloads, imports, recordings) carries on and
+  // the page reconnects when it loads again. If it keeps crashing, stop work
+  // and say so instead of looping (launch review REL-1).
+  const now = Date.now()
+  while (rendererReloads.length && now - rendererReloads[0] > 60_000)
+    rendererReloads.shift()
+  if (
+    mainWindow &&
+    !mainWindow.isDestroyed() &&
+    contents === mainWindow.webContents &&
+    rendererReloads.length < 3
+  ) {
+    rendererReloads.push(now)
+    mainWindow.reload()
+    return
+  }
   // Kill orphaned workers and child processes
   if (controller) controller.cleanup()
+  offerRestartAfterCrash(
+    `The window stopped (${details.reason}) and could not be restored.`,
+  )
 })
 
 app.on('child-process-gone', (_event, details) => {
   logMain('child-process-gone', details)
 })
+
+/**
+ * Test runs (scripts/win-rig): LM_CLIPPER_AUTORUN_WORKFLOW=1 runs workflow.ts,
+ * LM_CLIPPER_AUTORUN_FULLDB_INFO the whole-database offer (no download),
+ * LM_CLIPPER_AUTORUN_DOWNLOAD a small database download (autorunDownload.ts),
+ * in that order; LM_CLIPPER_AUTORUN_REPORT=<file> gets what each did as JSON,
+ * and LM_CLIPPER_AUTORUN_EXIT=1 quits afterwards.
+ */
+async function runAutorun(ctl: Controller) {
+  const report: Record<string, unknown> = {
+    startedAt: new Date().toISOString(),
+  }
+  const writeReport = () => {
+    const file = process.env.LM_CLIPPER_AUTORUN_REPORT
+    if (!file) return
+    try {
+      fs.writeFileSync(file, JSON.stringify(report, null, 2))
+    } catch (error) {
+      console.error('Autorun report not written:', error)
+    }
+  }
+  if (process.env.LM_CLIPPER_AUTORUN_WORKFLOW === '1') {
+    try {
+      report.workflow = await runWorkflow(ctl.config)
+    } catch (error) {
+      console.error('Workflow failed:', error)
+      report.workflow = {
+        ok: false,
+        error: String((error as Error)?.stack || error),
+      }
+    }
+    writeReport()
+  }
+  if (process.env.LM_CLIPPER_AUTORUN_FULLDB_INFO === '1') {
+    report.fullDbInfo = await runAutorunFullDbInfo(ctl.transferManager)
+    writeReport()
+  }
+  if (process.env.LM_CLIPPER_AUTORUN_DOWNLOAD) {
+    report.download = await runAutorunDownload(
+      ctl.transferManager,
+      process.env.LM_CLIPPER_AUTORUN_DOWNLOAD,
+    )
+  }
+  report.finishedAt = new Date().toISOString()
+  writeReport()
+  if (process.env.LM_CLIPPER_AUTORUN_EXIT === '1') app.quit()
+}
 
 const installExtensions = async () => {
   const installer = require('electron-devtools-installer')
@@ -194,7 +320,7 @@ const createWindow = async () => {
       contextIsolation: true,
       nodeIntegration: false,
       // nodeIntegrationInWorker removed: the renderer's web workers
-      // (trayWebglWorker, densityWorker) are pure webgl/compute and import no
+      // (trayWebglWorker) are pure webgl/compute and import no
       // Node modules, so granting them Node was unjustified attack surface.
       // SMOKE-TEST after this change: confirm the tray density/webgl
       // visualization still renders.
@@ -203,8 +329,10 @@ const createWindow = async () => {
   })
 
   controller = new Controller(mainWindow)
+  watchWindow(mainWindow)
+  startMainWatchdog()
   await controller.initArchive()
-  controller.initiateListeners()
+  registerTimedHandlers(() => controller!.initiateListeners())
 
   // Once the renderer has mounted (signalled by its first archive request),
   // flush any OS-initiated .lunar file open that arrived before it was ready.
@@ -244,15 +372,119 @@ const createWindow = async () => {
   mainWindow.webContents.on('will-navigate', guardNavigation)
   mainWindow.webContents.on('will-redirect', guardNavigation)
 
-  if (process.env.LM_CLIPPER_AUTORUN_WORKFLOW === '1') {
-    runWorkflow(controller.config)
-      .then(() => {
-        if (process.env.LM_CLIPPER_AUTORUN_EXIT === '1') app.quit()
+  if (
+    process.env.LM_CLIPPER_AUTORUN_WORKFLOW === '1' ||
+    process.env.LM_CLIPPER_AUTORUN_DOWNLOAD ||
+    process.env.LM_CLIPPER_AUTORUN_FULLDB_INFO === '1'
+  ) {
+    runAutorun(controller)
+  }
+
+  // Auto-update, production builds only. Registered BEFORE the page loads (not in ready-to-show):
+  // the renderer asks for its launch check as soon as React mounts, and a handler that was not
+  // there yet dropped that message, so updates were never offered. Once per run (macOS can
+  // create the window again).
+  if (app.isPackaged && !updaterReady) {
+    updaterReady = true
+    autoUpdater.autoDownload = false
+    // A build that is itself a prerelease (e.g. 2.0.0-beta.3) follows the
+    // beta channel; stable builds stay on the latest channel and never pull
+    // a prerelease. The matching beta.yml / latest.yml is selected
+    // automatically via detectUpdateChannel (default on).
+    autoUpdater.allowPrerelease = app.getVersion().includes('-')
+    autoUpdater.logger = {
+      info: (...args: unknown[]) => logMain('updater-info', ...args),
+      warn: (...args: unknown[]) => logMain('updater-warn', ...args),
+      error: (...args: unknown[]) => logMain('updater-error', ...args),
+      debug: (..._args: unknown[]) => {},
+    }
+    // Test only: LUNAR_UPDATE_FEED_URL points updates at a feed on this computer or the
+    // home network (latest.yml + installer, see docs/packaging.md "Testing an update"),
+    // so a real update can be tried without publishing a release. Ignored for any
+    // other address.
+    const testFeed = process.env.LUNAR_UPDATE_FEED_URL
+    if (isLocalUpdateFeed(testFeed)) {
+      autoUpdater.setFeedURL({ provider: 'generic', url: testFeed as string })
+      logMain('updater-test-feed', testFeed)
+    }
+    autoUpdater.on('update-available', (info: { version: string }) => {
+      mainWindow?.webContents.send('update-available', info.version)
+    })
+    autoUpdater.on('download-progress', (progress: { percent: number }) => {
+      mainWindow?.webContents.send(
+        'update-progress',
+        Math.round(progress.percent),
+      )
+    })
+    autoUpdater.on('update-downloaded', () => {
+      mainWindow?.webContents.send('update-downloaded')
+    })
+    // The renderer's launch check is silent: offline, behind a firewall or before
+    // the first release exists it must not put a red banner on every start.
+    // electron-updater also emits a global 'error' for that failed check; while a
+    // silent check is running that event is only logged (launch review CR-4).
+    let silentCheckRunning = false
+    autoUpdater.on('error', (err: { message?: string }) => {
+      logMain('updater-error', err?.message ?? err)
+      if (silentCheckRunning) return
+      mainWindow?.webContents.send(
+        'update-error',
+        shortUpdateError(err?.message, 'Update failed'),
+      )
+    })
+    ipcMain.on('download-update', () => {
+      autoUpdater.downloadUpdate().catch((err: { message?: string }) => {
+        logMain('updater-download-failed', err?.message ?? err)
+        mainWindow?.webContents.send(
+          'update-error',
+          err?.message ?? 'Download failed',
+        )
       })
-      .catch((error) => {
-        console.error('Workflow failed:', error)
-        if (process.env.LM_CLIPPER_AUTORUN_EXIT === '1') app.quit()
-      })
+    })
+    ipcMain.on('install-update', () => {
+      autoUpdater.quitAndInstall()
+    })
+    // Run a check on request. `silent` (the renderer's on-mount check) only
+    // surfaces a *found* update — no "checking…"/"up to date"/transient-error
+    // noise every launch. A non-silent check (Help → Check for Updates) shows
+    // the full feedback. Either way a newer version fires autoUpdater's own
+    // 'update-available' handler above, which sends the banner.
+    ipcMain.on(
+      'check-for-updates',
+      (_event, payload?: { silent?: boolean }) => {
+        const silent = payload?.silent === true
+        if (!silent) mainWindow?.webContents.send('update-checking')
+        if (silent) silentCheckRunning = true
+        autoUpdater
+          .checkForUpdates()
+          .then((result: { updateInfo?: { version?: string } } | null) => {
+            const found = result?.updateInfo?.version
+            if (!silent && (!found || found === app.getVersion())) {
+              mainWindow?.webContents.send('update-not-available')
+            }
+          })
+          .catch((err: { message?: string }) => {
+            logMain('updater-check-failed', err?.message ?? err)
+            if (!silent) {
+              mainWindow?.webContents.send(
+                'update-error',
+                shortUpdateError(err?.message, 'Check failed'),
+              )
+            }
+          })
+          .finally(() => {
+            // The global 'error' event fires just before the promise settles.
+            if (silent)
+              setTimeout(() => {
+                silentCheckRunning = false
+              }, 500)
+          })
+      },
+    )
+    // NOTE: the launch check is now driven by the renderer once its IPC
+    // listeners are mounted (App.tsx sends `check-for-updates {silent:true}`),
+    // so a found update can no longer be dropped by the old ready-to-show
+    // race. Do NOT re-add an unconditional checkForUpdates() here.
   }
 
   mainWindow.loadURL(resolveHtmlPath('index.html'))
@@ -265,86 +497,6 @@ const createWindow = async () => {
       mainWindow.minimize()
     } else {
       mainWindow.show()
-    }
-
-    // Check for updates in production
-    if (app.isPackaged) {
-      autoUpdater.autoDownload = false
-      // A build that is itself a prerelease (e.g. 2.0.0-beta.3) follows the
-      // beta channel; stable builds stay on the latest channel and never pull
-      // a prerelease. The matching beta.yml / latest.yml is selected
-      // automatically via detectUpdateChannel (default on).
-      autoUpdater.allowPrerelease = app.getVersion().includes('-')
-      autoUpdater.logger = {
-        info: (...args: unknown[]) => logMain('updater-info', ...args),
-        warn: (...args: unknown[]) => logMain('updater-warn', ...args),
-        error: (...args: unknown[]) => logMain('updater-error', ...args),
-        debug: (..._args: unknown[]) => {},
-      }
-      autoUpdater.on('update-available', (info: { version: string }) => {
-        mainWindow?.webContents.send('update-available', info.version)
-      })
-      autoUpdater.on('download-progress', (progress: { percent: number }) => {
-        mainWindow?.webContents.send(
-          'update-progress',
-          Math.round(progress.percent),
-        )
-      })
-      autoUpdater.on('update-downloaded', () => {
-        mainWindow?.webContents.send('update-downloaded')
-      })
-      autoUpdater.on('error', (err: { message?: string }) => {
-        logMain('updater-error', err?.message ?? err)
-        mainWindow?.webContents.send(
-          'update-error',
-          err?.message ?? 'Update failed',
-        )
-      })
-      ipcMain.on('download-update', () => {
-        autoUpdater.downloadUpdate().catch((err: { message?: string }) => {
-          logMain('updater-download-failed', err?.message ?? err)
-          mainWindow?.webContents.send(
-            'update-error',
-            err?.message ?? 'Download failed',
-          )
-        })
-      })
-      ipcMain.on('install-update', () => {
-        autoUpdater.quitAndInstall()
-      })
-      // Run a check on request. `silent` (the renderer's on-mount check) only
-      // surfaces a *found* update — no "checking…"/"up to date"/transient-error
-      // noise every launch. A non-silent check (Help → Check for Updates) shows
-      // the full feedback. Either way a newer version fires autoUpdater's own
-      // 'update-available' handler above, which sends the banner.
-      ipcMain.on(
-        'check-for-updates',
-        (_event, payload?: { silent?: boolean }) => {
-          const silent = payload?.silent === true
-          if (!silent) mainWindow?.webContents.send('update-checking')
-          autoUpdater
-            .checkForUpdates()
-            .then((result: { updateInfo?: { version?: string } } | null) => {
-              const found = result?.updateInfo?.version
-              if (!silent && (!found || found === app.getVersion())) {
-                mainWindow?.webContents.send('update-not-available')
-              }
-            })
-            .catch((err: { message?: string }) => {
-              logMain('updater-check-failed', err?.message ?? err)
-              if (!silent) {
-                mainWindow?.webContents.send(
-                  'update-error',
-                  err?.message ?? 'Check failed',
-                )
-              }
-            })
-        },
-      )
-      // NOTE: the launch check is now driven by the renderer once its IPC
-      // listeners are mounted (App.tsx sends `check-for-updates {silent:true}`),
-      // so a found update can no longer be dropped by the old ready-to-show
-      // race. Do NOT re-add an unconditional checkForUpdates() here.
     }
   })
 
@@ -359,8 +511,16 @@ const createWindow = async () => {
   const menuBuilder = new MenuBuilder(
     mainWindow,
     controller?.config?.recentProjects || [],
+    () => controller?.compactProject(),
+    (kind) => controller?.extractReplays(kind),
   )
   menuBuilder.buildMenu()
+  // Open Recent follows the list as projects are opened and removed.
+  if (controller)
+    controller.onRecentsChanged = () => {
+      menuBuilder.recentProjects = controller?.config?.recentProjects || []
+      menuBuilder.buildMenu()
+    }
   // Open urls in the user's browser
   mainWindow.webContents.setWindowOpenHandler((edata) => {
     if (edata.url.startsWith('http://') || edata.url.startsWith('https://')) {
@@ -437,11 +597,13 @@ app.on('before-quit', (event) => {
   const cleanup = shutdownCleanupAsync().then(() => {
     cleanlyClosed = true
   })
+  // A usage ping fired just before quitting gets a moment to finish.
+  const pings = flushTelemetry()
   // Watchdog: never let quit hang on a stuck worker.
   const timeout = new Promise((resolve) => {
     setTimeout(resolve, 3000)
   })
-  Promise.race([cleanup, timeout]).finally(() => {
+  Promise.race([Promise.all([cleanup, pings]), timeout]).finally(() => {
     // Only remove the WAL sidecars on a confirmed-clean shutdown. If the
     // watchdog won (a worker stuck mid-write, or closeDb still draining), leave
     // -wal/-shm intact so SQLite replays committed data on next open rather
@@ -462,11 +624,10 @@ process.on('SIGTERM', () => {
 })
 
 app.on('window-all-closed', () => {
-  // Respect the OSX convention of having the application in memory even
-  // after all windows have been closed
-  if (process.platform !== 'darwin') {
-    app.quit()
-  }
+  // Quit on every platform. (The macOS habit of staying alive without a window
+  // re-created the controller on "activate" and registered every IPC listener
+  // twice; macOS builds are off for now. Launch review COMPAT-2.)
+  app.quit()
 })
 
 if (gotSingleInstanceLock) {
@@ -477,6 +638,7 @@ if (gotSingleInstanceLock) {
       // (Windows/Linux). macOS instead fires 'open-file', handled above.
       const initialPath = projectPathFromArgv(process.argv)
       if (initialPath) pendingOpenPath = initialPath
+      handleViewerScheme()
       createWindow()
       app.on('activate', () => {
         // On macOS it's common to re-create a window in the app when the

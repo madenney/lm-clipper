@@ -1,0 +1,145 @@
+.add-replays {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(220px, 300px));
+  gap: 14px;
+  justify-content: center;
+  text-align: left;
+}
+
+.add-source {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.add-source h4 {
+  margin: 0;
+  font-size: 15px;
+  color: #fff;
+}
+
+.add-source p {
+  margin: 0 0 4px;
+  font-size: 13px;
+  color: #b8bcc4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.add-primary {
+  font: inherit;
+  font-size: 14px;
+  color: #fff;
+  background: #2f6fb0;
+  border: none;
+  border-radius: 8px;
+  padding: 8px 16px;
+  cursor: pointer;
+}
+
+.add-primary:hover {
+  background: #3a80c6;
+}
+
+.add-quiet {
+  font-size: 12px;
+  color: #8a909a;
+}
+
+.add-link {
+  font: inherit;
+  color: #9cc7f0;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.add-link:hover {
+  color: #fff;
+}
+
+.add-replays-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(8, 8, 10, 0.6);
+}
+
+.add-replays-dialog {
+  padding: 18px 20px 22px;
+  border-radius: 14px;
+  background: #18191c;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6);
+}
+
+.add-replays-dialog header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.add-replays-dialog h3 {
+  margin: 0;
+  font-size: 17px;
+  color: #fff;
+}
+
+.add-replays-dialog header button {
+  font: inherit;
+  color: #9a9fa8;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+/* Games on their way into this project (Find replays). */
+.incoming-replays {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  max-width: 614px;
+  margin: 0 auto 14px;
+  padding: 16px 18px;
+  text-align: left;
+  border: 1px solid rgba(150, 213, 167, 0.35);
+  border-radius: 12px;
+  background: rgba(150, 213, 167, 0.06);
+}
+.incoming-replays.incoming-stuck {
+  border-color: rgba(255, 184, 153, 0.4);
+  background: rgba(255, 184, 153, 0.06);
+}
+.incoming-replays h4 {
+  margin: 0;
+  font-size: 15px;
+  color: #fff;
+}
+.incoming-stage {
+  margin: 0;
+  font-size: 13px;
+  color: #d6e6db;
+}
+.incoming-replays progress {
+  width: 100%;
+  height: 6px;
+  accent-color: #96d5a7;
+}
+.incoming-note {
+  margin: 0;
+  font-size: 12px;
+  color: #8a909a;
+}

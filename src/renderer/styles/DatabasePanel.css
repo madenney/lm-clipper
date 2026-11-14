@@ -1,0 +1,1414 @@
+.database-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2200;
+  background: #080b0de6;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  backdrop-filter: blur(8px);
+}
+.database-panel {
+  width: min(1180px, 100%);
+  height: min(900px, 94vh);
+  background: #171b1d;
+  color: #e8eeec;
+  border: 1px solid #36433d;
+  border-radius: 14px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 24px 90px #0009;
+  outline: none;
+  font-size: 14px;
+  text-align: left;
+}
+.database-panel * {
+  box-sizing: border-box;
+}
+.database-panel h2,
+.database-panel h3,
+.database-panel p {
+  margin: 0;
+}
+.database-panel p {
+  color: #adbab3;
+  line-height: 1.5;
+}
+.database-panel button {
+  background: #28322d;
+  color: #e5eee9;
+  border: 1px solid #425349;
+  border-radius: 6px;
+  padding: 8px 12px;
+  cursor: pointer;
+  font: inherit;
+}
+.database-panel button:hover:not(:disabled) {
+  background: #35473b;
+  border-color: #79b08b;
+}
+.database-panel button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.database-panel :focus-visible {
+  outline: 2px solid #98d9ac;
+  outline-offset: 3px;
+}
+.database-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 22px 28px 16px;
+}
+.database-header h2 {
+  font-size: 26px;
+  margin-top: 4px;
+}
+.database-eyebrow {
+  color: #8ebc9b;
+  font-size: 10px;
+  letter-spacing: 2px;
+}
+.database-tabs {
+  display: flex;
+  gap: 8px;
+  padding: 0 28px 16px;
+  border-bottom: 1px solid #303b35;
+}
+.database-tabs button {
+  background: transparent;
+  border-color: transparent;
+}
+.database-tabs button.selected {
+  background: #2e4436;
+  border-color: #52715c;
+}
+.database-search {
+  display: grid;
+  grid-template-columns: 290px minmax(0, 1fr);
+  flex: 1;
+  min-height: 0;
+}
+.database-filters {
+  padding: 22px;
+  overflow-y: auto;
+  scrollbar-gutter: stable both-edges; /* a scrollbar appearing never shifts what is centred */
+  border-right: 1px solid #303b35;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.database-filters h3 {
+  font-size: 17px;
+}
+.database-filters p {
+  font-size: 12px;
+}
+.database-panel label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 12px;
+  color: #becbc3;
+}
+.database-panel input:not([type='checkbox']),
+.database-panel select {
+  width: 100%;
+  min-width: 0;
+  background: #101613;
+  color: #e3ece6;
+  border: 1px solid #3c4b41;
+  border-radius: 5px;
+  padding: 8px;
+  font: inherit;
+  color-scheme: dark;
+}
+.database-panel fieldset {
+  border: 1px solid #35433a;
+  border-radius: 7px;
+  margin: 0;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.database-panel legend {
+  color: #9bc5a7;
+  padding: 0 5px;
+  font-size: 12px;
+}
+.database-dates {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.database-sources {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+}
+.database-sources label {
+  flex-direction: row;
+  align-items: center;
+  text-transform: capitalize;
+}
+.database-panel input[type='checkbox'] {
+  accent-color: #9bd8aa;
+}
+.database-panel button.database-primary {
+  background: #96d5a7;
+  color: #122119;
+  font-weight: 600;
+  border-color: #a0e4b2;
+}
+.database-panel button.database-primary:hover:not(:disabled) {
+  background: #b0e8bd;
+}
+.database-results {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+.database-summary {
+  padding: 22px;
+  display: grid;
+  gap: 8px;
+}
+.database-summary h3 {
+  font-size: 18px;
+}
+.database-summary p {
+  font-size: 12px;
+}
+.database-table-wrap {
+  flex: 1;
+  overflow: auto;
+  min-height: 100px;
+}
+.database-panel table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.database-panel th {
+  position: sticky;
+  top: 0;
+  background: #202a24;
+  color: #a5b9ac;
+  text-align: left;
+  font-weight: 500;
+}
+.database-panel td,
+.database-panel th {
+  padding: 12px 18px;
+  border-bottom: 1px solid #2a352e;
+}
+.database-panel td:first-child div + div {
+  margin-top: 6px;
+}
+.database-panel td span {
+  color: #8da596;
+  margin-left: 5px;
+}
+.database-panel td strong {
+  font-weight: 500;
+}
+.database-empty {
+  padding: 55px 30px;
+  color: #8fa399;
+  text-align: center;
+  line-height: 1.7;
+  max-width: 520px;
+  margin: auto;
+}
+.database-pagination {
+  padding: 10px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+}
+.database-add {
+  border-top: 1px solid #35433a;
+  padding: 16px 22px;
+  display: grid;
+  gap: 10px;
+  background: #1b251f;
+}
+.database-add p {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.4;
+  /* One line in every state, so the button above never moves. */
+  min-height: 1.4em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.database-destination {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  min-width: 0;
+}
+.database-destination > span {
+  color: #a4b6aa;
+}
+.database-destination button {
+  text-align: left;
+  overflow-wrap: anywhere;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+.database-destination button span {
+  white-space: nowrap;
+  color: #a3d3b0;
+}
+.database-error {
+  padding: 12px 20px;
+  background: #412b25;
+  color: #ffd2bf !important;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+/* Live site status: the admin notice, or that the database is out of reach. */
+.database-notice {
+  padding: 10px 20px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+.database-notice.info {
+  background: #1d2433;
+  color: #dfe7ff;
+}
+.database-notice.warning {
+  background: #3a2c12;
+  color: #ffe2b0;
+}
+/* The database is down for maintenance: the owner's message, in place of the search forms. */
+.database-maintenance {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 18px 20px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  background: #3a1d1d;
+  color: #ffd9d9;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+.database-maintenance strong {
+  font-size: 1.15em;
+}
+.database-maintenance span {
+  opacity: 0.85;
+}
+/* What downloading this batch would mean right now. */
+.database-forecast {
+  margin-top: 4px;
+  font-size: 0.9em;
+  opacity: 0.75;
+}
+/* Downloads tab: the live server queue and what to expect. */
+.database-queue {
+  margin-bottom: 14px;
+  line-height: 1.5;
+}
+.database-queue strong {
+  display: block;
+  margin-bottom: 4px;
+}
+.database-queue p {
+  margin: 0;
+  font-size: 0.9em;
+  opacity: 0.75;
+}
+.database-extract {
+  padding: 36px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  max-width: 750px;
+  overflow-y: auto;
+  scrollbar-gutter: stable both-edges; /* a scrollbar appearing never shifts what is centred */
+}
+.database-extract h3 {
+  font-size: 23px;
+}
+.database-panel label.database-import-choice {
+  flex-direction: row;
+  align-items: center;
+  font-size: 14px;
+}
+.database-extract-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.database-transfers {
+  padding: 24px 28px;
+  overflow-y: auto;
+  scrollbar-gutter: stable both-edges; /* a scrollbar appearing never shifts what is centred */
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.database-transfer {
+  border: 1px solid #3b4b40;
+  border-radius: 8px;
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.database-transfer-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.database-transfer h3 {
+  font-size: 16px;
+}
+.database-status {
+  font-size: 11px;
+  color: #a4dab5;
+  white-space: nowrap;
+}
+.database-status-failed {
+  color: #ffb899;
+}
+.database-transfer small {
+  color: #9dad9f;
+}
+.database-transfer p {
+  overflow-wrap: anywhere;
+}
+/* A running download: brighter edge; one just added glows and says so. */
+.database-transfer--active {
+  border-color: #6fae84;
+  background: rgba(150, 213, 167, 0.04);
+}
+.database-transfer--new {
+  border-color: #96d5a7;
+  box-shadow: 0 0 0 1px #96d5a7, 0 0 22px rgba(150, 213, 167, 0.28);
+}
+.database-new {
+  margin-left: auto;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: #96d5a7;
+  color: #10261a;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.database-new + .database-status {
+  margin-left: 0;
+}
+.database-live-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 7px;
+  border-radius: 50%;
+  background: #96d5a7;
+  vertical-align: 1px;
+}
+.database-transfer .database-live {
+  color: #cfe9d6;
+  font-variant-numeric: tabular-nums;
+}
+/* Progress: a filled bar with moving stripes while it runs; with no total yet
+   (the server packing), a band sweeping across. */
+.database-bar {
+  position: relative;
+  height: 9px;
+  border-radius: 999px;
+  background: #26302a;
+  overflow: hidden;
+}
+.database-bar > div {
+  height: 100%;
+  min-width: 2%;
+  border-radius: inherit;
+  background-color: #8fd3a3;
+  background-image: linear-gradient(
+    45deg,
+    rgba(255, 255, 255, 0.28) 25%,
+    transparent 25%,
+    transparent 50%,
+    rgba(255, 255, 255, 0.28) 50%,
+    rgba(255, 255, 255, 0.28) 75%,
+    transparent 75%
+  );
+  background-size: 18px 18px;
+  transition: width 0.6s ease;
+}
+.database-bar--waiting > div {
+  width: 30%;
+}
+.database-transfer-actions {
+  display: flex;
+  gap: 10px;
+}
+/* The way back to the app: the download's project, in the panel's green. */
+.database-transfer-actions .database-transfer-go {
+  background: #96d5a7;
+  color: #10261a;
+  border-color: #96d5a7;
+  font-weight: 600;
+}
+.database-transfer-actions .database-transfer-go:hover:not(:disabled) {
+  background: #b0e3bd;
+}
+/* Cancel sits at the far end of the buttons, in red. */
+.database-transfer-actions .database-transfer-cancel {
+  margin-left: auto;
+  color: #ff9a9a;
+  border-color: rgba(255, 110, 110, 0.4);
+}
+.database-transfer-actions .database-transfer-cancel:hover:not(:disabled) {
+  background: rgba(255, 90, 90, 0.14);
+  color: #ffc4c4;
+}
+.database-status-canceled {
+  color: #c7c7c7;
+  opacity: 0.75;
+}
+/* What a waiting/stopped download has so far; "Nothing downloaded yet" stands out. */
+.database-saved {
+  margin: 0;
+  font-size: 13px;
+  color: #9bd8aa;
+}
+.database-saved--none {
+  display: inline-flex;
+  align-self: flex-start;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px dashed rgba(255, 255, 255, 0.25);
+  color: #c8c8c8;
+}
+.database-saved--none::before {
+  content: '○';
+  opacity: 0.7;
+}
+.database-countdown {
+  font-variant-numeric: tabular-nums;
+  color: #9bd8aa;
+}
+@media (max-width: 760px) {
+  .database-overlay {
+    padding: 6px;
+  }
+  .database-search {
+    grid-template-columns: 220px minmax(0, 1fr);
+  }
+  .database-filters {
+    padding: 12px;
+  }
+  .database-panel td,
+  .database-panel th {
+    padding: 8px;
+  }
+  .database-header {
+    padding: 14px;
+  }
+  .database-tabs {
+    padding: 0 12px 12px;
+  }
+}
+
+/* Find clips: type switch and chosen rows. */
+.clip-types {
+  display: flex;
+  gap: 6px;
+}
+
+.database-panel .clip-types button.selected {
+  background: rgba(100, 181, 246, 0.18);
+  border-color: rgba(100, 181, 246, 0.6);
+}
+
+.database-panel tr.chosen td {
+  background: rgba(100, 181, 246, 0.08);
+}
+
+/* The website-style search box above the Player / Opponent fields. */
+.database-search-box {
+  margin-bottom: 4px;
+}
+
+/* Who a fieldset is about, from the search box ("Player · XX#02 (Hax$)"). */
+.database-legend-who {
+  color: #d6f0de;
+}
+
+.database-panel label.database-select-page {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  font-size: 12.5px;
+}
+
+/* Scrollbars like the rest of Clipper (the tray's, DomLayer.css): thin, no
+   track, a dark thumb that lightens on hover. Covers every scroller in the
+   panel: filters, results, transfers, the search box dropdown and chip row. */
+.database-panel::-webkit-scrollbar,
+.database-panel *::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.database-panel::-webkit-scrollbar-track,
+.database-panel *::-webkit-scrollbar-track,
+.database-panel *::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+.database-panel::-webkit-scrollbar-thumb,
+.database-panel *::-webkit-scrollbar-thumb {
+  background: #3a3a3a;
+  border-radius: 3px;
+}
+
+.database-panel::-webkit-scrollbar-thumb:hover,
+.database-panel *::-webkit-scrollbar-thumb:hover {
+  background: #505050;
+}
+
+/* Transfers: what's already downloaded, then the list. */
+.database-library {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 18px;
+  border: 1px solid #3b4b40;
+  border-radius: 8px;
+  background: #1b251f;
+}
+.database-library > div {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+.database-library h3 {
+  font-size: 16px;
+}
+.database-library small {
+  color: #8da596;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.database-transfers-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.database-transfers-head button {
+  white-space: nowrap;
+}
+.database-panel button.database-transfer-remove {
+  margin-left: 4px;
+  padding: 2px 8px;
+  background: transparent;
+  border-color: transparent;
+  color: #9dad9f;
+}
+.database-panel button.database-transfer-remove:hover:not(:disabled) {
+  background: #412b25;
+  border-color: #6b3f33;
+  color: #ffd2bf;
+}
+.database-transfer-heading h3 {
+  flex: 1;
+}
+
+.database-add-actions {
+  display: flex;
+  gap: 10px;
+}
+.database-add-actions .database-primary {
+  flex: 1;
+}
+
+/* ── Find replays: two big questions, the list as an optional preview ── */
+.database-find {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  font-size: 15px;
+}
+.database-find-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-gutter: stable both-edges; /* a scrollbar appearing never shifts what is centred */
+  padding: 22px 32px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+}
+.database-find-body > * {
+  width: 100%;
+  max-width: 820px;
+  margin: 0 auto;
+}
+.database-step {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.database-step h3 {
+  font-size: 26px;
+  font-weight: 600;
+  color: #fff;
+}
+/* Size the box, not the input: the control has a fixed height and clips. */
+.database-big-search .search-box-control {
+  height: 54px;
+  padding: 0 14px;
+  border-radius: 10px;
+}
+.database-big-search .search-box .search-box-control input.search-box-input {
+  font-size: 18px;
+}
+.database-chars {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(52px, 1fr));
+  gap: 8px;
+}
+.database-panel .database-chars button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 1;
+  padding: 6px;
+  border-radius: 10px;
+  background: #1f2724;
+  border: 2px solid transparent;
+  font-size: 10px;
+}
+.database-chars img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.database-panel .database-chars button:hover:not(:disabled) {
+  border-color: #52715c;
+}
+.database-panel .database-chars button.selected {
+  background: #35473b;
+  border-color: #96d5a7;
+}
+.database-from-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+}
+.database-from {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.database-panel .database-from button {
+  padding: 9px 18px;
+  border-radius: 999px;
+  font-size: 15px;
+}
+.database-panel .database-from button.selected,
+.database-panel .database-amounts button.selected {
+  background: #35473b;
+  border-color: #96d5a7;
+  color: #fff;
+}
+/* The count the search matches: the main thing, big and centred on its own row. */
+.database-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 2px 0 0;
+  gap: 0;
+}
+.database-hero-number {
+  font-size: 64px;
+  line-height: 1;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  color: #f1faf4;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 0 36px rgba(143, 214, 166, 0.35);
+  transition:
+    color 220ms ease,
+    text-shadow 220ms ease;
+}
+.database-hero-number.is-updating {
+  /* Thinking: greyed out and breathing, until the new number arrives and counts up. */
+  color: #5f6b66;
+  text-shadow: none;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .database-hero-number.is-updating {
+    animation: heroThinking 1.1s ease-in-out infinite;
+  }
+}
+@keyframes heroThinking {
+  0%,
+  100% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 0.95;
+  }
+}
+.database-hero-unit {
+  min-height: 1.2em;
+  font-size: 12px;
+  letter-spacing: 0.34em;
+  text-transform: uppercase;
+  color: #8fd6a6;
+}
+.database-hero-what {
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  color: #e8eeec;
+}
+/* Up to when games are stored (all downloads come from storage): quiet, one line. */
+.database-stored-note {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: #7f948a;
+}
+/* More filters: a pill like the sources, and the panel it opens above the count. */
+.database-panel button.database-more-toggle {
+  align-self: center;
+  margin-left: auto;
+  white-space: nowrap;
+  padding: 9px 16px;
+  border: 1px solid #2f3d35;
+  border-radius: 999px;
+  background: transparent;
+  color: #9bc5a7;
+  font-size: 15px;
+}
+.database-panel button.database-more-toggle:hover:not(:disabled) {
+  background: #202b25;
+  border-color: #4a6355;
+  color: #fff;
+}
+.database-panel button.database-more-toggle[aria-expanded='true'] {
+  background: #263329;
+  border-color: rgba(143, 214, 166, 0.55);
+  color: #e8f5ec;
+}
+.database-more {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 18px 20px;
+  padding: 20px 22px 22px;
+  border: 1px solid rgba(143, 214, 166, 0.22);
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(143, 214, 166, 0.07), rgba(18, 23, 21, 0.92));
+  box-shadow: inset 0 0 40px rgba(143, 214, 166, 0.05);
+  animation: database-more-in 180ms ease-out;
+}
+@keyframes database-more-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .database-more {
+    animation: none;
+  }
+}
+.database-find .database-more label {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: #8fd6a6;
+}
+.database-find .database-more label.database-check {
+  flex-direction: row;
+  align-items: center;
+  align-self: end;
+  gap: 9px;
+  padding-bottom: 11px;
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: #d6e6dc;
+}
+.database-find .database-more input:not([type='checkbox']),
+.database-find .database-more select {
+  font-size: 15px;
+  padding: 11px 12px;
+  color: #e8eeec;
+  background: #0f1412;
+  border: 1px solid #2d3b33;
+  border-radius: 10px;
+  letter-spacing: 0;
+  text-transform: none;
+  font-weight: 400;
+}
+.database-find .database-more input:not([type='checkbox']):focus,
+.database-find .database-more select:focus {
+  outline: none;
+  border-color: #8fd6a6;
+  box-shadow: 0 0 0 3px rgba(143, 214, 166, 0.16);
+}
+.database-amounts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+}
+.database-panel .database-amounts button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 18px 20px;
+  border-radius: 12px;
+  text-align: left;
+}
+/* Under the cards: "Or exactly [ ] games" and "or all N that match", with times. */
+.database-panel .database-amount-other {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 22px;
+  margin-top: 14px;
+  color: #9bc5a7;
+  font-size: 16px;
+}
+.database-panel .database-amount-other label {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  font-size: 16px;
+  color: #9bc5a7;
+  gap: 10px;
+  cursor: text;
+}
+.database-panel .database-amount-other input {
+  width: 150px;
+  background: #28322d;
+  border: 1px solid #425349;
+  border-radius: 8px;
+  color: #fff;
+  font: inherit;
+  font-size: 18px;
+  font-weight: 600;
+  padding: 7px 12px;
+  outline: none;
+}
+.database-panel .database-amount-other label.selected input {
+  background: #35473b;
+  border-color: #96d5a7;
+}
+.database-panel .database-amount-other input::placeholder {
+  color: rgba(255, 255, 255, 0.4);
+  font-weight: 400;
+}
+.database-panel .database-amount-other button {
+  padding: 8px 14px;
+  border-radius: 8px;
+  font-size: 16px;
+}
+.database-panel .database-amount-other button.selected {
+  background: #35473b;
+  border-color: #96d5a7;
+  color: #fff;
+}
+.database-panel .database-amount-time {
+  margin-left: 8px;
+  color: #9aa8a0;
+  font-size: 14px;
+}
+.database-panel .database-amount-note {
+  display: block;
+  margin-top: 8px;
+  color: #9aa8a0;
+  font-size: 14px;
+}
+.database-amounts strong {
+  font-size: 26px;
+  font-weight: 600;
+}
+.database-amounts small {
+  font-size: 14px;
+  color: #a9b8ae;
+}
+.database-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.database-preview .database-table-wrap {
+  flex: none;
+  overflow: visible;
+  border: 1px solid #2a352e;
+  border-radius: 10px;
+}
+.database-find .database-add {
+  justify-items: center;
+  padding: 18px 32px 22px;
+}
+.database-find .database-add > * {
+  width: 100%;
+  max-width: 820px;
+}
+.database-find .database-add .database-primary {
+  padding: 16px 20px;
+  font-size: 19px;
+  border-radius: 10px;
+}
+.database-find .database-add p {
+  font-size: 14px;
+  color: #b4c3b9;
+  line-height: 1.5;
+  text-align: center;
+}
+
+/* ── Downloads tab ─────────────────────────────────────────────────────── */
+.downloads-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 22px;
+}
+.downloads-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  border-radius: 999px;
+  background: #1f2823;
+  border: 1px solid #34433a;
+  color: #cfe0d5;
+  font-size: 13px;
+  white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.downloads-chip-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #8fd3a3;
+  flex: none;
+}
+.downloads-chip-dot.is-down {
+  background: #ffb899;
+}
+.database-panel .downloads-bar-button {
+  margin-left: auto;
+  font-size: 13px;
+  padding: 6px 12px;
+}
+.downloads-group {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 26px;
+}
+.downloads-group-title {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #a4dab5;
+}
+.downloads-group-title > span {
+  font-size: 13px;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  color: #8a9a90;
+}
+.database-panel .downloads-clear {
+  margin-left: auto;
+  font-size: 12px;
+  padding: 4px 10px;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.downloads-history {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid #2f3b34;
+  border-radius: 8px;
+  overflow: hidden;
+}
+.downloads-row {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 14px;
+  border-top: 1px solid #26302a;
+}
+.downloads-row:first-child {
+  border-top: none;
+}
+.downloads-row:hover {
+  background: rgba(150, 213, 167, 0.04);
+}
+.downloads-row-icon {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 13px;
+  font-weight: 700;
+  background: #2b4434;
+  color: #9fe0b2;
+}
+.downloads-row--canceled .downloads-row-icon {
+  background: #333;
+  color: #aaa;
+}
+.downloads-row-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.downloads-row-main strong {
+  font-size: 14px;
+  font-weight: 600;
+  color: #e5eee9;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.downloads-row-main small {
+  color: #8fa397;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.downloads-row-when {
+  color: #8fa397;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.downloads-row-actions {
+  display: flex;
+  gap: 6px;
+}
+.database-panel .downloads-row-actions button {
+  font-size: 12px;
+  padding: 4px 9px;
+}
+.database-panel .downloads-row-actions .downloads-row-remove {
+  background: none;
+  border-color: transparent;
+  color: #8a9a90;
+}
+.downloads-tab-count {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 8px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: #2b4434;
+  color: #bff0cc;
+  font-size: 12px;
+}
+.downloads-tab-count .database-live-dot {
+  width: 6px;
+  height: 6px;
+  margin-right: 5px;
+}
+
+/* Busy button labels ("Counting games...", "Starting..."): the dots keep moving so a
+   disabled button reads as working, not broken. */
+.database-busy {
+  display: inline-flex;
+  align-items: baseline;
+}
+.database-busy-dots span {
+  display: inline-block;
+  animation: database-busy-dot 1.2s infinite ease-in-out;
+  opacity: 0.2;
+}
+.database-busy-dots span:nth-child(2) {
+  animation-delay: 0.2s;
+}
+.database-busy-dots span:nth-child(3) {
+  animation-delay: 0.4s;
+}
+@keyframes database-busy-dot {
+  0%, 80%, 100% { opacity: 0.2; }
+  40% { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .database-busy-dots span { animation: none; opacity: 0.7; }
+}
+
+/* How many: the heading with "All N" beside it, and four cards in a row (the last is "Exactly"). */
+.database-many-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.database-panel button.database-all {
+  padding: 8px 16px;
+  border-radius: 999px;
+  font-size: 15px;
+  white-space: nowrap;
+}
+.database-panel button.database-all.selected {
+  background: #35473b;
+  border-color: rgba(143, 214, 166, 0.55);
+}
+.database-panel button.database-all .database-amount-time {
+  margin-left: 10px;
+  color: #9bb5a5;
+  font-size: 13px;
+}
+.database-amounts {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.database-amounts .database-amount-exact {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 18px 20px;
+  border: 1px solid #425349;
+  border-radius: 12px;
+  background: #28322d;
+  cursor: text;
+}
+.database-amounts .database-amount-exact.selected {
+  background: #35473b;
+  border-color: rgba(143, 214, 166, 0.55);
+}
+.database-amounts .database-amount-exact input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 2px 0;
+  font-size: 22px;
+  font-weight: 600;
+  color: #fff;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px dashed #5a7364;
+  border-radius: 0;
+  outline: none;
+}
+.database-amounts .database-amount-exact input:focus {
+  border-bottom-color: #8fd6a6;
+}
+.database-amounts .database-amount-exact small {
+  font-size: 14px;
+  color: #a9b8ae;
+}
+
+/* Cancel while a download says "Starting…". */
+.database-panel button.database-cancel-start {
+  flex: 0 0 auto;
+  padding: 0 24px;
+  font-size: 16px;
+  color: #eaa4a4;
+  background: transparent;
+  border-color: #7a3b3b;
+  border-radius: 10px;
+}
+.database-panel button.database-cancel-start:hover {
+  background: rgba(122, 59, 59, 0.25);
+  border-color: #b85a5a;
+  color: #ffd0d0;
+}
+
+.database-tab-caption {
+  margin: 0;
+  padding: 10px 28px 0;
+  color: #9db5a5;
+  font-size: 13px;
+  line-height: 1.4;
+}
+.database-moments-note {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 12px 28px 0;
+  padding: 12px 14px;
+  background: rgba(142, 188, 155, 0.09);
+  border: 1px solid #3d5646;
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: #b8c9be;
+}
+.database-moments-note strong {
+  color: #d7efe0;
+  font-size: 14px;
+}
+.database-moments-note {
+  padding-right: 40px;
+}
+.database-panel button.database-moments-close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 28px;
+  height: 28px;
+  min-width: 0;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #8a9d91;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+.database-panel button.database-moments-close:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #e6f3ea;
+}
+/* Toggles (kills only, zero-to-death) are pills on their own full-width row. */
+.database-find .database-more .database-checks {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-self: auto;
+  padding: 0;
+}
+.database-find .database-more .database-checks label.database-check {
+  position: relative;
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  align-self: auto;
+  gap: 8px;
+  padding: 9px 16px;
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: #c4d6ca;
+  background: #0f1412;
+  border: 1px solid #2d3b33;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+.database-find .database-more .database-checks label.database-check:hover {
+  border-color: #52715c;
+}
+.database-find .database-more .database-checks label.database-check input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+.database-find .database-more .database-checks label.database-check::before {
+  content: '';
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1.5px solid #52715c;
+  box-sizing: border-box;
+}
+.database-find .database-more .database-checks label.database-check:has(input:checked) {
+  background: #35473b;
+  border-color: rgba(143, 214, 166, 0.55);
+  color: #fff;
+}
+.database-find .database-more .database-checks label.database-check:has(input:checked)::before {
+  background: #8fd6a6 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4 8.5l2.5 2.5L12 5.5' fill='none' stroke='%230f1412' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / 100% no-repeat;
+  border-color: #8fd6a6;
+}
+.database-find .database-more .database-checks label.database-check:has(input:focus-visible) {
+  box-shadow: 0 0 0 3px rgba(143, 214, 166, 0.25);
+}
+/* The Order dropdown matches the other fields instead of the system look. */
+.database-find .database-more select {
+  appearance: none;
+  padding-right: 36px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 4.5L6 8l3.5-3.5' fill='none' stroke='%238fd6a6' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 13px center;
+  background-size: 12px;
+  cursor: pointer;
+}
+.database-hero-games {
+  margin-top: 6px;
+  font-size: 15px;
+  color: #9fc4ad;
+  text-align: center;
+  letter-spacing: 0.02em;
+}
+
+/* Free space on the library's drive, before a download that may not fit. */
+.database-free-space {
+  margin: 0 0 6px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.database-free-space--tight {
+  background: rgba(240, 180, 60, 0.12);
+  border: 1px solid rgba(240, 180, 60, 0.5);
+  color: #f0d49a;
+}
+
+.database-free-space--short {
+  background: rgba(224, 108, 108, 0.12);
+  border: 1px solid rgba(224, 108, 108, 0.55);
+  color: #f2b7b7;
+}

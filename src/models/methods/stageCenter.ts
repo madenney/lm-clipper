@@ -1,5 +1,5 @@
 /* eslint-disable eqeqeq */
-import { SlippiGame } from '@slippi/slippi-js'
+import { SlippiGame } from '../../lib/slippiGame'
 import {
   ClipInterface,
   EventEmitterInterface,

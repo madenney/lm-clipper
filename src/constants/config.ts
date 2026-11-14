@@ -49,17 +49,12 @@ export const FILTER_LAYOUT: {
   modalTabs: string[]
   modalNatives: Record<string, string[]>
 } = {
-  main: [
-    'slpParser',
-    'highlight',
-    'comboFilter',
-    'sort',
-    'trim',
-    'deduplicate',
-  ],
+  main: ['slpParser', 'comboFilter', 'aiFilter', 'sort', 'trim', 'deduplicate'],
   modalTabs: ['Kills', 'Combos', 'Sampling', 'Utility', 'Advanced'],
   modalNatives: {
     Kills: [
+      // Experimental (user, 2026-10-03): out of the main menu.
+      'highlight',
       'edgeguard',
       'edgeguardFilter',
       'phantom',
@@ -75,11 +70,149 @@ export const FILTER_LAYOUT: {
   },
 }
 
+// Edgeguarder / edgeguardee character, tag and connect-code filters, shared by the Edgeguards parser and filter.
+const edgeguardPlayerOptions = () => [
+  {
+    name: 'Edgeguarder Char',
+    id: 'comboerChar',
+    type: 'multiDropdown',
+    options: sortedCharacters,
+    default: [],
+    tooltip: 'Only keep edgeguards performed by these characters.',
+  },
+  {
+    name: 'Edgeguarder Tag',
+    id: 'comboerTag',
+    type: 'textInput',
+    default: [],
+    autocomplete: 'names',
+    tooltip: 'Only keep edgeguards by players with these tags.',
+  },
+  {
+    name: 'Edgeguarder CC',
+    id: 'comboerCC',
+    type: 'textInput',
+    default: [],
+    autocomplete: 'connectCodes',
+    tooltip: 'Only keep edgeguards by players with these connect codes.',
+  },
+  {
+    name: 'Edgeguardee Char',
+    id: 'comboeeChar',
+    type: 'multiDropdown',
+    options: sortedCharacters,
+    default: [],
+    tooltip: 'Only keep edgeguards against these characters.',
+  },
+  {
+    name: 'Edgeguardee Tag',
+    id: 'comboeeTag',
+    type: 'textInput',
+    default: [],
+    autocomplete: 'names',
+    tooltip: 'Only keep edgeguards against players with these tags.',
+  },
+  {
+    name: 'Edgeguardee CC',
+    id: 'comboeeCC',
+    type: 'textInput',
+    default: [],
+    autocomplete: 'connectCodes',
+    tooltip: 'Only keep edgeguards against players with these connect codes.',
+  },
+]
+
+// Attacker / victim character, tag and connect-code filters, shared by the Phantom parser and filter.
+const phantomPlayerOptions = () => [
+  {
+    name: 'Attacker Char',
+    id: 'comboerChar',
+    type: 'multiDropdown',
+    options: sortedCharacters,
+    default: [],
+    tooltip: 'Only keep phantoms landed by these characters.',
+  },
+  {
+    name: 'Attacker Tag',
+    id: 'comboerTag',
+    type: 'textInput',
+    default: [],
+    autocomplete: 'names',
+    tooltip: 'Only keep phantoms landed by players with these tags.',
+  },
+  {
+    name: 'Attacker CC',
+    id: 'comboerCC',
+    type: 'textInput',
+    default: [],
+    autocomplete: 'connectCodes',
+    tooltip: 'Only keep phantoms landed by players with these connect codes.',
+  },
+  {
+    name: 'Victim Char',
+    id: 'comboeeChar',
+    type: 'multiDropdown',
+    options: sortedCharacters,
+    default: [],
+    tooltip: 'Only keep phantoms suffered by these characters.',
+  },
+  {
+    name: 'Victim Tag',
+    id: 'comboeeTag',
+    type: 'textInput',
+    default: [],
+    autocomplete: 'names',
+    tooltip: 'Only keep phantoms suffered by players with these tags.',
+  },
+  {
+    name: 'Victim CC',
+    id: 'comboeeCC',
+    type: 'textInput',
+    default: [],
+    autocomplete: 'connectCodes',
+    tooltip: 'Only keep phantoms suffered by players with these connect codes.',
+  },
+]
+
+const maxHitsOption = () => ({
+  name: 'Max Hits',
+  id: 'maxHits',
+  type: 'int',
+  default: '',
+  tooltip: 'Maximum number of hits in a combo. Empty = no limit.',
+})
+
+const maxFilesParseOption = () => ({
+  name: 'Max Files',
+  id: 'maxFiles',
+  type: 'int',
+  default: '',
+  tooltip: 'Stop parsing after this many files. Empty = parse all.',
+})
+
+const maxFilesProcessOption = () => ({
+  name: 'Max Files',
+  id: 'maxFiles',
+  type: 'int',
+  default: '',
+  tooltip: 'Stop processing after this many files. Empty = process all.',
+})
+
 export const filtersConfig = [
+  // Clips added from Lunar Database › Find moments (constants/clipSearch.ts). Its
+  // results are supplied, not computed: no Run, never in the Add menus.
+  {
+    id: 'lunarClips',
+    label: 'Lunar Database clips',
+    tooltip:
+      'Clips added from the Lunar Database (Lunar Database › Pre-parsed moments). Add more there; filters after this one work on them like on Combo Parser results.',
+    options: [],
+  },
   {
     id: 'files',
     label: 'Game Filter',
-    tooltip: 'Filter replay metadata',
+    tooltip:
+      'Filter replay metadata. Games with a CPU player are left out unless Include CPU games is on.',
     options: [
       {
         name: 'Char 1',
@@ -137,6 +270,14 @@ export const filtersConfig = [
         default: [],
         tooltip: 'Filter by stage.',
       },
+      {
+        name: 'Include CPU games',
+        id: 'includeCpu',
+        type: 'checkbox',
+        default: false,
+        tooltip:
+          'Off (default): games with a CPU (computer) player are left out. On: they are kept. Games imported before Clipper recorded CPU players are checked in the background when the project opens; until a game is checked it counts as a game without a CPU.',
+      },
     ],
   },
   {
@@ -151,20 +292,8 @@ export const filtersConfig = [
         default: '2',
         tooltip: 'Minimum number of hits in a combo.',
       },
-      {
-        name: 'Max Hits',
-        id: 'maxHits',
-        type: 'int',
-        default: '',
-        tooltip: 'Maximum number of hits in a combo. Empty = no limit.',
-      },
-      {
-        name: 'Max Files',
-        id: 'maxFiles',
-        type: 'int',
-        default: '',
-        tooltip: 'Stop parsing after this many files. Empty = parse all.',
-      },
+      maxHitsOption(),
+      maxFilesParseOption(),
       {
         name: 'Comboer Char',
         id: 'comboerChar',
@@ -227,7 +356,8 @@ export const filtersConfig = [
         id: 'didKill',
         type: 'checkbox',
         default: false,
-        tooltip: 'Only keep combos that resulted in a kill.',
+        tooltip:
+          'Only keep combos that resulted in a kill: the opponent lost the stock while the combo was still going. A punish that ends and is followed by a failed recovery or an edgeguard does not count (use the Edgeguards Parser for those).',
       },
     ],
   },
@@ -254,13 +384,7 @@ export const filtersConfig = [
         tooltip:
           'Minimum hits in the interrupted combo. 1 keeps single-hit denials (e.g. a lone would-be-lethal smash they quit on).',
       },
-      {
-        name: 'Max Files',
-        id: 'maxFiles',
-        type: 'int',
-        default: '',
-        tooltip: 'Stop parsing after this many files. Empty = parse all.',
-      },
+      maxFilesParseOption(),
       {
         name: 'Comboer Char',
         id: 'comboerChar',
@@ -337,13 +461,7 @@ export const filtersConfig = [
         default: '4',
         tooltip: 'Minimum number of hits in a combo.',
       },
-      {
-        name: 'Max Hits',
-        id: 'maxHits',
-        type: 'int',
-        default: '',
-        tooltip: 'Maximum number of hits in a combo. Empty = no limit.',
-      },
+      maxHitsOption(),
       {
         name: 'Min Damage',
         id: 'minDamage',
@@ -412,7 +530,8 @@ export const filtersConfig = [
         id: 'didKill',
         type: 'checkbox',
         default: true,
-        tooltip: 'Only keep combos that resulted in a kill.',
+        tooltip:
+          'Only keep combos that resulted in a kill: the opponent lost the stock while the combo was still going. A punish that ends and is followed by a failed recovery or an edgeguard does not count (use the Edgeguards Parser for those).',
       },
       {
         name: 'Count Pummels',
@@ -630,55 +749,7 @@ export const filtersConfig = [
     tooltip:
       'Finds kills by edgeguard: the victim is knocked offstage by a hit, attempts to recover in range of the ledge, and is denied — hit back out, ledge-stolen, or forced to land on stage and punished (even killed off the top) — dying without ever recovering in between. Each clip starts at the launching hit (with a configurable lead-in) and is tagged with metrics (recovery attempts, offstage depth, forced-landing reads, clean-putaway timing, etc.) the Edgeguards Filter can refine.',
     options: [
-      {
-        name: 'Edgeguarder Char',
-        id: 'comboerChar',
-        type: 'multiDropdown',
-        options: sortedCharacters,
-        default: [],
-        tooltip: 'Only keep edgeguards performed by these characters.',
-      },
-      {
-        name: 'Edgeguarder Tag',
-        id: 'comboerTag',
-        type: 'textInput',
-        default: [],
-        autocomplete: 'names',
-        tooltip: 'Only keep edgeguards by players with these tags.',
-      },
-      {
-        name: 'Edgeguarder CC',
-        id: 'comboerCC',
-        type: 'textInput',
-        default: [],
-        autocomplete: 'connectCodes',
-        tooltip: 'Only keep edgeguards by players with these connect codes.',
-      },
-      {
-        name: 'Edgeguardee Char',
-        id: 'comboeeChar',
-        type: 'multiDropdown',
-        options: sortedCharacters,
-        default: [],
-        tooltip: 'Only keep edgeguards against these characters.',
-      },
-      {
-        name: 'Edgeguardee Tag',
-        id: 'comboeeTag',
-        type: 'textInput',
-        default: [],
-        autocomplete: 'names',
-        tooltip: 'Only keep edgeguards against players with these tags.',
-      },
-      {
-        name: 'Edgeguardee CC',
-        id: 'comboeeCC',
-        type: 'textInput',
-        default: [],
-        autocomplete: 'connectCodes',
-        tooltip:
-          'Only keep edgeguards against players with these connect codes.',
-      },
+      ...edgeguardPlayerOptions(),
       {
         name: 'Stage',
         id: 'stageFilter',
@@ -739,7 +810,7 @@ export const filtersConfig = [
   },
   {
     id: 'highlight',
-    label: 'Highlight Finder',
+    label: 'Highlight Finder (experimental)',
     tooltip:
       'Tournament Highlight Finder — scores every moment (anchored on each KO) on a blend of signals and ranks the interesting ones: win-probability swings & comebacks, last-stock / close-game stakes, sick combos & gimps, and chaos (SDs, trades, disrespect). Each clip is tagged with a highlightScore, its metric breakdown, and flavor tags (comeback / clutch / skill / chaos). Reads each replay fully, so it is thorough — built for smaller piles of tournament sets. Follow it with a Sort → highlight: score.',
     options: [
@@ -855,56 +926,7 @@ export const filtersConfig = [
     tooltip:
       'Finds true phantom hits (glancing blows): a hitbox grazes a hurtbox by <0.01 units, dealing half damage with NO knockback. Detected by the two documented signatures — the DEFENDER freezes but the ATTACKER does not (a normal hit freezes both, so crouch-cancels and teched hits are excluded), and the damage lands AFTER the freeze instead of on contact (which excludes projectiles like lasers). Genuinely rare (~1 per 8–20 games). The flagship case is a phantom Rest — Puff’s Rest grazes for no knockback and is left asleep. Each phantom becomes its own clip, tagged with metrics + a score (Rest phantoms rank highest).',
     options: [
-      {
-        name: 'Attacker Char',
-        id: 'comboerChar',
-        type: 'multiDropdown',
-        options: sortedCharacters,
-        default: [],
-        tooltip: 'Only keep phantoms landed by these characters.',
-      },
-      {
-        name: 'Attacker Tag',
-        id: 'comboerTag',
-        type: 'textInput',
-        default: [],
-        autocomplete: 'names',
-        tooltip: 'Only keep phantoms landed by players with these tags.',
-      },
-      {
-        name: 'Attacker CC',
-        id: 'comboerCC',
-        type: 'textInput',
-        default: [],
-        autocomplete: 'connectCodes',
-        tooltip:
-          'Only keep phantoms landed by players with these connect codes.',
-      },
-      {
-        name: 'Victim Char',
-        id: 'comboeeChar',
-        type: 'multiDropdown',
-        options: sortedCharacters,
-        default: [],
-        tooltip: 'Only keep phantoms suffered by these characters.',
-      },
-      {
-        name: 'Victim Tag',
-        id: 'comboeeTag',
-        type: 'textInput',
-        default: [],
-        autocomplete: 'names',
-        tooltip: 'Only keep phantoms suffered by players with these tags.',
-      },
-      {
-        name: 'Victim CC',
-        id: 'comboeeCC',
-        type: 'textInput',
-        default: [],
-        autocomplete: 'connectCodes',
-        tooltip:
-          'Only keep phantoms suffered by players with these connect codes.',
-      },
+      ...phantomPlayerOptions(),
       {
         name: 'Stage',
         id: 'stageFilter',
@@ -985,56 +1007,7 @@ export const filtersConfig = [
         tooltip:
           'Keep phantoms where the victim was at least this %  — the funniest phantoms are the ones that should have killed.',
       },
-      {
-        name: 'Attacker Char',
-        id: 'comboerChar',
-        type: 'multiDropdown',
-        options: sortedCharacters,
-        default: [],
-        tooltip: 'Only keep phantoms landed by these characters.',
-      },
-      {
-        name: 'Attacker Tag',
-        id: 'comboerTag',
-        type: 'textInput',
-        default: [],
-        autocomplete: 'names',
-        tooltip: 'Only keep phantoms landed by players with these tags.',
-      },
-      {
-        name: 'Attacker CC',
-        id: 'comboerCC',
-        type: 'textInput',
-        default: [],
-        autocomplete: 'connectCodes',
-        tooltip:
-          'Only keep phantoms landed by players with these connect codes.',
-      },
-      {
-        name: 'Victim Char',
-        id: 'comboeeChar',
-        type: 'multiDropdown',
-        options: sortedCharacters,
-        default: [],
-        tooltip: 'Only keep phantoms suffered by these characters.',
-      },
-      {
-        name: 'Victim Tag',
-        id: 'comboeeTag',
-        type: 'textInput',
-        default: [],
-        autocomplete: 'names',
-        tooltip: 'Only keep phantoms suffered by players with these tags.',
-      },
-      {
-        name: 'Victim CC',
-        id: 'comboeeCC',
-        type: 'textInput',
-        default: [],
-        autocomplete: 'connectCodes',
-        tooltip:
-          'Only keep phantoms suffered by players with these connect codes.',
-      },
+      ...phantomPlayerOptions(),
     ],
   },
   /* Pressure filter parked for now — re-enable by uncommenting this entry plus
@@ -1372,55 +1345,7 @@ export const filtersConfig = [
         tooltip:
           'Splits the two flavours: "yes" = classic offstage KO (out a side or spiked); "no" = killed onstage / off the top after a forced landing (a punish read).',
       },
-      {
-        name: 'Edgeguarder Char',
-        id: 'comboerChar',
-        type: 'multiDropdown',
-        options: sortedCharacters,
-        default: [],
-        tooltip: 'Only keep edgeguards performed by these characters.',
-      },
-      {
-        name: 'Edgeguarder Tag',
-        id: 'comboerTag',
-        type: 'textInput',
-        default: [],
-        autocomplete: 'names',
-        tooltip: 'Only keep edgeguards by players with these tags.',
-      },
-      {
-        name: 'Edgeguarder CC',
-        id: 'comboerCC',
-        type: 'textInput',
-        default: [],
-        autocomplete: 'connectCodes',
-        tooltip: 'Only keep edgeguards by players with these connect codes.',
-      },
-      {
-        name: 'Edgeguardee Char',
-        id: 'comboeeChar',
-        type: 'multiDropdown',
-        options: sortedCharacters,
-        default: [],
-        tooltip: 'Only keep edgeguards against these characters.',
-      },
-      {
-        name: 'Edgeguardee Tag',
-        id: 'comboeeTag',
-        type: 'textInput',
-        default: [],
-        autocomplete: 'names',
-        tooltip: 'Only keep edgeguards against players with these tags.',
-      },
-      {
-        name: 'Edgeguardee CC',
-        id: 'comboeeCC',
-        type: 'textInput',
-        default: [],
-        autocomplete: 'connectCodes',
-        tooltip:
-          'Only keep edgeguards against players with these connect codes.',
-      },
+      ...edgeguardPlayerOptions(),
     ],
   },
   {
@@ -1467,13 +1392,7 @@ export const filtersConfig = [
     label: 'KO Direction',
     tooltip: 'Filter KOs by blast zone direction',
     options: [
-      {
-        name: 'Max Files',
-        id: 'maxFiles',
-        type: 'int',
-        default: '',
-        tooltip: 'Stop processing after this many files. Empty = process all.',
-      },
+      maxFilesProcessOption(),
       {
         name: 'Direction',
         id: 'direction',
@@ -1583,6 +1502,20 @@ export const filtersConfig = [
     ],
   },
   {
+    // Describe it, copy a ready-made prompt into your own ChatGPT / Claude,
+    // paste the code back (constants/aiFilterPrompt.ts). Runs like Custom Code.
+    id: 'aiFilter',
+    label: 'AI Filter',
+    tooltip:
+      'Describe what you want, let ChatGPT or Claude write the filter, paste it back',
+    options: [
+      // The AI's reply as pasted, and the code taken out of it.
+      { name: 'Response', id: 'response', type: 'aiResponse', default: '' },
+      { name: 'Code', id: 'code', type: 'code', default: '' },
+      maxFilesProcessOption(),
+    ],
+  },
+  {
     id: 'custom',
     label: 'Custom Code',
     tooltip: 'Run a custom JavaScript function',
@@ -1601,13 +1534,7 @@ return clips.filter(clip => {
   return true
 })`,
       },
-      {
-        name: 'Max Files',
-        id: 'maxFiles',
-        type: 'int',
-        default: '',
-        tooltip: 'Stop processing after this many files. Empty = process all.',
-      },
+      maxFilesProcessOption(),
     ],
   },
 ]
@@ -1632,6 +1559,15 @@ export const videoConfig = [
     category: 'paths',
     tooltip:
       'Where recorded clips are written. Each recording run creates a numbered subfolder here (output, output_1, …). Pick a drive with plenty of free space — high-resolution clips and lossless masters get large fast.',
+  },
+  {
+    label: 'Temporary Recording Folder',
+    default: '',
+    id: 'scratchPath',
+    type: 'openDirectory',
+    category: 'paths',
+    tooltip:
+      "Where Dolphin's temporary recordings go while each clip records (deleted as each clip finishes). They can be large (gigabytes per minute at high resolutions), so pick a fast local drive with plenty of free space, not OneDrive, Dropbox or a network drive. Leave empty to use the system temp folder.",
   },
   {
     label: 'Melee .iso Path',
@@ -1659,6 +1595,24 @@ export const videoConfig = [
     category: 'paths',
     tooltip:
       'Default location for new projects. Leave empty to use ~/Documents/Lunar Clipper.',
+  },
+  {
+    label: 'Replay Library',
+    default: '',
+    id: 'replayLibraryPath',
+    type: 'openDirectory',
+    category: 'paths',
+    tooltip:
+      'Where replays downloaded from the Lunar Database are kept. Each game is downloaded once and shared by every project that uses it. Leave empty to use ~/Documents/Lunar Clipper/Library. Changing it starts a new, empty library; replays already downloaded stay where they are.',
+  },
+  {
+    label: 'Keep Downloaded Replays Compressed',
+    default: true,
+    id: 'keepDownloadsCompressed',
+    type: 'checkbox',
+    category: 'paths',
+    tooltip:
+      'On (recommended): games downloaded from the Lunar Database are kept in the Replay Library as .slpz, about 9x smaller than .slp, and downloads are faster. Clipper reads them directly; watching and recording decode a temporary copy. Off: new downloads are unpacked to .slp. Games already downloaded stay as they are, and your own replay folders are never changed.',
   },
   {
     label: 'FFmpeg Path Override',
@@ -1701,6 +1655,60 @@ export const videoConfig = [
       { label: '7x', value: 10 },
       { label: '8x - Too High Quality', value: 11 },
     ],
+  },
+  {
+    label: 'Recording Format',
+    default: 'auto',
+    id: 'recordingFormat',
+    type: 'dropdown',
+    category: 'recording',
+    tooltip:
+      'How Dolphin captures each clip before the final encode. Fast lossless (UT Video) records about 5x faster than FFV1 above 1x with identical quality, but needs more temporary disk while a clip records: about 3 GB per minute of footage at 2x and ~10 GB per minute at 3x, for each Dolphin recording at once (deleted as each clip finishes). At 1x it uses FFV1. Lossless (FFV1) is the old, slow way with the least temporary disk. Fast draft is lossy MPEG-4 for quick review copies, not finals. On Windows, Slippi Dolphin has no UT Video encoder, so Fast lossless records FFV1 there too (about 0.34x real time at 2x, 0.16x at 3x); Fast draft (MPEG-4 at 150 Mb/s, about 3.7x faster) is the quick option.',
+    options: [
+      { label: 'Fast lossless (recommended)', value: 'auto' },
+      { label: 'Lossless FFV1 (slow, least disk)', value: 'lossless' },
+      { label: 'Fast draft (lossy, for review)', value: 'draft' },
+    ],
+    // Slippi Dolphin on Windows has no UT Video encoder (FFV1 and MPEG-4 only),
+    // so "auto" there is MPEG-4 at 150 Mb/s above 1x (diskSpace.ts dumpPlanFor):
+    // fast and near-lossless, but not lossless, so it isn't called that.
+    platformOverrides: {
+      win32: {
+        tooltip:
+          'How Dolphin captures each clip before the final encode. On Windows, Slippi Dolphin can only capture FFV1 (lossless) or MPEG-4. Fast records MPEG-4 at 150 Mb/s above 1x: very high quality (about 50 dB against lossless, no visible difference) and 3-4x faster than FFV1, using up to about 1.1 GB of temporary disk per minute of footage for each Dolphin recording at once (deleted as each clip finishes). At 1x it records lossless FFV1, which is quick there. Lossless FFV1 keeps every pixel but is slow above 1x (about 0.34x real time at 2x, 0.16x at 3x). Fast draft is the same MPEG-4 above 1x and a lighter MPEG-4 at 1x, for quick review copies.',
+        options: [
+          { label: 'Fast (high quality, recommended)', value: 'auto' },
+          { label: 'Lossless FFV1 (slow, least disk)', value: 'lossless' },
+          { label: 'Fast draft (lossy, for review)', value: 'draft' },
+        ],
+      },
+    },
+  },
+  {
+    label: 'Mute Recordings',
+    default: true,
+    id: 'muteRecordings',
+    type: 'checkbox',
+    category: 'recording',
+    tooltip:
+      'Keep the recording Dolphins silent. The clips still get their audio: it is captured inside Dolphin, not from your speakers.',
+  },
+  {
+    label: 'Hide Recording Windows',
+    default: true,
+    id: 'hideRecordingWindows',
+    type: 'checkbox',
+    category: 'recording',
+    description:
+      'Keeps the Dolphin windows that record your clips off your screen, so you can keep working.',
+    tooltip:
+      'On: the Dolphins that record clips stay off your screen while you keep working (Windows: they run on a hidden desktop; Linux: they are moved to your last workspace). Off: they open as windows the way your own Dolphin is set up. The recorded video is the same either way.',
+    platformOverrides: {
+      darwin: {
+        tooltip:
+          'On: the Dolphins that record clips open as small windows that stay out of the way (not on top, no fullscreen) while you keep working. Off: they open the way your own Dolphin is set up. The recorded video is the same either way.',
+      },
+    },
   },
   {
     label: 'Player Resolution',
@@ -1750,7 +1758,7 @@ export const videoConfig = [
   },
   {
     label: 'Bitrate (kbps)',
-    default: 15000,
+    default: 50000,
     id: 'bitrateKbps',
     type: 'int',
     category: 'encoding',
@@ -1790,7 +1798,7 @@ export const videoConfig = [
     type: 'checkbox',
     category: 'encoding',
     tooltip:
-      'Also keep the lossless FFV1 intermediate (a large .master.avi) alongside each clip — the pristine source straight from Dolphin, for editing/archival. Warning: these are very large (multiple GB per clip at high resolutions).',
+      "Also keep Dolphin's raw recording of each clip next to it, for editing or archiving: <name>.master.avi (video only, starts 1 s early) and <name>.master.wav (its audio). It is the dump Recording Format chose: UT Video (Fast lossless above 1x), FFV1 (Lossless, or Fast lossless at 1x) or MPEG-4 (Fast draft, lossy). Very large: several GB per minute at 2x and above. When disk space is short, recording keeps it lossless and uses fewer Dolphins instead of switching to Fast draft.",
   },
   {
     label: 'Add Start Frames',
@@ -1812,7 +1820,7 @@ export const videoConfig = [
   },
   {
     label: 'Final End Frames',
-    default: 0,
+    default: 1,
     id: 'lastClipOffset',
     type: 'int',
     category: 'recording',
@@ -1820,17 +1828,17 @@ export const videoConfig = [
       'Extra frames to add after the very last clip in a batch. Useful to avoid abrupt cuts at the end.',
   },
   {
-    label: 'Fullscreen',
+    label: 'Fullscreen Preview',
     default: true,
     id: 'fullscreen',
     type: 'checkbox',
     category: 'recording',
     tooltip:
-      'Run Dolphin in fullscreen mode during recording. Recommended for clean output.',
+      'Play clips in Dolphin fullscreen (Dolphin closes when the clip ends). Off: in a window. Recording is not affected (see Hide Recording Windows).',
   },
   {
     label: 'Concatenate Output',
-    default: false,
+    default: true,
     id: 'concatenate',
     type: 'checkbox',
     category: 'recording',
@@ -1857,12 +1865,12 @@ export const videoConfig = [
   // Rendering
   {
     label: 'Widescreen 16:9',
-    default: false,
+    default: true,
     id: 'widescreen',
     type: 'checkbox',
     category: 'rendering',
     tooltip:
-      'Render in 16:9 widescreen instead of the native 4:3 aspect ratio. Also adjusts the Dolphin aspect ratio and ffmpeg scaling.',
+      'Render in 16:9 widescreen instead of the native 4:3 aspect ratio, for recordings and previews. Also adjusts the ffmpeg scaling.',
   },
   {
     label: 'No Screen Shake',
@@ -1993,16 +2001,16 @@ export const videoConfig = [
   // Performance
   {
     label: 'Dolphin Instances',
-    default: 1,
+    default: 2,
     id: 'numCPUs',
     type: 'int',
     category: 'performance',
     tooltip:
-      'Number of Dolphin processes to run in parallel during recording. More = faster but uses more CPU/RAM.',
+      'Number of Dolphin processes to run in parallel during recording. More = faster but uses more CPU/RAM. Clipper picks a number for this computer on first run (Settings › Performance › Pick settings for this computer).',
   },
   {
     label: 'Clips per Batch',
-    default: 1,
+    default: 99999,
     id: 'slice',
     type: 'int',
     category: 'performance',
@@ -2020,18 +2028,10 @@ export const videoConfig = [
   },
   // General
   {
-    label: 'Detect Duplicates on Import',
-    default: false,
-    id: 'detectDuplicatesOnImport',
-    type: 'checkbox',
-    category: 'project',
-    warning: 'Can significantly slow down imports with large file counts',
-    tooltip:
-      'Skip files that are already in the project during import. Compares by file path.',
-  },
-  {
     label: 'Include Default Filters (Parser + Combo Filter)',
-    default: true,
+    // Off since 2026-10-03: new projects start with just the Replays pool and
+    // the welcome's options (combos, edgeguards, …) add the steps.
+    default: false,
     id: 'includeDefaultFilters',
     type: 'checkbox',
     category: 'project',
@@ -2055,6 +2055,15 @@ export const videoConfig = [
     category: 'project',
     tooltip:
       'Show a confirmation dialog before deleting a combo parser that was run on many files.',
+  },
+  {
+    label: 'Warn before deleting replays',
+    default: true,
+    id: 'confirmDeleteReplays',
+    type: 'checkbox',
+    category: 'project',
+    tooltip:
+      'Ask before Delete in the Replays step removes replays from Clipper (this project, your library and My Replays, with every clip made from them). The replay files always stay on your disk.',
   },
   {
     label: 'Warn on Reset (over 1 min)',
@@ -2095,6 +2104,15 @@ export const videoConfig = [
       'Send anonymous usage statistics to help improve Lunar Clipper. No personal data is collected.',
   },
   {
+    label: 'Explain Pre-parsed Moments',
+    default: true,
+    id: 'showMomentsNote',
+    type: 'checkbox',
+    category: 'general',
+    tooltip:
+      'Shows a note at the top of Lunar Database › Pre-parsed moments explaining that Lunar has already parsed every game, so you can filter replays by combos and edgeguards. Turn it off with the X on the note; turn it back on here.',
+  },
+  {
     label: 'Test Mode',
     default: false,
     id: 'testMode',
@@ -2114,17 +2132,18 @@ export const videoConfig = [
   // SLPZ
   {
     label: 'SLPZ Mode',
-    default: 'ask',
+    default: 'keep',
     id: 'slpzMode',
     type: 'dropdown',
     category: 'slpz',
     options: [
+      { label: 'Keep compressed', value: 'keep' },
       { label: 'Ask each time', value: 'ask' },
       { label: 'Extract to directory', value: 'extract' },
       { label: 'Replace in-place', value: 'replace' },
     ],
     tooltip:
-      'How to handle .slpz files during import. "Ask" shows a dialog each time, "Extract" decompresses to a directory, "Replace" decompresses next to the original and deletes the .slpz.',
+      'How to handle .slpz files during import. "Keep compressed" (default) imports them as they are: Clipper reads .slpz directly and nothing is written or deleted. "Ask" shows a dialog each time, "Extract" decompresses to a directory, "Replace" decompresses next to the original and deletes the .slpz. Replays in Clipper\'s own Replay Library are always kept as they are.',
   },
   {
     label: 'SLPZ Output Directory',
@@ -2144,3 +2163,21 @@ export const videoConfig = [
     tooltip: 'Path to the slpz binary. Leave empty to use the bundled version.',
   },
 ]
+
+type SettingOverride = { label?: string; tooltip?: string; options?: unknown[] }
+
+/**
+ * A Settings entry as shown on `platform` (Node's process.platform names):
+ * its `platformOverrides[platform]` laid over it, if any. Everything else
+ * (id, default, type) never varies by platform.
+ */
+export function settingForPlatform<T extends object>(
+  item: T,
+  platform: string | undefined,
+): T {
+  const overrides = (
+    item as { platformOverrides?: Record<string, SettingOverride> }
+  ).platformOverrides
+  const o = platform ? overrides?.[platform] : undefined
+  return o ? { ...item, ...o } : item
+}

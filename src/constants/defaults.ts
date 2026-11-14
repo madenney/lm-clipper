@@ -1,10 +1,9 @@
-import { SavedCustomFilter } from './types'
+import { HardwareProfile, SavedCustomFilter } from './types'
 
 export const config = {
   recentProjects: [] as { name: string; path: string; lastOpened: number }[],
   lastArchivePath: null,
   projectName: '',
-  showGettingStarted: true,
   hideParserNote: false,
   hideRunHint: false,
   hideHud: false,
@@ -55,6 +54,13 @@ export const config = {
   crf: 18,
   videoPreset: 'medium',
   keepLosslessMaster: false,
+  fastDraft: false, // replaced by recordingFormat; still read when that is unset
+  recordingFormat: 'auto' as 'auto' | 'lossless' | 'draft',
+  muteRecordings: true,
+  hideRecordingWindows: true,
+  // Ask before the Replays tray deletes replays from Clipper.
+  confirmDeleteReplays: true,
+  widescreen: true,
   hdTexturesEnabled: false,
   texturePacks: [] as {
     id: string
@@ -80,17 +86,21 @@ export const config = {
   installId: '',
   lastUsagePing: '',
   consentNoticeSeen: false,
-  projectIdeasSeen: false,
   approvedCustomCodeHashes: [] as string[],
   outputFilenamePattern: '{index}',
   defaultProjectDirectory: '',
+  replayLibraryPath: '',
+  // Downloads go into the library as .slpz (lib/slpz.ts; ~9x less disk).
+  keepDownloadsCompressed: true,
+  showMomentsNote: true,
   ffmpegPath: '',
+  scratchPath: '',
+  hardwareProfile: null as HardwareProfile | null,
   customGeckoCodes: [] as { name: string; code: string; enabled: boolean }[],
-  slpzMode: 'ask' as const,
+  slpzMode: 'keep' as 'ask' | 'extract' | 'replace' | 'keep',
   slpzOutputDir: '',
   slpzPath: '',
-  detectDuplicatesOnImport: false,
-  includeDefaultFilters: true,
+  includeDefaultFilters: false,
   savedCustomFilters: [
     // ── Sampling ──
     // (Random Sample is now a built-in native filter — see filtersConfig
@@ -795,6 +805,7 @@ export const archive = {
         char2: '',
         player1: '',
         player2: '',
+        includeCpu: false,
       },
     },
     {

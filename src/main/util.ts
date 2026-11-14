@@ -1,6 +1,5 @@
-import { URL } from 'url'
+import { URL, pathToFileURL } from 'url'
 import path from 'path'
-import os from 'os'
 import fs from 'fs'
 import { app } from 'electron'
 
@@ -11,7 +10,10 @@ export function resolveHtmlPath(htmlFileName: string) {
     url.pathname = htmlFileName
     return url.href
   }
-  return `file://${path.resolve(__dirname, '../renderer/', htmlFileName)}`
+  // pathToFileURL: a '#', '%' or space in the install folder (a user called
+  // "Bob#1") would otherwise cut the URL short and leave the window blank.
+  return pathToFileURL(path.resolve(__dirname, '../renderer/', htmlFileName))
+    .href
 }
 
 export function createOutputDirectory(basePath: string): string {
@@ -26,23 +28,32 @@ export function createOutputDirectory(basePath: string): string {
   return dir
 }
 
+// Helper binaries shipped in resources/ by electron-builder extraResources
+// (package.json build.<os>.extraResources). Linux and Windows ship x64 only;
+// macOS ships one build per arch (arm64 / x64), named after process.arch.
+// .erb/scripts/check-bundled-binaries.js lists the same names: keep in step.
+export function bundledBinaryName(
+  tool: 'ffmpeg' | 'slpz',
+  platform: NodeJS.Platform = process.platform,
+  arch: string = process.arch,
+) {
+  switch (platform) {
+    case 'linux':
+      return `${tool}-linux-x64`
+    case 'win32':
+      return `${tool}-win32-x64.exe`
+    case 'darwin':
+      return `${tool}-darwin-${arch}`
+    default:
+      throw new Error(`Unsupported platform for bundled ${tool}: ${platform}`)
+  }
+}
+
 export function getSlpzPath() {
   if (process.env.NODE_ENV === 'development') {
     return 'slpz'
   }
-
-  const resourcesPath = process.resourcesPath
-  const type = os.type()
-  switch (type) {
-    case 'Linux':
-      return path.resolve(resourcesPath, 'slpz', 'slpz-linux-x64')
-    case 'Windows_NT':
-      return path.resolve(resourcesPath, 'slpz', 'slpz-win32-x64.exe')
-    case 'Darwin':
-      return path.resolve(resourcesPath, 'slpz', 'slpz-darwin-x64')
-    default:
-      throw new Error('no os?')
-  }
+  return path.resolve(process.resourcesPath, 'slpz', bundledBinaryName('slpz'))
 }
 
 export function getAssetPath(...segments: string[]) {
@@ -57,17 +68,9 @@ export function getFFMPEGPath() {
   if (process.env.NODE_ENV === 'development') {
     return 'ffmpeg'
   }
-
-  const resourcesPath = process.resourcesPath
-  const type = os.type()
-  switch (type) {
-    case 'Linux':
-      return path.resolve(resourcesPath, 'ffmpeg', 'ffmpeg-linux-x64')
-    case 'Windows_NT':
-      return path.resolve(resourcesPath, 'ffmpeg', 'ffmpeg-win32-x64.exe')
-    case 'Darwin':
-      return path.resolve(resourcesPath, 'ffmpeg', 'ffmpeg-darwin-x64')
-    default:
-      throw new Error('no os?')
-  }
+  return path.resolve(
+    process.resourcesPath,
+    'ffmpeg',
+    bundledBinaryName('ffmpeg'),
+  )
 }

@@ -35,10 +35,22 @@ export function parseSemicolonParam(
   param: string | string[] | undefined | null,
 ): string[] {
   if (!param) return []
-  if (Array.isArray(param)) {
-    return param.length > 0 ? param.map((t: string) => t.toLowerCase()) : []
-  }
-  return param.toLowerCase().split(';')
+  // "mang0; zain" and a trailing ";" must work: trimmed, and no empty entries
+  // (an empty entry would match a player whose name is empty).
+  const parts = Array.isArray(param)
+    ? param.map((t: string) => String(t))
+    : param.split(';')
+  return parts.map((t) => t.trim().toLowerCase()).filter((t) => t.length > 0)
+}
+
+/** The largest of these numbers (0 when there are none). A loop, not
+ *  Math.max(...list): spreading a long game's 200k frame numbers overflows the
+ *  call stack. */
+export function maxOf(numbers: Iterable<number>): number {
+  let max = 0
+  // eslint-disable-next-line no-restricted-syntax
+  for (const n of numbers) if (n > max) max = n
+  return max
 }
 
 /**

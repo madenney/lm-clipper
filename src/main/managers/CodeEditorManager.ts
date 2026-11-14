@@ -1,4 +1,5 @@
-import { app, ipcMain, BrowserWindow, IpcMainEvent } from 'electron'
+import { app, dialog, ipcMain, BrowserWindow, IpcMainEvent } from 'electron'
+import { Worker } from 'worker_threads'
 import path from 'path'
 import {
   ArchiveInterface,
@@ -13,12 +14,20 @@ import {
 } from '../ipcUtils'
 import { resolveHtmlPath } from '../util'
 import { track } from '../telemetry'
+import {
+  MAX_TEST_CODE_CHARS,
+  approveOnce,
+  approvedHashes,
+  clampSampleSize,
+  hashCustomCode,
+  rememberApproval,
+} from '../customCodeApproval'
+import { getWorkerExecArgv } from '../../lib'
 
 export default class CodeEditorManager {
   private mainWindow: BrowserWindow
   private getArchive: () => ArchiveInterface | null
   private getConfig: () => ConfigInterface
-  private getConfigPath: () => string
   private saveConfig: () => void
 
   codeEditorWindow: BrowserWindow | null = null
@@ -30,15 +39,63 @@ export default class CodeEditorManager {
     deps: {
       getArchive: () => ArchiveInterface | null
       getConfig: () => ConfigInterface
-      getConfigPath: () => string
       saveConfig: () => void
     },
   ) {
     this.mainWindow = mainWindow
     this.getArchive = deps.getArchive
     this.getConfig = deps.getConfig
-    this.getConfigPath = deps.getConfigPath
     this.saveConfig = deps.saveConfig
+  }
+
+  /** Run `code` on `items` in a worker thread (the real custom-filter code path),
+   *  stopped after 30 s: a runaway loop never freezes the app. */
+  private runCodeInWorker(
+    code: string,
+    items: any[],
+    customParams?: any[],
+  ): Promise<{ logs: string[]; outputClips: any[]; outputCount: number }> {
+    const TIMEOUT_MS = 30_000
+    return new Promise((resolve, reject) => {
+      const execArgv = getWorkerExecArgv()
+      const worker = new Worker(
+        new URL('../CodeTestWorker.ts', import.meta.url),
+        {
+          workerData: {
+            code,
+            items,
+            customParams,
+            timeoutMs: TIMEOUT_MS - 2000,
+          },
+          ...(execArgv ? { execArgv } : {}),
+        },
+      )
+      const timer = setTimeout(() => {
+        worker.terminate()
+        reject(
+          new Error('The code took longer than 30 seconds and was stopped.'),
+        )
+      }, TIMEOUT_MS)
+      worker.once('message', (m: any) => {
+        clearTimeout(timer)
+        worker.terminate()
+        if (m?.type === 'done') resolve(m)
+        else {
+          const error: any = new Error(m?.message || 'The code failed.')
+          error.logs = m?.logs
+          reject(error)
+        }
+      })
+      worker.once('error', (error) => {
+        clearTimeout(timer)
+        reject(error)
+      })
+      worker.once('exit', (exitCode) => {
+        clearTimeout(timer)
+        if (exitCode !== 0)
+          reject(new Error(`The test stopped unexpectedly (exit ${exitCode}).`))
+      })
+    })
   }
 
   cleanup() {
@@ -326,109 +383,83 @@ export default class CodeEditorManager {
       _e: IpcMainEvent,
       testData: { code: string; customParams?: any[]; sampleSize?: number },
     ) => {
+      const send = (payload: unknown) =>
+        editorWindow?.webContents.send('code-editor-test-result', payload)
       const archive = this.getArchive()
       if (!archive || !this.codeEditorContext) {
-        editorWindow?.webContents.send('code-editor-test-result', {
-          error: 'No archive or filter context',
-        })
+        send({ error: 'No archive or filter context' })
+        return
+      }
+      if (
+        typeof testData?.code !== 'string' ||
+        testData.code.length > MAX_TEST_CODE_CHARS
+      ) {
+        send({ error: 'There is no code to test, or it is too long.' })
         return
       }
       const { filterIndex } = this.codeEditorContext
       try {
+        // Custom code runs with full access to the computer: the same consent as
+        // a real run, asked here because the code was just typed or opened from a
+        // shared project (launch review SEC-2).
+        const hash = hashCustomCode(testData.code)
+        if (
+          testData.code.trim() &&
+          !approvedHashes(this.getConfig()).has(hash)
+        ) {
+          const { response } = await dialog.showMessageBox(
+            editorWindow && !editorWindow.isDestroyed()
+              ? editorWindow
+              : this.mainWindow,
+            {
+              type: 'warning',
+              title: 'Run custom code?',
+              message: 'Run this code to test it?',
+              detail:
+                'Custom code runs with full access to your computer: your files, network, everything. Only run code you wrote yourself or got from someone you trust; code an AI wrote for you counts too, so read it first.',
+              buttons: ['Cancel', 'Run once', 'Always trust'],
+              defaultId: 0,
+              cancelId: 0,
+              noLink: true,
+            },
+          )
+          if (response === 0) {
+            send({ error: 'The test was cancelled: the code was not run.' })
+            return
+          }
+          if (response === 2) {
+            rememberApproval(this.getConfig(), hash)
+            this.saveConfig()
+          } else approveOnce([hash])
+        }
         const prevFilterId =
           filterIndex > 0 ? archive.filters[filterIndex - 1].id : 'files'
-        const sampleSize =
-          testData.sampleSize && testData.sampleSize > 0
-            ? testData.sampleSize
-            : 5
         const items = await archive.getItems!({
           filterId: prevFilterId,
-          limit: sampleSize,
+          limit: clampSampleSize(testData.sampleSize),
           offset: 0,
         })
         if (!items || items.length === 0) {
-          editorWindow?.webContents.send('code-editor-test-result', {
-            error: 'No clips available from previous filter',
-          })
+          send({ error: 'No clips available from previous filter' })
           return
         }
-
-        const params: any = { code: testData.code }
-        const reserved = new Set(['code', 'maxFiles', 'customParams'])
-        if (Array.isArray(testData.customParams)) {
-          params.customParams = testData.customParams
-          for (const cp of testData.customParams) {
-            if (!cp.name || reserved.has(cp.name)) continue
-            if (cp.type === 'int') {
-              const n = parseInt(cp.value, 10)
-              params[cp.name] = Number.isNaN(n) ? 0 : n
-            } else if (cp.type === 'array') {
-              params[cp.name] = (cp.value ?? '')
-                .split(',')
-                .map((s: string) => s.trim())
-                .filter(Boolean)
-            } else {
-              params[cp.name] = cp.value ?? ''
-            }
-          }
-        }
-
-        const logs: string[] = []
-        const fakeConsole = {
-          log: (...args: any[]) => {
-            logs.push(
-              args
-                .map((a) =>
-                  typeof a === 'object'
-                    ? JSON.stringify(a, null, 2)
-                    : String(a),
-                )
-                .join(' '),
-            )
-          },
-          warn: (...args: any[]) => {
-            logs.push(
-              `[warn] ${args.map((a) => (typeof a === 'object' ? JSON.stringify(a) : String(a))).join(' ')}`,
-            )
-          },
-          error: (...args: any[]) => {
-            logs.push(
-              `[error] ${args.map((a) => (typeof a === 'object' ? JSON.stringify(a) : String(a))).join(' ')}`,
-            )
-          },
-        }
-
-        // eslint-disable-next-line global-require
-        // eslint-disable-next-line global-require
-        const { SlippiGame } = require('@slippi/slippi-js')
-        // eslint-disable-next-line global-require
-        const vm = require('vm')
-        const sandbox = {
-          clips: items,
-          params,
-          SlippiGame,
-          console: fakeConsole,
-        }
-        vm.createContext(sandbox)
-        const result = vm.runInNewContext(
-          `(function(clips, params, SlippiGame, console) { ${testData.code} })(clips, params, SlippiGame, console)`,
-          sandbox,
-          { timeout: 30000 },
+        const customParams = Array.isArray(testData.customParams)
+          ? testData.customParams
+          : undefined
+        const result = await this.runCodeInWorker(
+          testData.code,
+          items,
+          customParams,
         )
-
-        const outputClips = Array.isArray(result) ? result : []
-
-        editorWindow?.webContents.send('code-editor-test-result', {
-          logs,
+        send({
+          logs: result.logs,
           inputClips: items,
-          outputClips: outputClips.slice(0, 20),
+          outputClips: result.outputClips,
           inputCount: items.length,
-          outputCount: outputClips.length,
+          outputCount: result.outputCount,
         })
       } catch (err: any) {
-        editorWindow?.webContents.send('code-editor-test-result', {
-          error: err?.message || String(err),
-        })
+        send({ error: err?.message || String(err) })
       }
     }
     ipcMain.on('code-editor-test-run', onTestRun)

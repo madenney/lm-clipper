@@ -12,6 +12,8 @@ export type FilesFilterParams = {
   player2?: string[] | string
   player1CC?: string[] | string
   player2CC?: string[] | string
+  /** Keep games with a CPU (computer) player. Off by default: they're left out. */
+  includeCpu?: boolean
   maxFiles?: string
 }
 
@@ -356,19 +358,47 @@ export interface OverlaySourceRule {
   suffix: string
 }
 
+/** Recording settings picked for a computer (main/hardware.ts). */
+export interface RecordingDefaults {
+  numCPUs: number
+  resolution: number
+  videoPreset: string
+  videoQualityMode: 'crf'
+  crf: number
+  playbackResolution: number
+}
+
+/** What Clipper detected about this computer (config.hardwareProfile; not shown). */
+export interface HardwareProfile {
+  threads: number
+  ramGB: number
+  gpu: string
+  /** Only integrated graphics (Intel / AMD APU) found. */
+  integrated: boolean
+  /** Free space at the output folder when last checked, GB. */
+  freeDiskGB: number | null
+  /** Free space where Dolphin's temporary recordings go, GB. */
+  scratchFreeDiskGB?: number | null
+  detectedAt: string
+  /** The settings pickRecordingDefaults chose for it. */
+  picked: RecordingDefaults
+}
+
 export interface ConfigInterface {
   recentProjects: RecentProject[]
   outputPath: string
   lastArchivePath: string | null
-  // Show the "Getting started" column on the Start screen (and lets the
-  // Help → Welcome content be dismissed). Default-on (treated as true when
-  // undefined); toggled off via the Start screen's checkbox.
-  showGettingStarted?: boolean
   // "Don't show again" for the long-parser reassurance note.
   hideParserNote?: boolean
   // Once true, the one-time "click Run to find your combos" first-run nudge is
   // never shown again (flipped the first time the user runs or dismisses it).
-  hideRunHint?: boolean
+  hideRunHint?: boolean // first-run Combo Filter auto-run already happened
+  // "Don't show this again" on the welcome modal, which otherwise opens the
+  // first time a project is open in each session.
+  hideWelcome?: boolean
+  // The app version whose "What's new" the user has seen (shown once per update;
+  // a fresh install starts at its own version, so a new user never sees old notes).
+  lastSeenVersion?: string
   hideHud: boolean
   gameMusic: boolean
   enableChants: boolean
@@ -392,6 +422,20 @@ export interface ConfigInterface {
   crf?: number // 0 (lossless) – 51 (worst); ~18 is visually transparent
   videoPreset?: string // x264/x265 preset: ultrafast … veryslow
   keepLosslessMaster?: boolean // keep the FFV1 intermediate .avi next to the output
+  // Fast draft: Dolphin dumps lossy mpeg4 with emulation unthrottled instead of
+  // lossless FFV1 (3-4x faster, slightly softer). For review copies; off by default.
+  fastDraft?: boolean
+  // How Dolphin captures: auto = UT Video above 1x (FFV1 at 1x), lossless = FFV1,
+  // draft = lossy mpeg4. Replaces fastDraft (read when this is unset).
+  recordingFormat?: 'auto' | 'lossless' | 'draft'
+  muteRecordings?: boolean // recording Dolphins silent (the dump keeps its audio)
+  // Recording Dolphins off screen (runner `hide`: Windows hidden desktop, Linux
+  // last workspace; macOS: small background windows only). Default on. Replaces
+  // showRecordingDolphin (true there = false here), migrated on load.
+  hideRecordingWindows?: boolean
+  // Warn before the Replays tray deletes replays (from the project, the replay
+  // library and My Replays; files stay on disk). Default on.
+  confirmDeleteReplays?: boolean
   // Custom/HD textures. The bundled "Definitive Melee HD" pack is toggled by
   // hdTexturesEnabled; user-imported packs live in texturePacks. Enabled packs
   // are symlinked into the recording/playback Dolphin profile's Load/Textures.
@@ -413,20 +457,32 @@ export interface ConfigInterface {
   sendAnonymousUsage: boolean
   // Anonymous-telemetry bookkeeping (internal — not user-facing settings).
   installId?: string // random UUID, generated once on first run
-  lastUsagePing?: string // YYYY-MM-DD of the last app_open ping (daily dedupe)
+  lastUsagePing?: string // YYYY-MM-DD (UTC) of the last app_open the server acknowledged (daily dedupe)
+  lastUsagePingVersion?: string // app version of that app_open: a new version sends one more
+  installPingPending?: boolean // the one-time `install` ping has not been acknowledged yet
   consentNoticeSeen?: boolean // first-run usage-stats disclosure dismissed
-  projectIdeasSeen?: boolean // first-project "what to make" welcome dismissed
   // SHA-256 hashes of custom-filter code the user has approved to run (the
   // custom-code consent gate). Running unapproved custom code prompts first.
   approvedCustomCodeHashes?: string[]
   outputFilenamePattern: string
   defaultProjectDirectory: string
+  // Replay Library folder for Lunar Database downloads ('' = ~/Documents/Lunar Clipper/Library).
+  replayLibraryPath: string
+  // Store Lunar Database downloads as .slpz in the library (default on).
+  keepDownloadsCompressed?: boolean
+  // Lunar Database › Find moments: the note that explains pre-parsed moments (default on; its X turns it off).
+  showMomentsNote?: boolean
+  // The one-time "tidy up old Untitled projects" offer has been shown.
+  untitledCleanupOffered?: boolean
   ffmpegPath: string
+  // Where Dolphin's temporary recordings go ('' = the system temp folder).
+  scratchPath?: string
+  // Detected on first run / Reset / "Pick settings for this computer".
+  hardwareProfile?: HardwareProfile | null
   customGeckoCodes: CustomGeckoCode[]
-  slpzMode: 'ask' | 'extract' | 'replace'
+  slpzMode: 'ask' | 'extract' | 'replace' | 'keep'
   slpzOutputDir: string
   slpzPath: string
-  detectDuplicatesOnImport: boolean
   includeDefaultFilters: boolean
   savedCustomFilters: SavedCustomFilter[]
   testMode?: boolean
@@ -434,6 +490,9 @@ export interface ConfigInterface {
   // iterating on it. Honored only when testMode is on or in a development build;
   // ignored (and hidden) for normal users. '' / undefined = normal app flow.
   devForceScreen?: string
+  // Development builds only: projects the dev bar can open in one click, from
+  // this machine's own settings file (never shipped, never in a build).
+  devProjects?: { label: string; path: string }[]
   // Advanced: lets a filter read from any earlier filter (or raw Files) instead
   // of just the one above it, turning the chain into a tree. Default off; when
   // off, saved branch links are preserved but ignored (chain runs linearly).
@@ -464,6 +523,10 @@ export interface PlayerInterface {
   nametag: string
   displayName: string
   connectCode: string
+  /** A CPU (computer) player: Slippi player type 1. Missing on games imported
+   *  before Clipper recorded it (cpuScan fills it in); null when the replay
+   *  couldn't be read. Unknown counts as a human player. */
+  cpu?: boolean | null
 }
 
 export interface FileInterface {
@@ -511,6 +574,9 @@ export interface ClipInterface {
     }[]
   }
   recordingParams?: { [key: string]: any }
+  // Set on clips added from the Lunar Database (Find clips): the clips index
+  // row it came from (constants/clipSearch.ts).
+  lunarClip?: { id: string; replayId: string; type: string }
   // Edgeguard 2: heuristic interestingness score + metrics for the offstage
   // sequence (attached so a downstream Sort can rank by it).
   edgeguardScore?: number
@@ -534,33 +600,7 @@ export interface ClipInterface {
   // Tournament Highlight Finder: composite "reaction" score, its breakdown, and
   // the flavor tags (comeback / clutch / skill / chaos) that fired.
   highlightScore?: number
-  highlightMetrics?: {
-    score: number
-    flavors: string[]
-    winProbSwing: number
-    comebackMagnitude: number
-    killerWinProbAfter: number
-    lastStock: boolean
-    killerStocks: number
-    victimStocksAfter: number
-    comboDamage: number
-    comboMoves: number
-    isZeroToDeath: boolean
-    isGimp: boolean
-    isSD: boolean
-    isTrade: boolean
-    disrespect: boolean
-    damageRate: number
-    victimPercentAtDeath: number
-    isSurvival: boolean
-    perilPercent: number
-    distinctMoves: number
-    spikeKill: boolean
-    killMove: string
-    bothLastStock: boolean
-    tensionSecs: number
-    reason: string
-  }
+  highlightMetrics?: HighlightMetrics
   // Phantom hits: damage dealt with ~0 knockback (the victim isn't launched).
   // Score + metrics attached so a downstream Sort can rank by it.
   phantomMetrics?: {
@@ -619,6 +659,9 @@ export interface FilterInterface {
   // Wall-clock ms the last successful run took. Drives the long-run reset
   // warning so we don't silently nuke an expensive (e.g. 15-hour) run.
   lastRunMs?: number
+  // A locked step's results are fixed: it never runs and is never reset by a
+  // run upstream (lib/filterGraph.ts); the UI shows no Run button.
+  locked?: boolean
   run3?(
     dbPath: string,
     prevTable: string,
@@ -641,9 +684,10 @@ export interface ShallowFilterInterface {
   results: number | null
   resumable?: boolean
   resumeProgress?: { processed: number; totalInput: number }
-  // See FilterInterface for these two.
+  // See FilterInterface for these.
   inputId?: string
   lastRunMs?: number
+  locked?: boolean
 }
 
 export interface CustomParamDef {
@@ -729,15 +773,25 @@ export interface ArchiveInterface {
       maxWorkers?: number
       slpzConfig?: {
         slpzBinaryPath: string
-        slpzMode: 'extract' | 'replace'
+        slpzMode: 'extract' | 'replace' | 'keep'
         slpzOutputDir: string
+        keepInside?: string
+      }
+      /** models/Archive.ts ImportLibrary (kept loose: types.ts is shared with the renderer). */
+      library?: {
+        headers: (_files: any[]) => Promise<Record<string, any>>
+        record: (_files: any[]) => Promise<unknown>
       }
     },
   ): Promise<{
     terminated: boolean
     failed: number
+    /** Failed (broken) files per reason (lib/importSkips.ts FailCounts). */
+    failedReasons?: Partial<Record<string, number>>
     inserted: number
     skipped?: number
+    /** Skipped files per reason (lib/importSkips.ts SkipCounts). */
+    skippedReasons?: Partial<Record<string, number>>
     duplicates?: number
   }>
   getItems?(params: {
@@ -747,6 +801,7 @@ export interface ArchiveInterface {
     offset?: number
     limit?: number
     lite?: boolean
+    lane?: string
   }): Promise<(ClipInterface | FileInterface | LiteItem)[]>
   getAllItems?(
     filterId: string,
@@ -755,6 +810,11 @@ export interface ArchiveInterface {
     filterId: string,
     ids: number[],
   ): Promise<(ClipInterface | FileInterface | LiteItem)[]>
+  getSelectionIds?(
+    filterId: string,
+    selection: import('../lib/selection').SelectionWire,
+    limit?: number,
+  ): Promise<number[]>
   addFilter?(newFilterJSON: FilterInterface): Promise<void>
   replaceDownstreamFilters?(downstream: FilterInterface[]): Promise<void>
   deleteFilter?(filterId: string): Promise<void>
@@ -792,16 +852,27 @@ export type ConsoleWorkerStatus = {
 }
 
 export type ConsoleLogEntry = {
+  /** Counts up for the whole session (stable React key, and tells how many were dropped). */
+  id: number
   ts: number
   level: 'info' | 'warn' | 'error'
   message: string
 }
 
-export type ConsoleSnapshot = {
-  operation: 'idle' | 'import' | 'filter' | 'recording'
-  operationLabel: string
+export type ConsoleOperationKind = 'import' | 'filter' | 'recording'
+
+/** One thing running right now. Several can run at once (a recording while a filter runs). */
+export type ConsoleOperation = {
+  id: number
+  kind: ConsoleOperationKind
+  label: string
+  startedAt: number
   workers: ConsoleWorkerStatus[]
   aggregate: { current: number; total: number }
+}
+
+export type ConsoleSnapshot = {
+  operations: ConsoleOperation[]
 }
 
 export type WorkerMessage =
@@ -836,4 +907,33 @@ interface WorkerMessageError {
 interface WorkerMessageLogs {
   type: 'logs'
   logs: string[]
+}
+
+// Tournament Highlight Finder score breakdown.
+export type HighlightMetrics = {
+  score: number
+  flavors: string[]
+  winProbSwing: number
+  comebackMagnitude: number
+  killerWinProbAfter: number
+  lastStock: boolean
+  killerStocks: number
+  victimStocksAfter: number
+  comboDamage: number
+  comboMoves: number
+  isZeroToDeath: boolean
+  isGimp: boolean
+  isSD: boolean
+  isTrade: boolean
+  disrespect: boolean
+  damageRate: number
+  victimPercentAtDeath: number
+  isSurvival: boolean
+  perilPercent: number
+  distinctMoves: number
+  spikeKill: boolean
+  killMove: string
+  bothLastStock: boolean
+  tensionSecs: number
+  reason: string
 }

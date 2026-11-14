@@ -10,6 +10,8 @@ type PerfEvent = {
 }
 
 let perfLogFilePath: string | null = null
+/** How many launches' perf logs are kept. */
+const KEEP_PERF_LOGS = 10
 
 const getLogDir = () => {
   const baseDir = app.isPackaged ? app.getPath('userData') : process.cwd()
@@ -21,6 +23,20 @@ const ensureLogFile = () => {
   const logDir = getLogDir()
   if (!fs.existsSync(logDir)) {
     fs.mkdirSync(logDir, { recursive: true })
+  }
+  // One file per launch: keep the last few only.
+  try {
+    const old = fs
+      .readdirSync(logDir)
+      .filter((n) => /^perf-.*\.jsonl$/.test(n))
+      .sort()
+    for (const name of old.slice(
+      0,
+      Math.max(0, old.length - (KEEP_PERF_LOGS - 1)),
+    ))
+      fs.rmSync(path.join(logDir, name), { force: true })
+  } catch {
+    /* pruning is best effort */
   }
   const stamp = new Date().toISOString().replace(/[:.]/g, '-')
   perfLogFilePath = path.join(logDir, `perf-${stamp}.jsonl`)

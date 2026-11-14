@@ -3,8 +3,13 @@
 
 .top {
     border-bottom: solid 2px white;
-    height: 100px;
-    display: flex;
+    height: 64px;
+    box-sizing: border-box;
+    /* Play / Record / Stitch sit in the middle of the bar (the most used controls);
+       the buttons are on the right. Modals inside .top are position: fixed, so they
+       take no column. */
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
     align-items: center;
     padding: 0 20px;
     position: relative;
@@ -13,9 +18,12 @@
 }
 
 .top-controls {
+    grid-column: 2;
     display: flex;
     align-items: center;
+    justify-content: center;
     gap: 16px;
+    min-width: 0;
 }
 
 .top-control {
@@ -151,7 +159,8 @@
 }
 
 .top-actions {
-    margin-left: auto;
+    grid-column: 3;
+    justify-self: end;
     display: flex;
     align-items: center;
     gap: 12px;
@@ -171,6 +180,11 @@
 
 .import-msg-text {
     line-height: 1;
+    /* "Extracting <long zip name>.zip" stays on one line. */
+    max-width: 280px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .import-count {
@@ -204,20 +218,6 @@
     to {
         transform: rotate(360deg);
     }
-}
-
-.import-cancel {
-    border: solid 1px #686868;
-    border-radius: 6px;
-    background-color: #2b2b2b;
-    color: #f0dede;
-    font-size: 12px;
-    padding: 6px 10px;
-    cursor: pointer;
-}
-
-.import-cancel:hover {
-    background-color: #3a2a2a;
 }
 
 .import-stop {
@@ -389,6 +389,15 @@
 }
 
 .settings-sidebar-item {
+    /* A real button (keyboard reachable), drawn like the old row. */
+    display: block;
+    width: 100%;
+    text-align: left;
+    background: none;
+    border-top: 0;
+    border-right: 0;
+    border-bottom: 0;
+    font-family: inherit;
     padding: 10px 22px;
     font-size: 14px;
     color: #888;
@@ -1290,3 +1299,5 @@
     font-size: 12px;
     color: #555;
 }
+
+/* Getting started (welcome modal), next to the gear. */
