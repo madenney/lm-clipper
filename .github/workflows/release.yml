@@ -165,6 +165,7 @@ jobs:
             mac)   ffmpeg=release/app/ffmpeg/ffmpeg-darwin-${{ matrix.arch }}; slpz=release/app/slpz/slpz-darwin-${{ matrix.arch }} ;;
           esac
           # (no pipe into head: under pipefail the static ffmpeg dies of SIGPIPE and fails the step)
+          set -x
           ffversion=$("$ffmpeg" -hide_banner -version)
           printf '%s\n' "${ffversion%%$'\n'*}"
           decoders=$("$ffmpeg" -hide_banner -decoders)
@@ -185,7 +186,7 @@ jobs:
           fi
           if [ "${{ matrix.platform }}" = "linux" ]; then
             # The oldest glibc this build still runs on: Ubuntu 22.04 / Debian 12 and newer.
-            need=$(objdump -T "$slpz" "$ffmpeg" 2>/dev/null | grep -o 'GLIBC_[0-9.]*' | sed 's/GLIBC_//' | sort -V | tail -n 1)
+            need=$(objdump -T "$slpz" "$ffmpeg" 2>/dev/null | grep -o 'GLIBC_[0-9.]*' | sed 's/GLIBC_//' | sort -V | tail -n 1 || true)
             echo "glibc needed by the helpers: ${need:-none}"
             if [ -n "$need" ] && [ "$(printf '%s\n' "$need" 2.35 | sort -V | tail -n 1)" != "2.35" ]; then
               echo "::error::a helper binary needs glibc $need (this release supports 2.35 and newer)"
