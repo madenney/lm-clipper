@@ -21,6 +21,7 @@ import {
   FileInterface,
   ConfigInterface,
   ReplayInterface,
+  VideoFolder,
 } from '../../constants/types'
 import Archive from '../../models/Archive'
 import slpToVideo, {
@@ -56,6 +57,13 @@ import { errorMessage, shownError } from '../errorText'
 import type ConsoleManager from './ConsoleManager'
 import { playableSlp } from '../slpCache'
 import { holdAwake } from '../powerSave'
+import {
+  freeVideoPath,
+  planVideoJob,
+  resolveVideoFiles,
+  scanVideoFolders,
+  videoExtOf,
+} from '../videoTools'
 
 type ClipPayload = {
   path?: string
@@ -747,188 +755,135 @@ export default class VideoManager {
     )
   }
 
-  // Report which sub-output folders under the configured output root hold
-  // enough finished clips to stitch (>= 2). Drives the footer's Stitch button:
-  // it only appears when there's actually something to merge. A completed clip
-  // can leave both a .avi and a .mp4, so we count one extension (prefer mp4) to
-  // avoid double-counting, and ignore intermediates + any existing `final`.
-  async checkStitchable(event: IpcMainEvent, data?: RequestEnvelope<null>) {
+  // --- Video Tools (the top bar's film button) --------------------------------
+  // Listing, naming and ffmpeg arguments are in ../videoTools.ts; the ffmpeg run
+  // is slpToVideo.concatClips.
+
+  // Every folder under the output root that holds a video, for the window's list.
+  async videoToolsList(event: IpcMainEvent, data?: RequestEnvelope<null>) {
     const { requestId } = unpackRequest<null>(data)
-    const root = this.getConfig().outputPath
-    const folders: {
-      path: string
-      name: string
-      ext: string
-      clips: string[]
-      sizes: Record<string, number>
-    }[] = []
+    let folders: VideoFolder[] = []
     try {
-      const entries = await fsPromises.readdir(root, { withFileTypes: true })
-      for (const entry of entries) {
-        if (!entry.isDirectory()) continue
-        const dir = path.resolve(root, entry.name)
-        try {
-          // eslint-disable-next-line no-await-in-loop
-          const files = await fsPromises.readdir(dir)
-          const isClip = (f: string, ext: string) =>
-            f.endsWith(ext) &&
-            !f.includes('-unmerged') &&
-            !f.includes('-merged') &&
-            !f.startsWith('final')
-          const mp4 = files.filter((f) => isClip(f, '.mp4'))
-          const avi = files.filter((f) => isClip(f, '.avi'))
-          // A finished clip can leave both an .avi and an .mp4; prefer the mp4
-          // set so a clip isn't listed twice.
-          const useMp4 = mp4.length > 0
-          const clips = (useMp4 ? mp4 : avi).slice().sort()
-          if (clips.length >= 2) {
-            // Size each clip so the modal can show an output-size estimate and
-            // spot on-disk changes. Best-effort — a failed stat just reads 0.
-            const sizes: Record<string, number> = {}
-            await Promise.all(
-              clips.map(async (c) => {
-                try {
-                  const st = await fsPromises.stat(path.resolve(dir, c))
-                  sizes[c] = st.size
-                } catch {
-                  sizes[c] = 0
-                }
-              }),
-            )
-            folders.push({
-              path: dir,
-              name: entry.name,
-              ext: useMp4 ? '.mp4' : '.avi',
-              clips,
-              sizes,
-            })
-          }
-        } catch {
-          // Unreadable subfolder — skip it.
-        }
-      }
+      folders = await scanVideoFolders(this.getConfig().outputPath)
     } catch {
-      // Output root missing/unreadable — nothing to stitch.
+      folders = []
     }
-    return reply(event, 'checkStitchable', requestId, { folders })
+    return reply(event, 'videoToolsList', requestId, { folders })
   }
 
-  // Stitch a user-chosen, ordered selection of clips into one video. The
-  // selection may span sub-folders. Every clip is basename-sanitized, resolved
-  // under its folder, and rejected unless it lives inside the configured output
-  // root — so a renderer can't point this at arbitrary paths. When the whole
-  // selection is one folder the result is `final<ext>` in it; a cross-folder
-  // selection writes `stitched<ext>` in the output root. Either is versioned
-  // (`_2…`) rather than overwriting an existing file.
-  // Resolve a renderer-supplied clip selection to absolute paths, dropping any
-  // that escape the configured output root (a renderer can't point ffmpeg at
-  // arbitrary files). Shared by stitchClips and probeStitchDuration.
-  private resolveStitchFiles(clips: { folder: string; name: string }[]): {
-    files: string[]
-    usedFolders: Set<string>
-  } {
-    const root = path.resolve(this.getConfig().outputPath)
-    const rootPrefix = root + path.sep
-    const files: string[] = []
-    const usedFolders = new Set<string>()
-    for (const c of clips) {
-      const folder = path.resolve(c.folder)
-      const abs = path.resolve(folder, path.basename(c.name))
-      if (abs !== root && !abs.startsWith(rootPrefix)) continue // outside root
-      files.push(abs)
-      usedFolders.add(folder)
-    }
-    return { files, usedFolders }
-  }
-
-  // Header info for the current selection, for the modal's live size/duration
-  // estimate. A fast ffmpeg header-read — no encoding. `seconds` is usually 0
-  // (the concat demuxer reports Duration: N/A); `bitrateKbps` lets the renderer
-  // derive duration from the total byte size.
-  async probeStitchDuration(
+  // Running time of the current selection, for the window's size estimate.
+  // Header reads only, no encoding.
+  async videoToolsProbe(
     event: IpcMainEvent,
-    data?: RequestEnvelope<{ clips: { folder: string; name: string }[] }>,
+    data?: RequestEnvelope<{ items: { folder: string; name: string }[] }>,
   ) {
     const { requestId, payload } = unpackRequest<{
-      clips: { folder: string; name: string }[]
+      items: { folder: string; name: string }[]
     }>(data)
-    const { files } = this.resolveStitchFiles(payload?.clips ?? [])
+    const { files } = resolveVideoFiles(
+      this.getConfig().outputPath,
+      payload?.items ?? [],
+    )
     let info = { seconds: 0, bitrateKbps: 0 }
     try {
       info = await probeFilesInfo(files)
     } catch {
       info = { seconds: 0, bitrateKbps: 0 }
     }
-    return reply(event, 'probeStitchDuration', requestId, info)
+    return reply(event, 'videoToolsProbe', requestId, info)
   }
 
-  async stitchClips(
+  // The one Video Tools job at a time; aborting it kills its ffmpeg.
+  private videoToolsJob: AbortController | null = null
+
+  // Combine the chosen videos, in the given order, and/or compress them. Only
+  // video files inside the output root are accepted (resolveVideoFiles), and the
+  // result never overwrites a file (planVideoJob, freeVideoPath).
+  async videoToolsRun(
     event: IpcMainEvent,
     data?: RequestEnvelope<{
-      clips: { folder: string; name: string }[]
-      ext: string
+      items: { folder: string; name: string }[]
       compress?: boolean
       videoKbps?: number
     }>,
   ) {
     const { requestId, payload } = unpackRequest<{
-      clips: { folder: string; name: string }[]
-      ext: string
+      items: { folder: string; name: string }[]
       compress?: boolean
       videoKbps?: number
     }>(data)
-    const clips = payload?.clips ?? []
-    if (clips.length < 2) {
-      return reply(event, 'stitchClips', requestId, {
-        ok: false,
-        error: 'Select at least 2 clips.',
-      })
-    }
-    const root = path.resolve(this.getConfig().outputPath)
-    const { files, usedFolders } = this.resolveStitchFiles(clips)
-    if (files.length < 2) {
-      return reply(event, 'stitchClips', requestId, {
-        ok: false,
-        error: 'No valid clips to stitch.',
-      })
-    }
-    const ext = payload?.ext === '.avi' ? '.avi' : '.mp4'
-    const single = usedFolders.size === 1
-    const outDir = single ? [...usedFolders][0] : root
-    const baseName = single ? 'final' : 'stitched'
-    let output = path.resolve(outDir, `${baseName}${ext}`)
-    let n = 2
-    while (fs.existsSync(output)) {
-      output = path.resolve(outDir, `${baseName}_${n}${ext}`)
-      n += 1
-    }
+    const fail = (error: string) =>
+      reply(event, 'videoToolsRun', requestId, { ok: false, error })
+    if (this.videoToolsJob) return fail('A video is already being made.')
+    const root = this.getConfig().outputPath
+    const { files, folders } = resolveVideoFiles(root, payload?.items ?? [])
+    const compress = payload?.compress === true
+    const videoKbps =
+      typeof payload?.videoKbps === 'number' && payload.videoKbps > 0
+        ? Math.min(100000, Math.max(250, Math.round(payload.videoKbps)))
+        : undefined
+    const plan = planVideoJob(root, files, folders, compress)
+    if (!plan.ok) return fail(plan.error)
+    const output = freeVideoPath(plan.outDir, plan.baseName, plan.ext)
+    const job = new AbortController()
+    this.videoToolsJob = job
+    const letSleep = holdAwake('video tools')
     try {
       const res = await concatClips(
         files,
         output,
         {
-          convertToMp4: ext === '.mp4',
+          convertToMp4: videoExtOf(files[0]) === '.mp4',
           bitrateKbps: this.getConfig().bitrateKbps,
-          compress: payload?.compress === true,
-          videoKbps: payload?.videoKbps,
+          compress,
+          videoKbps,
+          signal: job.signal,
         },
-        (percent) =>
-          this.mainWindow.webContents.send('stitchProgress', percent),
+        (percent) => {
+          if (!this.mainWindow.isDestroyed())
+            this.mainWindow.webContents.send('videoToolsProgress', percent)
+        },
       )
+      logMain('video tools: finished', {
+        mode: plan.mode,
+        videos: files.length,
+        ok: res.ok,
+        cancelled: res.cancelled === true,
+      })
       return reply(
         event,
-        'stitchClips',
+        'videoToolsRun',
         requestId,
         res.ok
-          ? { ok: true, output, dir: outDir }
-          : { ok: false, error: res.error },
+          ? { ok: true, output, dir: plan.outDir }
+          : { ok: false, error: res.error, cancelled: res.cancelled === true },
       )
     } catch (err) {
-      return reply(event, 'stitchClips', requestId, {
-        ok: false,
-        error: (err as Error)?.message || 'Stitch failed',
-      })
+      return fail((err as Error)?.message || 'The video could not be made.')
+    } finally {
+      this.videoToolsJob = null
+      letSleep()
     }
+  }
+
+  videoToolsCancel(event: IpcMainEvent, data?: RequestEnvelope<null>) {
+    const { requestId } = unpackRequest<null>(data)
+    this.videoToolsJob?.abort()
+    return reply(event, 'videoToolsCancel', requestId)
+  }
+
+  // Show a result in the file manager, selected. Only a video inside the output
+  // root: a file is never opened or run from here.
+  videoToolsReveal(event: IpcMainEvent, data?: RequestEnvelope<string>) {
+    const { requestId, payload } = unpackRequest<string>(data)
+    if (typeof payload === 'string' && payload) {
+      const { files } = resolveVideoFiles(this.getConfig().outputPath, [
+        { folder: path.dirname(payload), name: path.basename(payload) },
+      ])
+      if (files.length === 1 && fs.existsSync(files[0]))
+        shell.showItemInFolder(files[0])
+    }
+    return reply(event, 'videoToolsReveal', requestId)
   }
 
   stopVideo(event: IpcMainEvent, data?: RequestEnvelope<null>) {
@@ -1539,6 +1494,10 @@ export default class VideoManager {
       this.activeVideoJob.cancel()
       this.activeVideoJob = null
     }
+
+    // A Video Tools job: without this its ffmpeg kept encoding after the app
+    // had quit.
+    this.videoToolsJob?.abort()
 
     // Kill playback
     this.playbackAborted = true

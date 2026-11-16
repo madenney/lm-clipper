@@ -140,6 +140,12 @@ import {
   getAppVersion,
   openExternal,
 } from './controller/ipcMisc'
+import {
+  overlayFontsImport,
+  overlayFontsList,
+  overlayFontsRemove,
+  overlayPreview,
+} from './controller/overlayFonts'
 
 export default class Controller implements ControllerCore {
   /** Overview reads in progress, saving to the disk cache as they go (controller/overview.ts). */
@@ -1002,6 +1008,18 @@ export default class Controller implements ControllerCore {
     ipcMain.on('getPath', (event: IpcMainEvent, data: any) =>
       getPath(this, event, data),
     )
+    ipcMain.on('overlayFontsList', (event: IpcMainEvent, data: any) =>
+      overlayFontsList(this, event, data),
+    )
+    ipcMain.on('overlayFontsImport', (event: IpcMainEvent, data: any) =>
+      overlayFontsImport(this, event, data),
+    )
+    ipcMain.on('overlayFontsRemove', (event: IpcMainEvent, data: any) =>
+      overlayFontsRemove(this, event, data),
+    )
+    ipcMain.on('overlayPreview', (event: IpcMainEvent, data: any) =>
+      overlayPreview(this, event, data),
+    )
     ipcMain.on(
       'detectDolphinPath',
       this.videoManager.detectDolphinPath.bind(this.videoManager),
@@ -1045,16 +1063,24 @@ export default class Controller implements ControllerCore {
       this.videoManager.cancelVideo.bind(this.videoManager),
     )
     ipcMain.on(
-      'checkStitchable',
-      this.videoManager.checkStitchable.bind(this.videoManager),
+      'videoToolsList',
+      this.videoManager.videoToolsList.bind(this.videoManager),
     )
     ipcMain.on(
-      'stitchClips',
-      this.videoManager.stitchClips.bind(this.videoManager),
+      'videoToolsRun',
+      this.videoManager.videoToolsRun.bind(this.videoManager),
     )
     ipcMain.on(
-      'probeStitchDuration',
-      this.videoManager.probeStitchDuration.bind(this.videoManager),
+      'videoToolsProbe',
+      this.videoManager.videoToolsProbe.bind(this.videoManager),
+    )
+    ipcMain.on(
+      'videoToolsCancel',
+      this.videoManager.videoToolsCancel.bind(this.videoManager),
+    )
+    ipcMain.on(
+      'videoToolsReveal',
+      this.videoManager.videoToolsReveal.bind(this.videoManager),
     )
     ipcMain.on('playClips', this.videoManager.playClips.bind(this.videoManager))
     ipcMain.on('playClip', this.videoManager.playClip.bind(this.videoManager))

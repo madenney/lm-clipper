@@ -27,6 +27,7 @@ import DamageTimeline from './DamageTimeline'
 import ReplayInfoPanel from './ReplayInfoPanel'
 import GameFlow from './GameFlow'
 import ClipWatch from './ClipWatch'
+import { isWholeGame } from './cardSummary'
 import { GAME_START_FRAME } from '../../../constants/frames'
 import { comboHits, portColor } from './comboView'
 import {
@@ -241,6 +242,9 @@ function FullCardComponent({
       : null
   const frameCount =
     startFrame != null && endFrame != null ? endFrame - startFrame : null
+  // A clip of any kind (combo, edgeguard, highlight…) is shown as that clip:
+  // the player on its frames, where it happened. A whole game gets its flow.
+  const isClip = !isWholeGame(data) && startFrame != null && endFrame != null
 
   const hits = useMemo(() => comboHits(combo), [combo])
   const startPercent =
@@ -268,8 +272,8 @@ function FullCardComponent({
     'lastFrame' in data && typeof data.lastFrame === 'number'
       ? data.lastFrame
       : null
-  const spanStart = combo ? startFrame : GAME_START_FRAME
-  const spanEnd = combo ? endFrame : (lastFrame ?? endFrame)
+  const spanStart = isClip ? startFrame : GAME_START_FRAME
+  const spanEnd = isClip ? endFrame : (lastFrame ?? endFrame)
   const trackKey =
     path && spanStart != null && spanEnd != null && player1 && player2
       ? `${path}|${spanStart}|${spanEnd}|${player1.playerIndex}|${player2.playerIndex}`
@@ -311,7 +315,7 @@ function FullCardComponent({
 
   // A whole game's result, from the stocks at its end.
   const gameResult = useMemo(() => {
-    if (combo || !current?.track || !player1 || !player2) return null
+    if (isClip || !current?.track || !player1 || !player2) return null
     const left = (p: PlayerInterface) =>
       current
         .track!.players.find((t) => t.playerIndex === p.playerIndex)
@@ -325,7 +329,7 @@ function FullCardComponent({
       stocks: Math.max(a.s, b.s),
       lostAll: lose.s === 0,
     }
-  }, [combo, current, player1, player2])
+  }, [isClip, current, player1, player2])
 
   const handlePlay =
     onPlay && clipPayload ? () => onPlay(clipPayload) : undefined
@@ -506,9 +510,9 @@ function FullCardComponent({
 
       {/* ─── The combo ─── */}
       <div
-        className={`fullcard-main${combo && path ? ' fullcard-main--watch' : ''}`}
+        className={`fullcard-main${isClip && path ? ' fullcard-main--watch' : ''}`}
       >
-        {combo && startFrame != null && endFrame != null ? (
+        {isClip && startFrame != null && endFrame != null ? (
           path ? (
             <>
               {/* Left: the clip, its damage on the same timeline underneath. */}
@@ -529,7 +533,7 @@ function FullCardComponent({
                       endFrame={endFrame}
                       startPercent={startPercent ?? 0}
                       color={victimColor}
-                      didKill={combo.didKill}
+                      didKill={combo?.didKill ?? false}
                     />
                   )}
                 </section>
@@ -564,28 +568,30 @@ function FullCardComponent({
                     hits={hits}
                     startFrame={startFrame}
                     endFrame={endFrame}
-                    didKill={combo.didKill}
+                    didKill={combo?.didKill ?? false}
                   />
                 </section>
-                <section className="fullcard-panel fullcard-panel--hits">
-                  <h3>
-                    Hits
-                    {hits.length ? ` (${hits.length})` : ''}
-                  </h3>
-                  {hits.length ? (
-                    <DamageTimeline
-                      part="list"
-                      hits={hits}
-                      startFrame={startFrame}
-                      endFrame={endFrame}
-                      startPercent={startPercent ?? 0}
-                      color={victimColor}
-                      didKill={combo.didKill}
-                    />
-                  ) : (
-                    <p className="fullcard-muted">No hits recorded.</p>
-                  )}
-                </section>
+                {combo && (
+                  <section className="fullcard-panel fullcard-panel--hits">
+                    <h3>
+                      Hits
+                      {hits.length ? ` (${hits.length})` : ''}
+                    </h3>
+                    {hits.length ? (
+                      <DamageTimeline
+                        part="list"
+                        hits={hits}
+                        startFrame={startFrame}
+                        endFrame={endFrame}
+                        startPercent={startPercent ?? 0}
+                        color={victimColor}
+                        didKill={combo?.didKill ?? false}
+                      />
+                    ) : (
+                      <p className="fullcard-muted">No hits recorded.</p>
+                    )}
+                  </section>
+                )}
               </div>
             </>
           ) : (
@@ -618,26 +624,28 @@ function FullCardComponent({
                   hits={hits}
                   startFrame={startFrame}
                   endFrame={endFrame}
-                  didKill={combo.didKill}
+                  didKill={combo?.didKill ?? false}
                 />
               </section>
-              <section className="fullcard-panel fullcard-panel--damage">
-                <h3>Damage</h3>
-                {hits.length ? (
-                  <DamageTimeline
-                    hits={hits}
-                    startFrame={startFrame}
-                    endFrame={endFrame}
-                    startPercent={startPercent ?? 0}
-                    color={victimColor}
-                    didKill={combo.didKill}
-                  />
-                ) : (
-                  <p className="fullcard-muted">
-                    No hits recorded for this clip.
-                  </p>
-                )}
-              </section>
+              {combo && (
+                <section className="fullcard-panel fullcard-panel--damage">
+                  <h3>Damage</h3>
+                  {hits.length ? (
+                    <DamageTimeline
+                      hits={hits}
+                      startFrame={startFrame}
+                      endFrame={endFrame}
+                      startPercent={startPercent ?? 0}
+                      color={victimColor}
+                      didKill={combo?.didKill ?? false}
+                    />
+                  ) : (
+                    <p className="fullcard-muted">
+                      No hits recorded for this clip.
+                    </p>
+                  )}
+                </section>
+              )}
             </>
           )
         ) : (

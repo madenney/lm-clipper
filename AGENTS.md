@@ -28,12 +28,34 @@ copy, and don't reintroduce a stall timer, end-frame string match, ini rewriter 
 process-tree kill here; a missing option goes upstream, then bump the tag. ESM-only:
 webpack aliases it (.erb/configs/webpack.config.base.ts), Jest maps it (package.json),
 types come through src/slippi-dolphin-runner.d.ts. The dump codec is chosen in
-diskSpace.ts dumpPlanFor (Recording Format): above native UT Video on Linux/macOS,
+diskSpace.ts dumpPlanFor (Recording Format): above native UT Video on Linux/macOS (only where the
+dump width is even: dumpWidthFor has the measured widths; an odd one records nothing in UT Video, so it gets MPEG-4 at 150 Mb/s as Windows does),
 MPEG-4 at 150 Mb/s on Windows (its Dolphin has only FFV1 and MPEG-4); FFV1 at native
 and for Lossless; Fast draft is MPEG-4. Never dumpCodec h264. "Hide Recording Windows"
 (config hideRecordingWindows, default on) passes the runner's `hide` to buildProfile
 and record() on Windows/Linux (not macOS: unverified there); Windows needs the
 unpacked lunar-hidden-launcher.exe (src/main/hideLauncher.ts, docs/packaging.md).
+
+Video Tools (the film button in the top bar, always shown) combines recorded clips into one video
+and compresses videos, on the files already in the output folder. What it lists, what it accepts
+from the window, where a result goes and the ffmpeg arguments are in src/main/videoTools.ts (no
+Electron, tested); the run is slpToVideo.concatClips; the window is VideoToolsModal.tsx with its
+logic in src/renderer/lib/videoTools.ts. A result is written as `<name>.partial<ext>` and renamed
+when whole, never overwrites, and a cancelled or failed job leaves nothing; only video files inside
+the output root are accepted. The button's name and the window's words say "combine", not "stitch".
+
+The video overlay (Settings > Overlay) can use a font the user imported: Clipper copies the file
+into `<userData>/overlay-fonts` after checking the canvas library loads it (src/main/overlayFonts.ts),
+the list is what is in that folder, and the config stores only the file name (`overlayFont`, '' =
+the bundled Liberation Mono Bold). Resolve it with overlayFontPath, which never leaves that folder;
+a missing or broken font falls back to the bundled one, so it can never stop a recording. The
+Settings preview is drawn by the recording's own renderer (overlayRenderer.renderOverlayPreview).
+The text size is `overlayFontSize`, pixels on a 1080p video (src/lib/overlayStyle.ts, 10 to 120, 24
+by default): another size is the same label zoomed about its corner, and text too wide for the
+video is drawn smaller until it fits. Layout rules (the owner's, 2026-11-15; overlayLayout.test.ts
+checks them on pixels): the capitals are centred in the box (as much room above them as below),
+measured from the font and never from the words, so the box is the same height for every clip; and
+the box touches the video's edges on the sides it is anchored to (it runs past them: no gap).
 
 Replays can be .slpz (the library keeps downloads compressed by default, config
 keepDownloadsCompressed; imports keep .slpz as they are, slpzMode 'keep'). Read

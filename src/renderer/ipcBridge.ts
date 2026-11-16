@@ -3,7 +3,8 @@ import {
   ClipInterface,
   FileInterface,
   LiteItem,
-  StitchFolder,
+  VideoFolder,
+  OverlayFont,
 } from 'constants/types'
 import type { ClipTrack } from '../main/clipTrack'
 import type { SelectionWire } from '../lib/selection'
@@ -28,6 +29,8 @@ const LONG_RUNNING_CHANNELS = new Set([
   ...OWNER_LONG_CHANNELS,
   // Locate… waits on a folder dialog and a disk search.
   'missingReplaysAction',
+  // Waits on a file dialog.
+  'overlayFontsImport',
   // Waits on dialogs and can move many GB.
   'moveReplayLibrary',
   'runFilter',
@@ -46,8 +49,8 @@ const LONG_RUNNING_CHANNELS = new Set([
   'previewRemoveGames',
   'generateVideo',
   'recordClip',
-  'stitchClips',
-  'probeStitchDuration',
+  'videoToolsRun',
+  'videoToolsProbe',
   'addFilesManual',
   'addDroppedFiles',
   // Opening a project can legitimately take a while on a large DB; never reap
@@ -409,6 +412,32 @@ export default {
   ) {
     return request('getPath', typeOrOpts, 'getPath', handler)
   },
+  // Settings > Overlay: fonts the user imported, and the label as a recording draws it.
+  overlayFontsList(handler?: ResponseHandler<{ fonts: OverlayFont[] }>) {
+    return request('overlayFontsList', null, 'overlayFontsList', handler)
+  },
+  overlayFontsImport(
+    handler?: ResponseHandler<{
+      imported: OverlayFont[]
+      failed: { name: string; reason: string }[]
+      canceled: boolean
+      fonts: OverlayFont[]
+    }>,
+  ) {
+    return request('overlayFontsImport', null, 'overlayFontsImport', handler)
+  },
+  overlayFontsRemove(
+    file: string,
+    handler?: ResponseHandler<{ removed: boolean; fonts: OverlayFont[] }>,
+  ) {
+    return request('overlayFontsRemove', file, 'overlayFontsRemove', handler)
+  },
+  overlayPreview(
+    payload: { text: string; font?: string; size?: number },
+    handler?: ResponseHandler<{ dataUrl: string | null }>,
+  ) {
+    return request('overlayPreview', payload, 'overlayPreview', handler)
+  },
   openDolphinFolder(
     folderPath: string,
     handler?: ResponseHandler<{ found: boolean }>,
@@ -513,13 +542,14 @@ export default {
   cancelVideo(handler?: ResponseHandler<any>) {
     return request('cancelVideo', null, 'cancelVideo', handler)
   },
-  checkStitchable(handler?: ResponseHandler<{ folders: StitchFolder[] }>) {
-    return request('checkStitchable', null, 'checkStitchable', handler)
+  // Video Tools (the top bar's film button): the videos in the output folder,
+  // combined into one and/or compressed.
+  videoToolsList(handler?: ResponseHandler<{ folders: VideoFolder[] }>) {
+    return request('videoToolsList', null, 'videoToolsList', handler)
   },
-  stitchClips(
+  videoToolsRun(
     payload: {
-      clips: { folder: string; name: string }[]
-      ext: string
+      items: { folder: string; name: string }[]
       compress?: boolean
       videoKbps?: number
     },
@@ -528,20 +558,22 @@ export default {
       output?: string
       dir?: string
       error?: string
+      cancelled?: boolean
     }>,
   ) {
-    return request('stitchClips', payload, 'stitchClips', handler)
+    return request('videoToolsRun', payload, 'videoToolsRun', handler)
   },
-  probeStitchDuration(
-    payload: { clips: { folder: string; name: string }[] },
+  videoToolsProbe(
+    payload: { items: { folder: string; name: string }[] },
     handler?: ResponseHandler<{ seconds: number; bitrateKbps: number }>,
   ) {
-    return request(
-      'probeStitchDuration',
-      payload,
-      'probeStitchDuration',
-      handler,
-    )
+    return request('videoToolsProbe', payload, 'videoToolsProbe', handler)
+  },
+  videoToolsCancel(handler?: ResponseHandler<any>) {
+    return request('videoToolsCancel', null, 'videoToolsCancel', handler)
+  },
+  videoToolsReveal(file: string, handler?: ResponseHandler<any>) {
+    return request('videoToolsReveal', file, 'videoToolsReveal', handler)
   },
   playClips(payload: {
     filterId: string

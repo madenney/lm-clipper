@@ -36,13 +36,12 @@ import {
   RecentProject,
   ConsoleSnapshot,
   ConsoleLogEntry,
-  StitchFolder,
 } from '../../constants/types'
 import Filters from './Filters'
 import Top from './Top'
 import GeckoModal from './GeckoModal'
 import SettingsModal from './SettingsModal'
-import StitchModal from './StitchModal'
+import VideoToolsModal from './VideoToolsModal'
 import ActionBar from './ActionBar'
 import RecordingOptions from './RecordingOptions'
 import { Tray } from './Tray/Tray'
@@ -494,14 +493,7 @@ export default function Main({
   const consoleOpenRef = useRef(false)
   consoleOpenRef.current = consoleOpen
   const [geckoModalOpen, setGeckoModalOpen] = useState(false)
-  const [stitchOpen, setStitchOpen] = useState(false)
-  // Folders under the output root that hold >= 2 finished clips. The Stitch
-  // button only appears when this is non-empty. Re-checked on mount, when the
-  // output path changes, and when a recording finishes (isGenerating → false).
-  const [stitchFolders, setStitchFolders] = useState<StitchFolder[]>([])
-  useEffect(() => {
-    ipcBridge.checkStitchable((res) => setStitchFolders(res?.folders ?? []))
-  }, [config.outputPath, isGenerating])
+  const [videoToolsOpen, setVideoToolsOpen] = useState(false)
   const [consoleHeight, setConsoleHeightState] = useState(() =>
     readConsolePref('height', 200, (v) =>
       Math.min(500, Math.max(80, Number(v)) || 200),
@@ -1052,11 +1044,10 @@ export default function Main({
           onClose={() => setGeckoModalOpen(false)}
         />
       )}
-      {stitchOpen && (
-        <StitchModal
+      {videoToolsOpen && (
+        <VideoToolsModal
           config={config}
-          folders={stitchFolders}
-          onClose={() => setStitchOpen(false)}
+          onClose={() => setVideoToolsOpen(false)}
         />
       )}
       <Top
@@ -1077,13 +1068,12 @@ export default function Main({
             stopping={stopping}
             progress={generatingProgress}
             showSpinner={videoMsg !== 'Done :)'}
-            canStitch={stitchFolders.length > 0}
             onPlay={playClips} // eslint-disable-line react/jsx-no-bind
             onRecord={generateVideo} // eslint-disable-line react/jsx-no-bind
             onStopPlayback={stopPlayback} // eslint-disable-line react/jsx-no-bind
             onStopRecording={stopVideo} // eslint-disable-line react/jsx-no-bind
             onCancelRecording={cancelVideo} // eslint-disable-line react/jsx-no-bind
-            onStitch={() => setStitchOpen(true)} // eslint-disable-line react/jsx-no-bind
+            onVideoTools={() => setVideoToolsOpen(true)} // eslint-disable-line react/jsx-no-bind
             onOpenOutput={() => {
               // No output folder chosen yet: Settings > Paths is where to pick one.
               if (config.outputPath)

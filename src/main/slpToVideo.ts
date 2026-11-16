@@ -38,10 +38,13 @@ import { GAME_START_FRAME } from '../constants/frames'
 import { buildReplayVars, applyPattern } from '../lib/overlayTokens'
 import { getFFMPEGPath, getAssetPath } from './util'
 import { renderOverlayPng } from './overlayRenderer'
+import { overlayFontPath, overlayFontsDir } from './overlayFonts'
 import { logMain, getLogPath } from './logger'
 import { isFileLockedText } from './fsRetry'
 import { hideLauncherPath } from './hideLauncher'
 import { shownError } from './errorText'
+import { formatBytes } from '../lib/format'
+import { compressedBytes, partialPathFor, videoJobArgs } from './videoTools'
 import {
   WINDOWS_PATH_LIMIT,
   clipDiskBytes,
@@ -53,6 +56,7 @@ import {
   freeBytesAt,
   isDiskFullError,
   isDiskFullText,
+  MiB,
   moveFile,
   preflightRecordingDisk,
   recordingFormatOf as recordingFormatOfConfig,
@@ -66,6 +70,20 @@ import {
   ReplayInterface,
   OverlaySourceRule,
 } from '../constants/types'
+
+/** The font imported for the overlay (Settings), or null for the bundled one. */
+const chosenOverlayFont = (
+  config: Pick<ConfigInterface, 'overlayFont'>,
+): string | null => {
+  try {
+    return overlayFontPath(
+      overlayFontsDir(app.getPath('userData')),
+      config.overlayFont,
+    )
+  } catch {
+    return null // no data folder (a test, a headless run): the bundled font
+  }
+}
 
 /** Pull the first WxH resolution out of an ffmpeg stderr dump. */
 const parseVideoDimensions = (
@@ -854,6 +872,9 @@ const processOneReplay = async (
   // file with no stall flagged. A stall is not a verdict either: dumps at the
   // moment of a stall have been 27-94% complete.
   const probe = await probeDump(result.avi)
+  // The dump's real size: which widths Dolphin makes at each resolution decides
+  // which dump codecs work (diskSpace.ts dumpWidthFor).
+  logMain('record: dump probed', { sec: probe.sec, dims: probe.dims })
   const expected = clipFrames / 60
   const short = probe.sec < expected * MIN_FOOTAGE_RATIO
   if (result.stalled || short || neverStarted) {
@@ -925,6 +946,10 @@ const processOneReplay = async (
           dims.height,
           config.overlayPosition || 'bottom-left',
           pngPath,
+          {
+            fontPath: chosenOverlayFont(config),
+            fontSize: config.overlayFontSize,
+          },
         )
         if (ok) overlayPngPath = pngPath
       } catch (err) {
@@ -1046,10 +1071,10 @@ const processOneReplay = async (
 }
 
 // Never concatenated: kept masters, leftovers of the old in-place pipeline
-// (-unmerged/-merged/-lossless/-final), half-copied clips, and the previous
-// concat result.
+// (-unmerged/-merged/-lossless/-final), half-copied clips and a Video Tools
+// result still being written (.partial), and the previous concat result.
 const NOT_A_CLIP =
-  /(\.master\.(avi|wav)$|-unmerged|-merged|-lossless\.|-final\.|\.partial$)/i
+  /(\.master\.(avi|wav)$|-unmerged|-merged|-lossless\.|-final\.|\.partial(\.|$))/i
 
 /**
  * The finished clips to concatenate, in name order, including those the
@@ -1543,78 +1568,133 @@ const buildGeckoSettings = (config: ConfigInterface): string[] => {
 const parseFfmpegTime = (m: RegExpMatchArray): number =>
   parseInt(m[1], 10) * 3600 + parseInt(m[2], 10) * 60 + parseFloat(m[3])
 
-/**
- * Header info for a concat list. A metadata-only pass — `ffmpeg -i <concat>`
- * with no output prints the container header to stderr then exits non-zero. We
- * bundle ffmpeg but not ffprobe, so this is the way in.
- *
- * NOTE: the concat demuxer reports `Duration: N/A` (it doesn't sum segment
- * lengths without reading them all), so `seconds` is usually 0. It DOES report
- * `bitrate` (from the first segment), which callers pair with the total byte
- * size to derive a duration — the clips are near-constant-bitrate dumps, so
- * size ÷ bitrate is a good estimate and stays O(1) regardless of clip count.
- */
-const probeConcatInfo = (
-  listPath: string,
-): Promise<{ seconds: number; bitrateKbps: number }> =>
-  new Promise((resolve) => {
-    const p = spawn(
-      ffmpegPath,
-      ['-f', 'concat', '-safe', '0', '-i', listPath],
-      {
-        stdio: ['ignore', 'ignore', 'pipe'],
-        windowsHide: true,
-      },
-    )
-    let err = ''
-    p.stderr?.on('data', (c: Buffer) => {
-      err += c.toString()
-    })
-    p.on('error', () => resolve({ seconds: 0, bitrateKbps: 0 }))
-    p.on('exit', () => {
-      const dm = /Duration:\s*(\d+):(\d\d):(\d\d(?:\.\d+)?)/.exec(err)
-      const bm = /bitrate:\s*(\d+)\s*kb\/s/.exec(err)
-      resolve({
-        seconds: dm ? parseFfmpegTime(dm) : 0,
-        bitrateKbps: bm ? parseInt(bm[1], 10) : 0,
-      })
-    })
-  })
+type ProbeInfo = { seconds: number; bitrateKbps: number }
 
-/**
- * Header info for an ordered list of clip files — the Stitch modal's live
- * estimate. Writes a throwaway concat list next to the first clip (guaranteed
- * writable), header-probes it, and cleans up. Returns the reported duration
- * (usually 0 — see probeConcatInfo) and the source bitrate.
- */
-export async function probeFilesInfo(
-  files: string[],
-): Promise<{ seconds: number; bitrateKbps: number }> {
-  if (!files || files.length === 0) return { seconds: 0, bitrateKbps: 0 }
-  const listPath = path.resolve(
-    path.dirname(files[0]),
-    `probe_list_${crypto.randomBytes(6).toString('hex')}.txt`,
-  )
-  const lines = files.map(concatLine)
-  try {
-    await fsPromises.writeFile(listPath, lines.join('\n'))
-    return await probeConcatInfo(listPath)
-  } catch {
-    return { seconds: 0, bitrateKbps: 0 }
-  } finally {
-    await fsPromises.unlink(listPath).catch(() => {})
+/** Duration and bitrate from the header ffmpeg prints for `-i <input>`. */
+const parseProbe = (stderr: string): ProbeInfo => {
+  const dm = /Duration:\s*(\d+):(\d\d):(\d\d(?:\.\d+)?)/.exec(stderr)
+  const bm = /bitrate:\s*(\d+)\s*kb\/s/.exec(stderr)
+  return {
+    seconds: dm ? parseFfmpegTime(dm) : 0,
+    bitrateKbps: bm ? parseInt(bm[1], 10) : 0,
   }
 }
 
 /**
- * Stitch already-rendered clips into one video, in the given order. The
- * standalone counterpart to the concat step baked into a recording run — used
- * by the Stitch tool on an existing output folder. Stream-copies video (fast,
- * lossless); for .avi it re-encodes audio to AAC, mirroring the run path.
+ * A metadata-only pass: `ffmpeg -i <input>` with no output prints the container
+ * header to stderr, then exits non-zero. We bundle ffmpeg but not ffprobe, so
+ * this is the way in.
+ */
+const probeInput = (inputArgs: string[]): Promise<ProbeInfo> =>
+  new Promise((resolve) => {
+    const p = spawn(ffmpegPath, ['-hide_banner', ...inputArgs], {
+      stdio: ['ignore', 'ignore', 'pipe'],
+      windowsHide: true,
+    })
+    let err = ''
+    p.stderr?.on('data', (c: Buffer) => {
+      if (err.length < 65536) err += c.toString()
+    })
+    p.on('error', () => resolve({ seconds: 0, bitrateKbps: 0 }))
+    p.on('exit', () => resolve(parseProbe(err)))
+  })
+
+// One video's header, remembered until the file changes: the window asks again
+// on every change of the selection, and only the new files cost a spawn.
+const probeCache = new Map<string, ProbeInfo>()
+const PROBE_CACHE_MAX = 4000
+
+const probeVideoFile = async (file: string): Promise<ProbeInfo> => {
+  let key = file
+  try {
+    const st = await fsPromises.stat(file)
+    key = `${file}|${st.size}|${st.mtimeMs}`
+  } catch {
+    return { seconds: 0, bitrateKbps: 0 }
+  }
+  const hit = probeCache.get(key)
+  if (hit) return hit
+  const info = await probeInput(['-i', file])
+  if (info.seconds > 0) {
+    if (probeCache.size >= PROBE_CACHE_MAX) probeCache.clear()
+    probeCache.set(key, info)
+  }
+  return info
+}
+
+/** A throwaway concat list in the temp folder (never in the user's own folders). */
+const writeConcatList = async (files: string[]): Promise<string> => {
+  const listPath = path.join(
+    os.tmpdir(),
+    `lm-clipper-videos-${crypto.randomBytes(6).toString('hex')}.txt`,
+  )
+  await fsPromises.writeFile(listPath, files.map(concatLine).join('\n'))
+  return listPath
+}
+
+// Above this many videos, reading every header takes too long to be a live
+// estimate: one pass over the concat list answers instead (see below).
+const PROBE_EACH_MAX = 300
+const PROBE_PARALLEL = 4
+
+/**
+ * Running time and bitrate of an ordered list of videos, for Video Tools' size
+ * estimate and its progress bar. Each file's header is read (four at a time,
+ * cached), so `seconds` is the real total. For a very long list, or when a
+ * header cannot be read, it falls back to one pass over a concat list: the
+ * concat demuxer reports `Duration: N/A`, so `seconds` is then 0 and the caller
+ * derives a length from the total size and `bitrateKbps` (the first video's).
+ */
+export async function probeFilesInfo(files: string[]): Promise<ProbeInfo> {
+  if (!files || files.length === 0) return { seconds: 0, bitrateKbps: 0 }
+  if (files.length <= PROBE_EACH_MAX) {
+    const infos: ProbeInfo[] = new Array(files.length)
+    let next = 0
+    const worker = async () => {
+      while (next < files.length) {
+        const i = next
+        next += 1
+        // eslint-disable-next-line no-await-in-loop
+        infos[i] = await probeVideoFile(files[i])
+      }
+    }
+    await Promise.all(
+      Array.from({ length: Math.min(PROBE_PARALLEL, files.length) }, worker),
+    )
+    if (infos.every((info) => info.seconds > 0))
+      return {
+        seconds: infos.reduce((sum, info) => sum + info.seconds, 0),
+        bitrateKbps: infos[0].bitrateKbps,
+      }
+  }
+  let listPath = ''
+  try {
+    listPath = await writeConcatList(files)
+    return await probeInput(['-f', 'concat', '-safe', '0', '-i', listPath])
+  } catch {
+    return { seconds: 0, bitrateKbps: 0 }
+  } finally {
+    if (listPath) await fsPromises.unlink(listPath).catch(() => {})
+  }
+}
+
+export type VideoJobResult = {
+  ok: boolean
+  error?: string
+  /** Stopped by the user: nothing was written. */
+  cancelled?: boolean
+}
+
+/**
+ * Video Tools' one ffmpeg job: join already-rendered videos into one, in the
+ * given order, and/or compress them (one video is enough for that). The
+ * standalone counterpart to the join at the end of a recording run. Arguments:
+ * videoTools.videoJobArgs.
  *
- * `files` are absolute paths in final order. `onProgress` (optional) reports
- * 0–100 as ffmpeg works. Resolves { ok } / { ok:false, error } rather than
- * throwing, so the caller can surface a clean message.
+ * The result is written as `<name>.partial<ext>` and renamed when ffmpeg ends
+ * cleanly, so a file with the final name is always a whole video; a failed or
+ * cancelled job leaves nothing. `onProgress` reports 0-100. Resolves
+ * { ok } / { ok: false, error } instead of throwing.
  */
 export async function concatClips(
   files: string[],
@@ -1622,116 +1702,86 @@ export async function concatClips(
   opts: {
     convertToMp4: boolean
     bitrateKbps: number
-    // When set, re-encode the joined video to H.264 at ~`videoKbps` (instead of
-    // stream-copying) so the result is a small, upload-friendly file. The
-    // near-lossless recording dumps shrink dramatically with no visible loss.
     compress?: boolean
     videoKbps?: number
+    /** Aborting it kills ffmpeg and removes the partial result. */
+    signal?: AbortSignal
   },
   onProgress?: (_percent: number) => void,
-): Promise<{ ok: boolean; error?: string }> {
-  if (!files || files.length < 2) {
-    return { ok: false, error: 'Need at least 2 clips to stitch.' }
-  }
-  const listPath = path.resolve(
-    path.dirname(output),
-    `stitch_list_${crypto.randomBytes(6).toString('hex')}.txt`,
-  )
-  // ffmpeg concat demuxer: one `file '…'` line per input. Escape single quotes.
-  const lines = files.map(concatLine)
-  await fsPromises.writeFile(listPath, lines.join('\n'))
-
-  const args = [
-    '-f',
-    'concat',
-    '-safe',
-    '0',
-    '-i',
-    listPath,
-    '-fflags',
-    '+genpts',
-  ]
-  if (opts.compress) {
-    // Re-encode to a target bitrate so the output size is predictable (what the
-    // modal estimates from) and small enough to upload. Always writes AAC audio.
-    args.push(
-      '-c:v',
-      'libx264',
-      '-b:v',
-      `${opts.videoKbps ?? 4000}k`,
-      '-preset',
-      'medium',
-      '-pix_fmt',
-      'yuv420p',
-      '-af',
-      'aresample=async=1:first_pts=0',
-      '-c:a',
-      'aac',
-      '-b:a',
-      '160k',
-    )
-  } else {
-    args.push('-c:v', 'copy')
-    if (opts.convertToMp4) {
-      args.push('-c:a', 'copy')
-    } else {
-      args.push(
-        '-b:v',
-        `${opts.bitrateKbps}k`,
-        '-af',
-        'aresample=async=1:first_pts=0',
-        '-c:a',
-        'aac',
-        '-b:a',
-        '128k',
-      )
-    }
-  }
-  args.push('-y', output)
-
-  logMain('stitch: spawning ffmpeg concat', { args })
+): Promise<VideoJobResult> {
+  if (!files || files.length === 0)
+    return { ok: false, error: 'No videos to work on.' }
+  if (files.length < 2 && !opts.compress)
+    return { ok: false, error: 'Need at least 2 clips to combine.' }
+  const compress = opts.compress === true
+  const partial = partialPathFor(output)
+  let listPath = ''
   try {
-    // Total footage seconds up front, so ffmpeg's stderr `time=` can be turned
-    // into a real %. The concat demuxer usually reports `Duration: N/A`, so when
-    // it does we derive the total from the summed file sizes ÷ the (reported)
-    // bitrate — the same estimate the Stitch modal shows, and accurate for these
-    // near-constant-bitrate clips. 0 → the caller keeps its indeterminate bar.
-    let totalSec = 0
-    if (onProgress) {
-      const info = await probeConcatInfo(listPath)
-      totalSec = info.seconds
-      if (totalSec <= 0 && info.bitrateKbps > 0) {
-        const sizes = await Promise.all(
-          files.map((f) =>
-            fsPromises
-              .stat(f)
-              .then((s) => s.size)
-              .catch(() => 0),
-          ),
-        )
-        const bytes = sizes.reduce((a, b) => a + b, 0)
-        totalSec = (bytes * 8) / (info.bitrateKbps * 1000)
-      }
-      logMain('stitch: estimated total footage', {
-        totalSec: Math.round(totalSec),
-      })
-    }
-    onProgress?.(0)
+    listPath = await writeConcatList(files)
+    const args = videoJobArgs(listPath, partial, {
+      compress,
+      videoKbps: opts.videoKbps,
+      sourceIsMp4: opts.convertToMp4,
+      bitrateKbps: opts.bitrateKbps,
+    })
 
+    // The footage length up front: it turns ffmpeg's `time=` into a real %, and
+    // says how big a compressed result will be. When the headers do not give it,
+    // total size / bitrate is close for these near-constant-bitrate clips; 0
+    // leaves the caller's bar indeterminate.
+    const sizes = await Promise.all(
+      files.map((f) =>
+        fsPromises
+          .stat(f)
+          .then((s) => s.size)
+          .catch(() => 0),
+      ),
+    )
+    const sourceBytes = sizes.reduce((a, b) => a + b, 0)
+    const info = await probeFilesInfo(files)
+    const totalSec =
+      info.seconds > 0
+        ? info.seconds
+        : info.bitrateKbps > 0
+          ? (sourceBytes * 8) / (info.bitrateKbps * 1000)
+          : 0
+
+    // Refuse before writing gigabytes that will not fit.
+    const needBytes = compress
+      ? compressedBytes(opts.videoKbps ?? 4000, totalSec)
+      : sourceBytes
+    const free = await freeBytesAt(path.dirname(output)).catch(() => null)
+    if (free !== null && needBytes > 0 && free < needBytes * 1.02 + 64 * MiB) {
+      return {
+        ok: false,
+        error: `Not enough free space on ${driveLabel(path.dirname(output))}: the video needs about ${formatBytes(needBytes)} and ${formatBytes(free)} is free.`,
+      }
+    }
+    if (opts.signal?.aborted) return { ok: false, cancelled: true }
+
+    logMain('video tools: starting ffmpeg', {
+      videos: files.length,
+      compress,
+      totalSec: Math.round(totalSec),
+      args,
+    })
+    onProgress?.(0)
     const proc = spawn(ffmpegPath, args, {
       stdio: ['ignore', 'ignore', 'pipe'],
       windowsHide: true,
     })
+    const onAbort = () => killTree(proc)
+    opts.signal?.addEventListener('abort', onAbort, { once: true })
     let stderr = ''
     let lastPct = -1
     proc.stderr?.on('data', (c: Buffer) => {
       const s = c.toString()
-      stderr += s
+      stderr = (stderr + s).slice(-8000)
       if (onProgress && totalSec > 0) {
         const times = [...s.matchAll(/time=(\d+):(\d\d):(\d\d(?:\.\d+)?)/g)]
         const last = times[times.length - 1]
         if (last) {
-          // Cap at 99 while running; the 100 comes only on a clean exit.
+          // Cap at 99 while running; the 100 comes only once the file is whole.
           const pct = Math.min(
             99,
             Math.max(0, Math.round((parseFfmpegTime(last) / totalSec) * 100)),
@@ -1744,18 +1794,31 @@ export async function concatClips(
       }
     })
     const code = await exit(proc)
+    opts.signal?.removeEventListener('abort', onAbort)
+    if (opts.signal?.aborted) {
+      await unlinkQuiet(partial)
+      return { ok: false, cancelled: true }
+    }
     if (code !== 0) {
-      logMain(`stitch: ffmpeg concat failed (code ${code})`, {
+      logMain(`video tools: ffmpeg failed (code ${code})`, {
         stderr: stderr.slice(-2000),
       })
-      return { ok: false, error: `ffmpeg exited with code ${code}` }
+      await unlinkQuiet(partial)
+      return {
+        ok: false,
+        error: isDiskFullText(stderr)
+          ? `The disk filled up before the video was finished (${driveLabel(path.dirname(output))}). Free some space and try again.`
+          : `ffmpeg could not make the video (exit code ${code}). The details are in the log.`,
+      }
     }
+    await moveFile(partial, output)
     onProgress?.(100)
     return { ok: true }
   } catch (err) {
+    await unlinkQuiet(partial)
     return { ok: false, error: (err as Error)?.message || 'ffmpeg failed' }
   } finally {
-    await fsPromises.unlink(listPath).catch(() => {})
+    if (listPath) await fsPromises.unlink(listPath).catch(() => {})
   }
 }
 
@@ -1768,8 +1831,9 @@ export async function concatClips(
 //   utvideo 1.81x realtime, lossless (identical to FFV1 after 4:2:0), ~3 GB/min
 //   mpeg4   1.66x at 150 Mb/s (lossy, ~42 dB), 0.57 GB/min
 //   ffv1    0.34x, lossless, 3.8 GB/min (0.10x at 3x)
-// utvideo needs an even dump width and native (resolution 2) is 939 wide, so
-// native stays FFV1 (lossless) or mpeg4 (draft). Windows Playback has no
+// utvideo needs an even dump width. Native (resolution 2) is 939 wide, and so
+// are a few other sizes (2.5x and 4x widescreen, 2x without: diskSpace.ts
+// dumpWidthFor has the measured table); those stay FFV1 (lossless) or mpeg4 (draft). Windows Playback has no
 // utvideo encoder: its "auto" above native is mpeg4 at 150 Mb/s (1.26x at 2x,
 // 0.62x at 3x on the Windows rig, 49-51 dB against FFV1). Never h264: Dolphin drops the
 // last ~50 frames of an h264 dump. Each clip's dump is deleted once encoded.

@@ -1,8 +1,12 @@
-/* Stitch Clips modal — folder/clip tree with per-clip select + reorder.
+/* Video Tools window: a folder/video tree with per-video select and reorder,
+   a quality row and a footer with the one action.
    Reuses the shared .settings-* modal chrome (Top.css) and its palette:
    near-black surfaces, #222/#2a2a2a hairlines, green accent (#3d8a4e). */
 
-.settings-modal--stitch {
+.settings-modal--videotools {
+  /* The app sets no base font, so text outside buttons fell back to the
+     browser's serif (Times on Windows) next to sans-serif buttons. One font. */
+  font-family: system-ui, 'Segoe UI', Roboto, Arial, sans-serif;
   width: 680px;
   max-width: calc(100vw - 40px);
   /* Fixed height so the modal never resizes as folders expand/collapse — the
@@ -13,40 +17,23 @@
 }
 
 /* Padded content region inside the (scrolling) body. */
-.stitch-content {
+.vt-content {
   padding: 22px 28px 8px;
 }
 
-.stitch-root {
-  margin: 0 0 18px;
-  font-size: 13px;
-  color: #a7adb7;
-  line-height: 1.5;
-}
 
-.stitch-root-path {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  color: #cbd0d8;
-  word-break: break-all;
-}
 
 /* Select-all / clear toolbar above the tree */
-.stitch-toolbar {
+.vt-toolbar {
   display: flex;
   align-items: center;
   gap: 16px;
   padding: 0 4px 10px;
 }
 
-.stitch-toolbar-count {
-  margin-left: auto;
-  font-size: 12px;
-  color: #8b929c;
-  font-variant-numeric: tabular-nums;
-}
 
 /* Tree card */
-.stitch-tree {
+.vt-tree {
   background: #202024;
   border: 1px solid #2a2a2a;
   border-radius: 10px;
@@ -54,26 +41,17 @@
 }
 
 /* The whole folder block dims while it's being dragged to a new position. */
-.stitch-folder--dragging {
+.vt-folder--dragging {
   opacity: 0.4;
 }
 
-.stitch-folder-handle {
-  color: #4a4f57;
-  font-size: 14px;
-  cursor: grab;
-  margin-right: -2px;
-}
 
-.stitch-folder-handle:hover {
-  color: #6d737c;
-}
 
-.stitch-folder + .stitch-folder {
+.vt-folder + .vt-folder {
   border-top: 1px solid #232326;
 }
 
-.stitch-folder-row {
+.vt-folder-row {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -84,45 +62,35 @@
   transition: background 120ms ease;
 }
 
-.stitch-folder-row:hover {
+.vt-folder-row:hover {
   background: rgba(255, 255, 255, 0.04);
 }
 
-.stitch-folder-row:focus-visible {
+.vt-folder-row:focus-visible {
   outline: 2px solid #4a9d5b;
   outline-offset: -2px;
 }
 
-.stitch-caret {
+.vt-caret {
   width: 12px;
   font-size: 11px;
   color: #686868;
 }
 
-.stitch-folder-icon {
+.vt-folder-icon {
   color: #5cb874;
   font-size: 15px;
   flex-shrink: 0;
 }
 
-.stitch-folder-name {
+.vt-folder-name {
   font-weight: 600;
   font-size: 14px;
   color: #e8e8e8;
 }
 
-.stitch-latest {
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  color: #a0d0a8;
-  background: rgba(92, 184, 116, 0.14);
-  border: 1px solid rgba(92, 184, 116, 0.3);
-  border-radius: 4px;
-  padding: 1px 6px;
-}
 
-.stitch-folder-count {
+.vt-folder-count {
   margin-left: auto;
   font-size: 12px;
   color: #a7adb7;
@@ -132,19 +100,9 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* Expanded folder */
-.stitch-folder-body {
-  padding: 2px 8px 14px 34px;
-}
 
-.stitch-clip-tools {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 6px 4px 8px;
-}
 
-.stitch-link {
+.vt-link {
   background: none;
   border: none;
   padding: 0;
@@ -153,24 +111,18 @@
   font-size: 12px;
 }
 
-.stitch-link:hover {
+.vt-link:hover {
   text-decoration: underline;
 }
 
-.stitch-hint {
-  margin-left: auto;
-  font-size: 11px;
-  font-style: italic;
-  color: #686868;
-}
 
-.stitch-clip-list {
+.vt-list {
   list-style: none;
   margin: 0;
   padding: 0;
 }
 
-.stitch-clip {
+.vt-item {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -180,33 +132,28 @@
   transition: background 100ms ease;
 }
 
-.stitch-clip:hover {
+.vt-item:hover {
   background: rgba(255, 255, 255, 0.035);
 }
 
 /* While a drag is happening in this list, the non-dragged rows animate as they
    slide to open a gap at the drop point. The transform transition is scoped to
    the active drag so a committed reorder snaps into place (no reverse slide). */
-.stitch-clip-list--dragging .stitch-clip:not(.stitch-clip--dragging) {
+.vt-list--dragging .vt-item:not(.vt-item--dragging) {
   transition:
     transform 170ms cubic-bezier(0.2, 0, 0, 1),
     background 100ms ease;
   will-change: transform;
 }
 
-.stitch-clip--dragging {
+.vt-item--dragging {
   opacity: 0.35;
   background: rgba(92, 184, 116, 0.1);
   cursor: grabbing;
 }
 
-.stitch-drag-handle {
-  color: #4a4f57;
-  font-size: 14px;
-  cursor: grab;
-}
 
-.stitch-clip-label {
+.vt-item-label {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -215,7 +162,7 @@
   min-width: 0;
 }
 
-.stitch-check {
+.vt-check {
   width: 15px;
   height: 15px;
   margin: 0;
@@ -224,7 +171,7 @@
   flex-shrink: 0;
 }
 
-.stitch-clip-name {
+.vt-item-name {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 12.5px;
   color: #b8bec8;
@@ -233,7 +180,7 @@
   white-space: nowrap;
 }
 
-.stitch-go-btn {
+.vt-go-btn {
   padding: 8px 16px;
   font-size: 13px;
   font-weight: 600;
@@ -245,22 +192,22 @@
   transition: background 120ms ease;
 }
 
-.stitch-go-btn:hover:not(:disabled) {
+.vt-go-btn:hover:not(:disabled) {
   background: #48a05a;
 }
 
-.stitch-go-btn:active:not(:disabled) {
+.vt-go-btn:active:not(:disabled) {
   transform: translateY(1px);
 }
 
-.stitch-go-btn:disabled {
+.vt-go-btn:disabled {
   background: #2a2a2a;
   border-color: #383838;
   color: #666;
   cursor: not-allowed;
 }
 
-.stitch-result--ok {
+.vt-result--ok {
   color: #a0d0a8;
   display: inline-flex;
   align-items: center;
@@ -268,27 +215,27 @@
   min-width: 0;
 }
 
-.stitch-result-icon {
+.vt-result-icon {
   flex-shrink: 0;
   color: #5cb874;
   font-size: 15px;
 }
 
-.stitch-result-msg {
+.vt-result-msg {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   min-width: 0;
 }
 
-.stitch-result-msg strong {
+.vt-result-msg strong {
   color: #e6f2e8;
   font-weight: 600;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 12px;
 }
 
-.stitch-show-btn {
+.vt-show-btn {
   flex-shrink: 0;
   display: inline-flex;
   align-items: center;
@@ -304,26 +251,26 @@
   transition: all 120ms ease;
 }
 
-.stitch-show-btn svg {
+.vt-show-btn svg {
   font-size: 13px;
 }
 
-.stitch-show-btn:hover {
+.vt-show-btn:hover {
   color: #fff;
   background: rgba(92, 184, 116, 0.26);
   border-color: #5cb874;
 }
 
-.stitch-show-btn:active {
+.vt-show-btn:active {
   transform: translateY(1px);
 }
 
-.stitch-result--err {
+.vt-result--err {
   color: #e06c6c;
 }
 
 /* Options bar (quality + estimate), pinned above the footer */
-.stitch-options {
+.vt-options {
   flex-shrink: 0;
   display: flex;
   align-items: center;
@@ -334,20 +281,20 @@
   background: #1c1c1c;
 }
 
-.stitch-quality {
+.vt-quality {
   display: flex;
   align-items: stretch;
   gap: 6px;
 }
 
-.stitch-quality-label {
+.vt-quality-label {
   align-self: center;
   font-size: 12px;
   color: #8b929c;
   margin-right: 4px;
 }
 
-.stitch-quality-opt {
+.vt-quality-opt {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -363,63 +310,44 @@
   transition: all 120ms ease;
 }
 
-.stitch-quality-opt:hover:not(:disabled):not(.stitch-quality-opt--on) {
+.vt-quality-opt:hover:not(:disabled):not(.vt-quality-opt--on) {
   background: #2e2e34;
   color: #e0e4ea;
 }
 
-.stitch-quality-opt--on {
+.vt-quality-opt--on {
   color: #fff;
   background: rgba(61, 138, 78, 0.28);
   border-color: #4a9d5b;
 }
 
-.stitch-quality-opt:disabled {
+.vt-quality-opt:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
 
-.stitch-quality-sub {
+.vt-quality-sub {
   font-size: 9.5px;
   font-weight: 500;
   letter-spacing: 0.3px;
   color: #7f858e;
 }
 
-.stitch-quality-opt--on .stitch-quality-sub {
+.vt-quality-opt--on .vt-quality-sub {
   color: #a0d0a8;
 }
 
-.stitch-estimate {
-  flex-shrink: 0;
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  white-space: nowrap;
-}
 
-.stitch-estimate-label {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.4px;
-  color: #7f858e;
-}
 
-.stitch-estimate-val {
-  font-size: 14px;
-  font-weight: 600;
-  color: #cbd0d8;
-  font-variant-numeric: tabular-nums;
-}
 
 /* Header: folder + close buttons grouped on the right */
-.stitch-header-actions {
+.vt-header-actions {
   display: flex;
   align-items: center;
   gap: 6px;
 }
 
-.stitch-open-folder {
+.vt-open-folder {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -435,14 +363,14 @@
   transition: all 120ms ease;
 }
 
-.stitch-open-folder:hover {
+.vt-open-folder:hover {
   color: #b7e0c0;
   background: rgba(92, 184, 116, 0.12);
   border-color: #4a9d5b;
 }
 
 /* Pinned footer: status on the left, actions on the right */
-.stitch-footer {
+.vt-footer {
   flex-shrink: 0;
   display: flex;
   align-items: center;
@@ -453,7 +381,7 @@
   background: #1c1c1c;
 }
 
-.stitch-footer-status {
+.vt-footer-status {
   flex: 1;
   min-width: 0;
   font-size: 12.5px;
@@ -462,14 +390,14 @@
   white-space: nowrap;
 }
 
-/* Progress bar (shown while stitching) */
-.stitch-progress {
+/* Progress bar (shown while a video is being made) */
+.vt-progress {
   display: flex;
   align-items: center;
   gap: 12px;
 }
 
-.stitch-progress-track {
+.vt-progress-track {
   position: relative;
   flex: 1;
   height: 6px;
@@ -478,7 +406,7 @@
   overflow: hidden;
 }
 
-.stitch-progress-fill {
+.vt-progress-fill {
   height: 100%;
   background: #4a9d5b;
   border-radius: 3px;
@@ -486,7 +414,7 @@
 }
 
 /* Indeterminate sweep, used before ffmpeg reports a first timestamp. */
-.stitch-progress-indet {
+.vt-progress-indet {
   position: absolute;
   top: 0;
   left: 0;
@@ -494,10 +422,10 @@
   width: 35%;
   border-radius: 3px;
   background: #4a9d5b;
-  animation: stitchIndet 1.1s ease-in-out infinite;
+  animation: vtIndet 1.1s ease-in-out infinite;
 }
 
-@keyframes stitchIndet {
+@keyframes vtIndet {
   0% {
     left: -35%;
   }
@@ -506,7 +434,7 @@
   }
 }
 
-.stitch-progress-pct {
+.vt-progress-pct {
   flex-shrink: 0;
   color: #a0d0a8;
   font-variant-numeric: tabular-nums;
@@ -514,22 +442,16 @@
   text-align: right;
 }
 
-.stitch-status-count {
-  color: #a7adb7;
-}
 
-.stitch-status-busy {
-  color: #a0d0a8;
-}
 
-.stitch-footer-actions {
+.vt-footer-actions {
   display: flex;
   align-items: center;
   gap: 12px;
   flex-shrink: 0;
 }
 
-.stitch-close-btn {
+.vt-close-btn {
   padding: 9px 24px;
   font-size: 14px;
   font-weight: 500;
@@ -541,12 +463,196 @@
   transition: all 120ms ease;
 }
 
-.stitch-close-btn:hover:not(:disabled) {
+.vt-close-btn:hover:not(:disabled) {
   background: #333;
   color: #fff;
 }
 
-.stitch-close-btn:disabled {
+.vt-close-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* --- Header: title with one line saying what the window is for --- */
+.vt-heading {
+  min-width: 0;
+}
+.vt-subtitle {
+  margin: 4px 0 0;
+  font-size: 12.5px;
+  color: #8b929c;
+}
+
+/* Where the videos are, at the right of the select-all row. */
+.vt-toolbar-path {
+  margin-left: auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl; /* a long path keeps its end (the folder) visible */
+  text-align: right;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px;
+  color: #6d737c;
+}
+.vt-link:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  text-decoration: none;
+}
+
+/* While a video is being made the list is only a record of what went in. */
+.vt-tree--busy {
+  opacity: 0.55;
+  pointer-events: none;
+}
+.vt-loading {
+  margin: 0;
+  padding: 18px 12px;
+  font-size: 13px;
+  color: #8b929c;
+}
+
+/* Drag handle (folders and rows). */
+.vt-grip {
+  display: inline-flex;
+  align-items: center;
+  color: #4a4f57;
+  font-size: 12px;
+  cursor: grab;
+  flex-shrink: 0;
+}
+.vt-grip:hover {
+  color: #7d838c;
+}
+.vt-caret {
+  display: inline-flex;
+  align-items: center;
+}
+/* Keeps a folder without clips (results only) lined up with the others. */
+.vt-check-gap {
+  width: 15px;
+  flex-shrink: 0;
+}
+.vt-folder-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+/* Small tags: "latest" on the newest recording, "video" on a finished result. */
+.vt-pill {
+  flex-shrink: 0;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #aab4c4;
+  background: rgba(140, 160, 190, 0.12);
+  border: 1px solid rgba(140, 160, 190, 0.28);
+  border-radius: 4px;
+  padding: 1px 6px;
+}
+.vt-pill--latest {
+  color: #a0d0a8;
+  background: rgba(92, 184, 116, 0.14);
+  border-color: rgba(92, 184, 116, 0.3);
+}
+.vt-list {
+  padding: 2px 8px 10px 34px;
+}
+.vt-item-size {
+  flex-shrink: 0;
+  min-width: 64px;
+  text-align: right;
+  font-size: 11.5px;
+  color: #6d737c;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Quality row: each choice shows the size it would come to. */
+.vt-quality-opt {
+  min-width: 84px;
+}
+.vt-quality-sub {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.vt-length {
+  flex-shrink: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  white-space: nowrap;
+}
+.vt-length-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: #7f858e;
+}
+.vt-length-val {
+  font-size: 14px;
+  font-weight: 600;
+  color: #cbd0d8;
+  font-variant-numeric: tabular-nums;
+}
+.vt-status {
+  color: #a7adb7;
+}
+
+/* Nothing recorded yet. */
+.vt-empty {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 24px 48px;
+  text-align: center;
+}
+.vt-empty-icon {
+  font-size: 34px;
+  color: #3f444c;
+  margin-bottom: 6px;
+}
+.vt-empty-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: #e8e8e8;
+}
+.vt-empty-text {
+  margin: 0 0 8px;
+  max-width: 380px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #a7adb7;
+}
+.vt-empty-path {
+  margin: 4px 0 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px;
+  color: #6d737c;
+}
+
+.settings-modal--videotools button {
+  font-family: inherit;
+}
+
+/* A hint or an error is read in full: it wraps instead of being cut off. */
+.vt-footer-status .vt-status,
+.vt-footer-status .vt-result--err {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  white-space: normal;
+  line-height: 1.4;
 }

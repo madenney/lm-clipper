@@ -5,7 +5,7 @@
     border-bottom: solid 2px white;
     height: 64px;
     box-sizing: border-box;
-    /* Play / Record / Stitch sit in the middle of the bar (the most used controls);
+    /* Play / Record / Video Tools sit in the middle of the bar (the most used controls);
        the buttons are on the right. Modals inside .top are position: fixed, so they
        take no column. */
     display: grid;
@@ -1003,6 +1003,72 @@
     border-radius: 2px;
     padding: 4px 8px;
     white-space: pre;
+}
+
+/* The label as a recording draws it (a picture from the main process). */
+.overlay-preview-img {
+    display: block;
+    max-width: 100%;
+    height: auto;
+}
+
+/* Font: the list, Import and Remove on one line; what it does underneath. */
+.overlay-font-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    min-width: 0;
+}
+
+.overlay-font-controls .settings-select {
+    max-width: 260px;
+}
+
+.overlay-size-controls {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.overlay-size-controls .settings-input--number {
+    flex-shrink: 0;
+}
+
+.overlay-font-btn {
+    padding: 6px 12px;
+    font-size: 13px;
+    color: #ddd;
+    background: #2a2a2a;
+    border: 1px solid #444;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 120ms ease;
+}
+
+.overlay-font-btn:hover:not(:disabled) {
+    background: #333;
+    color: #fff;
+}
+
+.overlay-font-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.overlay-font-btn--quiet {
+    background: transparent;
+    border-color: #333;
+    color: #aaa;
+}
+
+.overlay-font-note {
+    font-size: 12.5px;
+    color: #a0d0a8;
+}
+
+.overlay-font-note--bad {
+    color: #e06c6c;
 }
 
 .overlay-rules {

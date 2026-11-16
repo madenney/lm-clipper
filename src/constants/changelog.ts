@@ -22,6 +22,37 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '3.0.1',
+    date: '2026-11-15',
+    summary:
+      'Video Tools, your own overlay font and size, and recording fixes.',
+    groups: [
+      {
+        heading: 'Video Tools',
+        items: [
+          'Stitch is now Video Tools: a film button that is always in the top bar.',
+          'Combine clips into one video, compress it to a smaller size for uploading, or compress one video by itself. Each quality shows the size it will make.',
+          'A combine can be cancelled, and Clipper remembers the quality you picked last.',
+        ],
+      },
+      {
+        heading: 'Overlay',
+        items: [
+          'Use your own font for the video overlay: Settings > Overlay > Font > Import font (.ttf, .otf, .ttc, .woff, .woff2).',
+          'Choose the overlay text size, and see a preview drawn exactly as the video will show it.',
+          'The overlay text sits in the middle of its box, and the box runs right to the edge of the video.',
+        ],
+      },
+      {
+        heading: 'Fixes',
+        items: [
+          'Recording at 2.5x or 4x widescreen, or at 2x with widescreen off, made no video on Linux. It works now.',
+          'Opening an edgeguard (or any clip that is not a combo) plays that clip in the replay player, instead of showing the whole game.',
+        ],
+      },
+    ],
+  },
+  {
     version: '3.0.0',
     date: '2026-11-13',
     summary:

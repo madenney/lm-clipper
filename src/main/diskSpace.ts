@@ -74,6 +74,9 @@ const EFB_MULTIPLIER: Record<number, number> = {
   6: 3,
   7: 4,
   8: 5,
+  9: 6,
+  10: 7,
+  11: 8,
 }
 export const efbMultiplier = (resolution: number): number =>
   EFB_MULTIPLIER[resolution] ?? 3
@@ -85,6 +88,25 @@ export type DumpPlan = {
   bitrateKbps?: number
 }
 export const NATIVE_RESOLUTION = 2
+
+/**
+ * The width of Dolphin's dump for a recording, in pixels: the height (528 x the
+ * resolution multiplier) times the picture's shape, rounded UP. 16:9 with the
+ * widescreen code, Melee's own 73:60 without. Measured on the Linux Playback
+ * build at every multiplier from 1x to 5x, both shapes (2026-11-15):
+ * 939, 1408, 1878, 2347, 2816, 3755, 4694 wide; 643, 964, 1285, 1606, 1928,
+ * 2570, 3212 without. Null for the window-sized settings (0, 1).
+ */
+export const dumpWidthFor = (
+  config: Pick<ConfigInterface, 'resolution' | 'widescreen'>,
+): number | null => {
+  const m = EFB_MULTIPLIER[config.resolution]
+  if (!m) return null
+  const height = 528 * m
+  return Math.ceil(
+    config.widescreen !== false ? (height * 16) / 9 : (height * 73) / 60,
+  )
+}
 export const DRAFT_MPEG4_KBPS_NATIVE = 40000
 export const DRAFT_MPEG4_KBPS = 150000
 /**
@@ -148,7 +170,15 @@ export const dumpPlanFor = (
   if (native) return { dumpCodec: 'ffv1' }
   // Fast lossless is UT Video, which Windows Playback cannot encode (above):
   // there "Fast" records high-bitrate MPEG-4 (WINDOWS_AUTO_PLAN).
-  return windows ? WINDOWS_AUTO_PLAN : { dumpCodec: 'utvideo' }
+  if (windows) return WINDOWS_AUTO_PLAN
+  // UT Video cannot open an odd width ("Could not open codec": Dolphin exits 0
+  // with no video). Native is one such size; so are 2.5x and 4x widescreen and
+  // 2x without widescreen, which recorded nothing until this was checked
+  // (2026-11-15). Those record as Windows does: MPEG-4 at 150 Mb/s (FFV1 there
+  // was lossless but slow, a 4 s clip at 4x took 112 s; owner's choice).
+  const width = dumpWidthFor(config)
+  if (width !== null && width % 2 === 1) return WINDOWS_AUTO_PLAN
+  return { dumpCodec: 'utvideo' }
 }
 
 /** Bytes per minute of Dolphin's video dump for this config. */

@@ -15,6 +15,8 @@ export const config = {
   overlayEnabled: false,
   overlayPattern: '{date} {time} - {source}',
   overlayPosition: 'bottom-left' as const,
+  overlayFont: '',
+  overlayFontSize: 24,
   overlaySourceRules: [
     {
       id: 'netplay',

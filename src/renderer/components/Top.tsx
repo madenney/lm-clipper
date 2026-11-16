@@ -25,7 +25,7 @@ type TopProps = {
   config: ConfigInterface
   setConfig: Dispatch<SetStateAction<ConfigInterface | null>>
   onRunSetupWizard?: () => void
-  /** Play / Record / Stitch and their options: the bar's left side. */
+  /** Play / Record / Video Tools and their options: the bar's left side. */
   actions?: ReactNode
   /** Small buttons just before Settings (the console). */
   trailing?: ReactNode

@@ -5,9 +5,9 @@
 
 Paused 2026-09-23, resumed at the user's request on 2026-09-29. Implementation is
 merged into main on 2026-10-03 at the user's request (it was on branch `wip/clipper-database`). The website side
-(`/api/clipper`) is live; the Clipper side is not released yet.
+(`/api/clipper`) is live; the Clipper side was released in 3.0.0 on 2026-11-13 (the sections below are the build history, written before that).
 
-## Direct snapshot downloads — 2026-10-17 (Clipper v3, unreleased; website/database not deployed)
+## Direct snapshot downloads — 2026-10-17 (written before the release; all of it is live and in Clipper 3.0.0)
 
 Find replays above 24 games, and lists of more than 200 games (ticked games, clips'
 games, "Download again"), no longer wait for a server bundle: `src/main/directDownload.ts`

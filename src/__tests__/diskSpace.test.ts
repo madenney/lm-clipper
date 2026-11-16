@@ -21,6 +21,7 @@ import {
   dumpCodecProblem,
   dumpCodecsAvailable,
   dumpPlanFor,
+  dumpWidthFor,
   estimateRecordingDiskBytes,
   isDiskFullError,
   isDiskFullText,
@@ -63,13 +64,19 @@ describe('dump rates', () => {
   })
 
   it('scales by pixel count, and native FFV1 is small', () => {
-    // 4x = (4/3)^2 of 3x.
-    expect(dumpBytesPerMin(cfg({ resolution: 7 })) / GB).toBeCloseTo(
-      9.5 * (16 / 9),
+    // 5x = (5/3)^2 of 3x.
+    expect(dumpBytesPerMin(cfg({ resolution: 8 })) / GB).toBeCloseTo(
+      9.5 * (25 / 9),
+    )
+    // 4x is an odd width (3755), so it is MPEG-4 at 150 Mb/s.
+    expect(dumpBytesPerMin(cfg({ resolution: 7 }), false)).toBe(
+      (150000 * 1000 * 60) / 8,
     )
     // native is FFV1 (utvideo needs an even width): a quarter of 2x.
     expect(dumpBytesPerMin(cfg({ resolution: 2 })) / GB).toBeCloseTo(0.95)
-    const between = dumpBytesPerMin(cfg({ resolution: 5 })) / GB
+    // 2.5x without widescreen (1606 wide, even: UT Video).
+    const between =
+      dumpBytesPerMin(cfg({ resolution: 5, widescreen: false }), false) / GB
     expect(between).toBeGreaterThan(3.1)
     expect(between).toBeLessThan(9.5)
   })
@@ -86,6 +93,63 @@ describe('dump codec per platform', () => {
   it('Linux keeps UT Video above native, FFV1 at native', () => {
     expect(dumpPlanFor(cfg({ resolution: 4 }), false).dumpCodec).toBe('utvideo')
     expect(dumpPlanFor(cfg({ resolution: 2 }), false).dumpCodec).toBe('ffv1')
+  })
+
+  it('knows the width Dolphin dumps at every resolution (measured)', () => {
+    const widths = (widescreen: boolean) =>
+      [2, 3, 4, 5, 6, 7, 8].map((resolution) =>
+        dumpWidthFor({ resolution, widescreen }),
+      )
+    expect(widths(true)).toEqual([939, 1408, 1878, 2347, 2816, 3755, 4694])
+    expect(widths(false)).toEqual([643, 964, 1285, 1606, 1928, 2570, 3212])
+    expect(dumpWidthFor({ resolution: 9, widescreen: true })).toBe(5632)
+    expect(dumpWidthFor({ resolution: 0, widescreen: true })).toBeNull()
+  })
+
+  it('never asks UT Video for an odd width (it records nothing)', () => {
+    const codec = (resolution: number, widescreen: boolean) =>
+      dumpPlanFor(cfg({ resolution, widescreen }), false).dumpCodec
+    // Widescreen: 1x, 2.5x, 4x and 7x are odd. Without: 1x, 2x, 6x and 7x.
+    expect([2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map((r) => codec(r, true))).toEqual(
+      [
+        'ffv1',
+        'utvideo',
+        'utvideo',
+        'mpeg4',
+        'utvideo',
+        'mpeg4',
+        'utvideo',
+        'utvideo',
+        'mpeg4',
+        'utvideo',
+      ],
+    )
+    expect(
+      [2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map((r) => codec(r, false)),
+    ).toEqual([
+      'ffv1',
+      'utvideo',
+      'mpeg4',
+      'utvideo',
+      'utvideo',
+      'utvideo',
+      'utvideo',
+      'mpeg4',
+      'mpeg4',
+      'utvideo',
+    ])
+    // Whatever the tables above say: no UT Video plan has an odd width.
+    const oddUtVideo: string[] = []
+    for (let resolution = 2; resolution <= 11; resolution += 1)
+      for (const widescreen of [true, false]) {
+        const plan = dumpPlanFor(cfg({ resolution, widescreen }), false)
+        const width = dumpWidthFor({ resolution, widescreen }) ?? 0
+        if (plan.dumpCodec === 'utvideo' && width % 2 === 1)
+          oddUtVideo.push(`${resolution}/${widescreen}`)
+      }
+    expect(oddUtVideo).toEqual([])
+    // Windows records MPEG-4 above native, which takes any width.
+    expect(dumpPlanFor(cfg({ resolution: 7 }), true).dumpCodec).toBe('mpeg4')
   })
 
   it('REGRESSION: Windows never picks a codec its Dolphin lacks (UT Video wrote no clips at all)', () => {

@@ -49,8 +49,9 @@ detections       cached detector output per game
   PRIMARY KEY (gameId, detector, version, paramsKey)
 ```
 
-(Phase 3's `replays` table becomes `games` + `paths`; it is unreleased, so no
-migration is needed.)
+(Phase 3's `replays` table became `games` + `paths` before the release, so no migration was
+needed then. Since 3.0.0 (2026-11-13) the library schema is on users' disks: any further change
+needs a migration.)
 
 **Import** looks each file up by path + size + mtime. Known file: copy its
 header into the project, no parse. Unknown: parse the header as today and record

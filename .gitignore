@@ -35,7 +35,6 @@ ffmpeg/*
 # Dev artifacts
 build/
 test_replays/
-"[object Object]"
 TODO.md
 release/app/slpz
 

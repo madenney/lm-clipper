@@ -1,5 +1,5 @@
 import { ReactNode } from 'react'
-import { FaPlay, FaCircle, FaLayerGroup, FaFolderOpen } from 'react-icons/fa'
+import { FaPlay, FaCircle, FaFilm, FaFolderOpen } from 'react-icons/fa'
 
 import '../styles/ActionBar.css'
 import '../styles/TopBar.css'
@@ -16,13 +16,13 @@ type Props = {
   /** The recording's progress line ("recording 2/3 · 40%", "Merging videos", ...). */
   progress: ReactNode
   showSpinner: boolean
-  canStitch: boolean
   onPlay: () => void
   onRecord: () => void
   onStopPlayback: () => void
   onStopRecording: () => void
   onCancelRecording: () => void
-  onStitch: () => void
+  /** Open Video Tools (combine recorded clips, compress a video). */
+  onVideoTools: () => void
   /** Open the folder recorded clips are written to. */
   onOpenOutput: () => void
   /** The recording options popover. */
@@ -32,9 +32,10 @@ type Props = {
 }
 
 /**
- * Play, Record and Stitch, with what is selected: the top bar's left side (these
- * used to be the bottom bar). Record is the filled one. While recording, the same
- * place shows the progress with Stop and Cancel.
+ * Play and Record, with what is selected, then what happens to the recordings
+ * (the output folder and Video Tools): the top bar's left side. Record is the
+ * filled one. While recording, the same place shows the progress with Stop and
+ * Cancel.
  */
 export default function ActionBar({
   selectedCount,
@@ -45,13 +46,12 @@ export default function ActionBar({
   stopping,
   progress,
   showSpinner,
-  canStitch,
   onPlay,
   onRecord,
   onStopPlayback,
   onStopRecording,
   onCancelRecording,
-  onStitch,
+  onVideoTools,
   onOpenOutput,
   options,
   extras,
@@ -149,20 +149,20 @@ export default function ActionBar({
             <FaFolderOpen />
           </button>
         </Tooltip>
+        {/* Always here, clips or not: a button that comes and goes is one
+            nobody finds. With nothing recorded the window says so. */}
+        <Tooltip text="Video Tools: combine clips into one video, or compress a video">
+          <button
+            type="button"
+            className="tb tb--icon"
+            onClick={onVideoTools}
+            aria-label="Video Tools"
+          >
+            <FaFilm />
+          </button>
+        </Tooltip>
         {options}
         {extras}
-        {canStitch && (
-          <Tooltip text="Stitch clips together">
-            <button
-              type="button"
-              className="tb tb--icon"
-              onClick={onStitch}
-              aria-label="Stitch"
-            >
-              <FaLayerGroup />
-            </button>
-          </Tooltip>
-        )}
       </div>
     </div>
   )

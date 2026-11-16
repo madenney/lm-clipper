@@ -1,6 +1,6 @@
 # Integrated Lunar Database
 
-**Status (2026-11-10): built and on main; Clipper v3 is not released yet.** The
+**Status (2026-11-14): released in Clipper 3.0.0 on 2026-11-13; the wire shapes below are now a compatibility contract.** The
 design notes below are the original plan. Where they differ from the code, the
 table here is right. History and how it was built:
 [handoff](database-integration-handoff.md).

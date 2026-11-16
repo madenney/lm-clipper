@@ -25,6 +25,9 @@ function* walk(dir: string, rel = ''): Generator<string> {
     if (entry.isDirectory()) {
       // The private folder and its public stand-in are not part of the scan.
       if (relPath === 'src/owner' || relPath === 'src/owner-off') continue
+      // The dev build's output (git-ignored, never published) holds the whole
+      // dev app, private folder included.
+      if (relPath === '.erb/dll') continue
       if (SKIP_DIRS.has(entry.name)) continue
       yield* walk(path.join(dir, entry.name), relPath)
     } else if (TEXT_EXT.test(entry.name)) {

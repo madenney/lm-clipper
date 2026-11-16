@@ -25,7 +25,7 @@ Everyday paths:
 - [ ] Open, open recent, close, and switch projects quickly back and forth.
 - [ ] Player-name and connect-code dropdowns fill in after import.
 - [ ] Add, edit, remove, reorder filters; Run, Stop, Resume, dismiss Resume.
-- [ ] Play and Record clips; stitch clips; the tray pages through results.
+- [ ] Play and Record clips; Video Tools (combine clips, compress one video, cancel a long one); the tray pages through results.
 - [ ] **Save As right after a run:** open the copy; it has the new results
       (before, the copy could miss changes still in the WAL).
 - [ ] Settings → Reset App, and the dev switcher's "new user" / "restore my settings".

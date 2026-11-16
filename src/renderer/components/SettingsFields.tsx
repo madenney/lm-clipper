@@ -1,4 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
+import {
+  OVERLAY_FONT_SIZE_MAX,
+  OVERLAY_FONT_SIZE_MIN,
+} from '../../lib/overlayStyle'
 
 /**
  * Settings text boxes that commit when the user is done typing, not on every keystroke. A path
@@ -84,6 +88,7 @@ export const INT_LIMITS: Record<string, [number, number]> = {
   slice: [1, 999999],
   bitrateKbps: [1, 1_000_000],
   crf: [0, 51],
+  overlayFontSize: [OVERLAY_FONT_SIZE_MIN, OVERLAY_FONT_SIZE_MAX],
 }
 
 /** The number a typed draft means for setting `id`, clamped to its range, or null when it is not a

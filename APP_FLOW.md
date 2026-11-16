@@ -60,7 +60,7 @@ Download games, Pre-parsed moments and Downloads.
 Downloads (named Transfers until 2026-10-04); `DatabasePanel.tsx`, hosted by `DatabaseDock.tsx` at the app root and
 opened by every Lunar Database button and Add replays) is a tool the user opens
 by hand. It never appears on its own and is not in `DEV_SCREENS`. On main since
-2026-10-03, not yet released; see `docs/database-integration-handoff.md`.
+2026-10-03, released in 3.0.0 (2026-11-13); see `docs/database-integration-handoff.md`.
 
 ---
 

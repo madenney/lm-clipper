@@ -408,6 +408,11 @@ export interface ConfigInterface {
   overlayEnabled: boolean
   overlayPattern: string
   overlayPosition: OverlayPosition
+  // An imported font's file name in Clipper's overlay-fonts folder; '' or
+  // missing = the bundled font (src/main/overlayFonts.ts).
+  overlayFont?: string
+  // Overlay text size in pixels on a 1080p video (lib/overlayStyle.ts); 24 when missing.
+  overlayFontSize?: number
   overlaySourceRules: OverlaySourceRule[]
   fixedCamera: boolean
   noElectricSFX: boolean
@@ -720,16 +725,24 @@ export interface SavedCustomFilter {
   nativeType?: string
 }
 
-// A sub-output folder that holds enough finished clips to stitch. `ext` is the
-// chosen clip extension for this folder ('.mp4' or '.avi'); `clips` are the
-// clip filenames (that extension only, intermediates/`final` excluded), sorted.
-export interface StitchFolder {
-  path: string
+/** A font imported for the video overlay: its file in Clipper's fonts folder and the name shown. */
+export interface OverlayFont {
+  file: string
   name: string
-  ext: string
+}
+
+// A folder under the output root (or the root itself) that holds videos, as
+// Video Tools lists it. `clips` are recorded clips; `finished` are results (a
+// `final`, a `stitched`, a compressed copy), which "select all" leaves alone.
+export interface VideoFolder {
+  path: string
+  // Path below the output root with forward slashes; '' for the root itself.
+  name: string
+  isRoot: boolean
   clips: string[]
-  // Byte size per clip, keyed by clip filename. Drives the output-size estimate
-  // and lets the modal detect on-disk changes (files added/removed/resized).
+  finished: string[]
+  // Byte size per file name: the size estimate, and how the window notices a
+  // file that changed on disk.
   sizes: Record<string, number>
 }
 

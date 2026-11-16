@@ -23,6 +23,13 @@ import {
   OverlayPosition,
 } from '../../constants/types'
 import { resolveSource } from '../../lib/overlayTokens'
+import { OverlayFontRow, OverlayPreviewImage } from './OverlayFont'
+import {
+  OVERLAY_FONT_SIZE_DEFAULT,
+  OVERLAY_FONT_SIZE_MAX,
+  OVERLAY_FONT_SIZE_MIN,
+  clampOverlayFontSize,
+} from '../../lib/overlayStyle'
 import { hasActiveBranches, FILES_TABLE } from '../../lib/filterGraph'
 import { ArchiveContext } from '../context/AppContext'
 import ipcBridge from '../ipcBridge'
@@ -869,7 +876,14 @@ export default function SettingsModal({
 
             <div className="pattern-preview overlay-preview">
               <span className="pattern-preview-label">Preview:</span>
-              <div className="overlay-preview-box">{preview || ' '}</div>
+              <OverlayPreviewImage
+                text={preview}
+                font={config.overlayFont || ''}
+                size={clampOverlayFontSize(config.overlayFontSize)}
+                fallback={
+                  <div className="overlay-preview-box">{preview || ' '}</div>
+                }
+              />
             </div>
 
             <div className="pattern-editor-row">
@@ -893,6 +907,29 @@ export default function SettingsModal({
                   </option>
                 ))}
               </select>
+            </div>
+
+            <OverlayFontRow
+              value={config.overlayFont || ''}
+              onChange={(file) => handleChange('overlayFont', file)}
+            />
+
+            <div className="pattern-editor-row">
+              <label className="settings-item-label" htmlFor="overlayFontSize">
+                Size
+              </label>
+              <div className="overlay-size-controls">
+                <IntField
+                  id="overlayFontSize"
+                  value={clampOverlayFontSize(config.overlayFontSize)}
+                  onCommit={(n) => handleChange('overlayFontSize', n)}
+                />
+                <span className="settings-item-desc">
+                  pixels on a 1080p video ({OVERLAY_FONT_SIZE_MIN} to{' '}
+                  {OVERLAY_FONT_SIZE_MAX}; {OVERLAY_FONT_SIZE_DEFAULT} is the
+                  default). Text too long for the video is made smaller to fit.
+                </span>
+              </div>
             </div>
 
             <div className="overlay-rules">

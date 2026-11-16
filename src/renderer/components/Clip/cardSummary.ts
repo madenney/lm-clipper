@@ -317,7 +317,7 @@ export function summarizeClip(data: ClipData): CardSummary {
   }
 
   // A game (the Replays step, Full games) or any other clip: the players lead.
-  const isGame = 'lastFrame' in data && !('comboer' in data && data.comboer)
+  const isGame = isWholeGame(data)
   const date = isGame
     ? formatGameDate((data as { startedAt?: number }).startedAt)
     : ''
@@ -333,4 +333,16 @@ export function summarizeClip(data: ClipData): CardSummary {
     names: '',
     label: [matchup, date, tail].filter(Boolean).join('\n'),
   }
+}
+
+/**
+ * A whole game (a row of the Replays step, Full games), not a clip of one. A
+ * clip of any kind (combo, edgeguard, highlight, pressure…) names who did it.
+ * The grid card and the single view both decide with this.
+ */
+export function isWholeGame(data: object): boolean {
+  return (
+    'lastFrame' in data &&
+    !('comboer' in data && (data as { comboer?: unknown }).comboer)
+  )
 }
