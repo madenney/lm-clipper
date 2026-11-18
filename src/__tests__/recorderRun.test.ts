@@ -21,6 +21,7 @@ jest.mock('@slippi/slippi-js', () => ({
   SlippiGame: jest.fn().mockImplementation(() => ({
     getMetadata: () => ({ lastFrame: 600 }),
     getLatestFrame: () => ({ frame: 600 }),
+    getGameEnd: () => ({ gameEndMethod: 2 }),
   })),
 }))
 jest.mock('slippi-dolphin-runner', () => {
@@ -39,7 +40,11 @@ import fs from 'fs'
 import os from 'os'
 import path from 'path'
 import { execFileSync, spawnSync } from 'child_process'
-import slpToVideo, { resetHideNotice } from '../main/slpToVideo'
+import slpToVideo, {
+  GAME_ENDING_FRAMES,
+  GAME_ENDING_TAIL_MS,
+  resetHideNotice,
+} from '../main/slpToVideo'
 
 const hasFfmpeg = spawnSync('ffmpeg', ['-version']).status === 0
 const describeFfmpeg = hasFfmpeg ? describe : describe.skip
@@ -128,6 +133,9 @@ const scratchLeft = () =>
     : []
 
 describeFfmpeg('with ffmpeg', () => {
+  // Real ffmpeg encodes: slow when the whole suite runs at once.
+  jest.setTimeout(30_000)
+
   it('records into scratch, moves only the final clip out, cleans scratch', async () => {
     mockRecord.mockImplementation(fakeDump)
     mockHeal.mockRejectedValue(
@@ -148,6 +156,52 @@ describeFfmpeg('with ffmpeg', () => {
     for (const call of mockRecord.mock.calls)
       expect(call[2].outDir.startsWith(scratchParent)).toBe(true)
     expect(scratchLeft()).toEqual([])
+  })
+
+  it('Include the GAME! ending: records past the last frame and cuts the clip after "GAME!"', async () => {
+    // Dolphin runs on into "Waiting for game": a dump well past the ending.
+    const longAvi = path.join(root, 'long.avi')
+    const longWav = path.join(root, 'long.wav')
+    execFileSync('ffmpeg', [
+      '-loglevel', 'error', '-f', 'lavfi',
+      '-i', 'testsrc=size=320x180:rate=60:duration=15', '-c:v', 'utvideo', longAvi,
+    ]) // prettier-ignore
+    execFileSync('ffmpeg', [
+      '-loglevel', 'error', '-f', 'lavfi',
+      '-i', 'sine=sample_rate=48000:duration=15', '-ac', '2', longWav,
+    ]) // prettier-ignore
+    mockRecord.mockImplementation(async (_p: unknown, _slp: string, o: any) => {
+      const avi = path.join(o.outDir, `${o.baseName}.avi`)
+      const wav = path.join(o.outDir, `${o.baseName}.wav`)
+      fs.copyFileSync(longAvi, avi)
+      fs.copyFileSync(longWav, wav)
+      return { avi, wav, lastFrame: 600, stalled: false, diagnostic: null }
+    })
+    const { job, outputPath } = run({ clips: 1, includeGameEnding: true })
+    await job.promise
+    const o = mockRecord.mock.calls[0][2]
+    expect(o.ignoreGameEnd).toBe(true)
+    expect(o.afterEndMs).toBe(GAME_ENDING_TAIL_MS)
+    expect(o.lastFrame).toBe(600)
+    expect(o.endFrame).toBeGreaterThan(600 + GAME_ENDING_FRAMES)
+    // Frames 40 (the lead-in) to 600 + the ending, less the 1 s lead-in.
+    const sec = Number(
+      execFileSync('ffprobe', [
+        '-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0',
+        path.join(outputPath, '0001.mp4'),
+      ]).toString(),
+    ) // prettier-ignore
+    expect(sec).toBeCloseTo((600 + GAME_ENDING_FRAMES - 40) / 60 - 1, 1)
+  })
+
+  it('without it: the clip stops at the last frame, as before', async () => {
+    mockRecord.mockImplementation(fakeDump)
+    const { job } = run({ clips: 1 })
+    await job.promise
+    const o = mockRecord.mock.calls[0][2]
+    expect(o.ignoreGameEnd).toBeUndefined()
+    expect(o.afterEndMs).toBeUndefined()
+    expect(o.endFrame).toBe(599)
   })
 })
 

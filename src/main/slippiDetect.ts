@@ -160,6 +160,15 @@ export async function detectSlippiReplayDir(): Promise<{
   dir: string
   count: number
 } | null> {
+  const dir = slippiReplayDir()
+  if (!dir) return null
+  const count = await countReplays(dir, REPLAY_COUNT_CAP)
+  if (count === 0) return null
+  return { dir, count }
+}
+
+/** The folder the Slippi Launcher saves replays to (its setting, else the usual places), or null. No counting. */
+export function slippiReplayDir(): string | null {
   const appData = app.getPath('appData')
   let dir: string | null = null
 
@@ -192,10 +201,7 @@ export async function detectSlippiReplayDir(): Promise<{
     }
   }
 
-  if (!dir) return null
-  const count = await countReplays(dir, REPLAY_COUNT_CAP)
-  if (count === 0) return null
-  return { dir, count }
+  return dir
 }
 
 // Read the Melee ISO path the user already configured in the Slippi Launcher

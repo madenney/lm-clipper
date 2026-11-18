@@ -399,6 +399,10 @@ export interface ConfigInterface {
   // The app version whose "What's new" the user has seen (shown once per update;
   // a fresh install starts at its own version, so a new user never sees old notes).
   lastSeenVersion?: string
+  // Import new games from the Slippi folder into the open project by themselves (main/slippiAutoImport.ts).
+  autoImportSlippi?: boolean
+  // Games newer than this (ms) are new to auto-import: set when it is turned on, moved on as games come in.
+  autoImportSlippiSince?: number | null
   hideHud: boolean
   gameMusic: boolean
   enableChants: boolean
@@ -434,6 +438,7 @@ export interface ConfigInterface {
   // draft = lossy mpeg4. Replaces fastDraft (read when this is unset).
   recordingFormat?: 'auto' | 'lossless' | 'draft'
   muteRecordings?: boolean // recording Dolphins silent (the dump keeps its audio)
+  includeGameEnding?: boolean // clips that reach the game's end record on through the last KO and "GAME!" (slpToVideo.ts)
   // Recording Dolphins off screen (runner `hide`: Windows hidden desktop, Linux
   // last workspace; macOS: small background windows only). Default on. Replaces
   // showRecordingDolphin (true there = false here), migrated on load.

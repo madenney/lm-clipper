@@ -27,6 +27,9 @@ import {
   buildProfileWithFallback,
   concatLine,
   encodeThreadsFor,
+  GAME_ENDING_FRAMES,
+  GAME_ENDING_REACH_FRAMES,
+  gameEndingFor,
   getEffectiveFFMPEGPath,
   listConcatInputs,
   playbackProfileOptions,
@@ -73,6 +76,38 @@ describe('resolveFilenamePattern', () => {
   })
 })
 
+describe("the game's ending (Include the GAME! Ending)", () => {
+  const on = { includeGameEnding: true }
+  it('is off by default, and needs the game length', () => {
+    expect(gameEndingFor({}, 0, 6805, 2)).toBeNull()
+    expect(gameEndingFor({ includeGameEnding: false }, 0, 6805, 2)).toBeNull()
+    expect(gameEndingFor(on, 0, undefined, 2)).toBeNull()
+  })
+  it('runs a clip that reaches the end of the game on through the ending', () => {
+    const e = gameEndingFor(on, 0, 6805, 2)!
+    expect(e.clipEndFrame).toBe(6805 + GAME_ENDING_FRAMES)
+    expect(e.recordEndFrame).toBeGreaterThan(e.clipEndFrame)
+    expect(e.afterEndMs).toBeGreaterThan(0)
+    expect(e.afterEndMs).toBeLessThan(30_000) // the runner's frame-stall window
+    expect(
+      gameEndingFor(on, 6805 - GAME_ENDING_REACH_FRAMES, 6805, 2),
+    ).not.toBeNull()
+  })
+  it('only for a game that ended on stocks or time: a quit-out has no "GAME!"', () => {
+    expect(gameEndingFor(on, 0, 6805, 1)).not.toBeNull()
+    expect(gameEndingFor(on, 0, 6805, 3)).not.toBeNull()
+    expect(gameEndingFor(on, 0, 6805, 7)).toBeNull()
+    expect(gameEndingFor(on, 0, 6805, null)).toBeNull()
+    expect(gameEndingFor(on, 0, 6805, undefined)).toBeNull()
+  })
+  it('leaves a clip that ends earlier in the game alone', () => {
+    expect(
+      gameEndingFor(on, 6805 - GAME_ENDING_REACH_FRAMES - 1, 6805, 2),
+    ).toBeNull()
+    expect(gameEndingFor(on, 1200, 6805, 2)).toBeNull()
+  })
+})
+
 describe('final encode arguments', () => {
   const base = {
     config: config(),
@@ -82,6 +117,12 @@ describe('final encode arguments', () => {
     output: '/s/final.mp4',
     threads: 4,
   }
+
+  it('cuts to durationSec only when given (the game ending runs into "Waiting for game")', () => {
+    expect(buildFinalEncodeArgs(base)).not.toContain('-t')
+    const a = buildFinalEncodeArgs({ ...base, durationSec: 4.5 })
+    expect(a.slice(-3)).toEqual(['-t', '4.500', '/s/final.mp4'])
+  })
 
   it('is one pass: dump + wav in, 1 s lead-in trimmed on both, AAC out', () => {
     const a = buildFinalEncodeArgs(base)
@@ -329,6 +370,12 @@ describeFfmpeg('the single encode pass on real footage', () => {
     expect(durationOf(out)).toBeGreaterThan(1.9)
     expect(durationOf(out)).toBeLessThan(2.15)
     expect(hasAudio(out)).toBe(true)
+  })
+
+  it('stops at durationSec', () => {
+    const out = encode({ durationSec: 1.2 })
+    expect(durationOf(out)).toBeGreaterThan(1.1)
+    expect(durationOf(out)).toBeLessThan(1.35)
   })
 
   it('composites the overlay in the same pass', () => {

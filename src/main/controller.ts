@@ -13,7 +13,12 @@ import { dialogHub, askDialog } from './askRenderer'
 import { getWorkerExecArgv } from '../lib'
 
 import { ensureProjectExt, projectDisplayName } from './projectFile'
-import { detectPlaybackDolphin, detectMeleeIso } from './slippiDetect'
+import {
+  detectPlaybackDolphin,
+  detectMeleeIso,
+  slippiReplayDir,
+} from './slippiDetect'
+import { SlippiAutoImport } from './slippiAutoImport'
 import {
   detectHardware,
   detectHardwareSync,
@@ -179,6 +184,7 @@ export default class Controller implements ControllerCore {
   // Managers
   consoleManager: ConsoleManager
   importManager: ImportManager
+  slippiAutoImport: SlippiAutoImport
   filterExecutor: FilterExecutor
   videoManager: VideoManager
   clipManager: ClipManager
@@ -322,6 +328,17 @@ export default class Controller implements ControllerCore {
       autoCreateUntitledProject: () => this.autoCreateUntitledProject(),
       consoleManager: this.consoleManager,
     })
+
+    // New games in the Slippi folder into the open project (Settings > Project; main/slippiAutoImport.ts).
+    this.slippiAutoImport = new SlippiAutoImport({
+      getConfig: () => this.config,
+      saveConfig: () => this.saveConfig(),
+      projectPath: () => this.archive?.path ?? null,
+      slippiDir: () => slippiReplayDir(),
+      importFiles: (files) => this.importManager.enqueueImport(files),
+      log: (message) => this.consoleManager.pushConsoleLog('info', message),
+    })
+    this.slippiAutoImport.start()
 
     // Decoded .slpz copies for Dolphin from earlier sessions (main/slpCache.ts).
     pruneSlpCache().catch(() => {})
@@ -539,6 +556,7 @@ export default class Controller implements ControllerCore {
     this.filterExecutor.cleanup()
 
     // Abort running import
+    this.slippiAutoImport?.stop()
     this.importManager.cleanup()
 
     // Kill name count worker

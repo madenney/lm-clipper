@@ -6,6 +6,8 @@ export const config = {
   projectName: '',
   hideParserNote: false,
   hideRunHint: false,
+  autoImportSlippi: false,
+  includeGameEnding: false,
   hideHud: false,
   gameMusic: false,
   enableChants: false,

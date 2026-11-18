@@ -1,7 +1,7 @@
 {
   "name": "lm-clipper",
   "description": "An application for creating melee clips",
-  "version": "3.0.1",
+  "version": "3.0.2",
   "license": "GPL-3.0-only",
   "engines": {
     "node": ">=22.15"
@@ -130,7 +130,7 @@
     "lodash": "^4.17.21",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "slippi-dolphin-runner": "github:madenney/dolphin_runner#v0.5.8",
+    "slippi-dolphin-runner": "github:madenney/dolphin_runner#v0.5.9",
     "yauzl": "^3.4.0"
   },
   "devDependencies": {

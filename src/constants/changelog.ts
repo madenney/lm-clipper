@@ -22,6 +22,21 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '3.0.2',
+    date: '2026-11-18',
+    summary:
+      'New Slippi games come in by themselves, and clips can end on the GAME! screen.',
+    groups: [
+      {
+        heading: 'New',
+        items: [
+          'Import new Slippi games automatically: turn it on in Settings > Project, and every game you play is added to the open project as soon as it ends.',
+          'Include the GAME! ending: turn it on in Settings > Recording, and a clip that ends at the end of its game keeps going through the last KO and the GAME! screen.',
+        ],
+      },
+    ],
+  },
+  {
     version: '3.0.1',
     date: '2026-11-15',
     summary:

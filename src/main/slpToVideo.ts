@@ -285,6 +285,60 @@ const buildOverlayFilter = (normalizeTo1080: boolean, ovr: number) =>
 const LEAD_TRIM_SEC = 1
 
 /**
+ * The game's own ending, recorded past the replay's last frame (Settings > Recording > "Include the GAME! Ending").
+ * Playback keeps emulating after the last input: the last KO, then the "GAME!" splash, for GAME_ENDING_FRAMES, then
+ * Slippi's "Waiting for game" screen, which the final encode cuts off. Measured on the Windows rig (2026-11-17).
+ */
+export const GAME_ENDING_FRAMES = 113
+/** A clip ending this close to the game's last frame runs on through the ending (a combo that takes the last stock). */
+export const GAME_ENDING_REACH_FRAMES = 120
+/**
+ * Wall time Dolphin records on after the last frame (dolphin_runner 0.5.9 `afterEndMs`; it prints no frames meanwhile,
+ * so this must stay under the runner's 30 s frame-stall window). Recording runs at unlimited speed, so this is more
+ * than the ending needs; the final encode keeps only GAME_ENDING_FRAMES of it.
+ */
+export const GAME_ENDING_TAIL_MS = 5000
+
+/**
+ * Game-end codes (the .slp's Game End event, slippi-js GameEndMethod) that show an ending: TIME (1), GAME (2) and
+ * RESOLVED (3, older replays). A NO_CONTEST (7, a quit-out) or a game with no end event goes straight to "Waiting for
+ * game": nothing to add.
+ */
+const ENDINGS_WITH_SPLASH = new Set([1, 2, 3])
+
+/**
+ * How a clip records the game's ending, or null when it doesn't: the option is off, the game's length is unknown, the
+ * game did not end on stocks or time (a quit-out has no "GAME!"), or the clip ends more than GAME_ENDING_REACH_FRAMES
+ * before the game does. `clipEndFrame` is where the final clip ends;
+ * `recordEndFrame` is the finite end Dolphin is given (never reached: the tail timer stops it first).
+ */
+export const gameEndingFor = (
+  config: Pick<ConfigInterface, 'includeGameEnding'>,
+  replayEndFrame: number,
+  gameLastFrame: number | undefined,
+  gameEndMethod: number | null | undefined,
+): {
+  clipEndFrame: number
+  recordEndFrame: number
+  afterEndMs: number
+} | null => {
+  if (!config.includeGameEnding || !gameLastFrame || gameLastFrame <= 0)
+    return null
+  if (gameEndMethod == null || !ENDINGS_WITH_SPLASH.has(gameEndMethod))
+    return null
+  if (
+    replayEndFrame > 0 &&
+    replayEndFrame < gameLastFrame - GAME_ENDING_REACH_FRAMES
+  )
+    return null
+  return {
+    clipEndFrame: gameLastFrame + GAME_ENDING_FRAMES,
+    recordEndFrame: gameLastFrame + 60 * 60,
+    afterEndMs: GAME_ENDING_TAIL_MS,
+  }
+}
+
+/**
  * The single ffmpeg pass that turns Dolphin's raw dump into the final clip. It
  * replaces three: merge (stream copy of -unmerged.avi + .wav), trim (-ss 1 copy)
  * and the encode. It reads the dump and its WAV directly, drops the 1 s lead-in
@@ -301,6 +355,8 @@ export const buildFinalEncodeArgs = (o: {
   overlayPng: string | null
   output: string
   threads?: number
+  /** Seconds to keep (after the lead-in): set when the dump runs on past what the clip wants (the game's ending). */
+  durationSec?: number
 }): string[] => {
   const { config } = o
   const args = ['-hide_banner', '-y']
@@ -331,6 +387,8 @@ export const buildFinalEncodeArgs = (o: {
   else args.push('-c:a', 'pcm_s16le')
   // anullsrc never ends: stop with the video.
   if (!o.wav) args.push('-shortest')
+  if (o.durationSec && o.durationSec > 0)
+    args.push('-t', o.durationSec.toFixed(3))
   args.push(o.output)
   return args
 }
@@ -698,6 +756,26 @@ const processOneReplay = async (
     logMain('record: cannot determine game length', { path: replay.path })
     return failed(`Cannot determine game length: ${replay.path}`)
   }
+  // The game's ending (the last KO and "GAME!"), when that is on and this clip reaches the end of the game.
+  let ending: ReturnType<typeof gameEndingFor> = null
+  if (config.includeGameEnding) {
+    let gameEndMethod: number | null = null
+    try {
+      gameEndMethod = game.getGameEnd()?.gameEndMethod ?? null
+    } catch {
+      gameEndMethod = null
+    }
+    ending = gameEndingFor(
+      config,
+      replay.endFrame,
+      gameLastFrame,
+      gameEndMethod,
+    )
+  }
+  // What Dolphin must at least dump: an older runner, or a Dolphin that stops at the last frame, gives no ending,
+  // and that clip is still good without it.
+  const footageEndFrame = endFrame
+  if (ending) endFrame = ending.clipEndFrame
 
   const startFrame =
     replay.startFrame - 60 < GAME_START_FRAME
@@ -774,11 +852,15 @@ const processOneReplay = async (
         commPath: path.join(clipScratch, 'comm.json'),
         userDir,
         startFrame,
-        endFrame,
+        endFrame: ending ? ending.recordEndFrame : endFrame,
         ...(gameLastFrame ? { lastFrame: gameLastFrame } : {}),
+        ...(ending
+          ? { ignoreGameEnd: true, afterEndMs: ending.afterEndMs }
+          : {}),
         // A Dolphin that keeps printing frames but never reaches the end isn't
         // a stall; cap the run by the slowest speed its codec can reach.
-        hardTimeoutMs: recordHardTimeoutMs(config, clipFrames),
+        hardTimeoutMs:
+          recordHardTimeoutMs(config, clipFrames) + (ending?.afterEndMs ?? 0),
         onFrame: (current: number) =>
           onFrameProgress?.(
             Math.max(0, Math.min(1, (current - startFrame) / clipFrames)),
@@ -875,7 +957,7 @@ const processOneReplay = async (
   // The dump's real size: which widths Dolphin makes at each resolution decides
   // which dump codecs work (diskSpace.ts dumpWidthFor).
   logMain('record: dump probed', { sec: probe.sec, dims: probe.dims })
-  const expected = clipFrames / 60
+  const expected = Math.max(1, footageEndFrame - startFrame) / 60
   const short = probe.sec < expected * MIN_FOOTAGE_RATIO
   if (result.stalled || short || neverStarted) {
     logMain('record: dump check', {
@@ -981,6 +1063,10 @@ const processOneReplay = async (
     overlayPng: overlayPngPath,
     output: scratchOut,
     threads: encodeThreadsFor(config.numProcesses),
+    // The dump runs on into "Waiting for game": keep the clip, the last KO and "GAME!".
+    ...(ending
+      ? { durationSec: (endFrame - startFrame) / 60 - LEAD_TRIM_SEC }
+      : {}),
   })
   logMain('record: spawning ffmpeg encode', { args: encodeArgs })
   let enc = await runFfmpeg(

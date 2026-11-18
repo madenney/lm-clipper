@@ -1685,6 +1685,15 @@ export const videoConfig = [
     },
   },
   {
+    label: 'Include the GAME! Ending',
+    default: false,
+    id: 'includeGameEnding',
+    type: 'checkbox',
+    category: 'recording',
+    tooltip:
+      'A clip that ends within 2 seconds of the end of its game keeps recording to the end of the game, through the last KO and the "GAME!" splash (about 2 more seconds). Games that ended in a quit-out have no "GAME!" and are left as they are.',
+  },
+  {
     label: 'Mute Recordings',
     default: true,
     id: 'muteRecordings',
@@ -2037,6 +2046,17 @@ export const videoConfig = [
     category: 'project',
     tooltip:
       'Automatically add a Combo Parser and Combo Filter when creating new projects.',
+  },
+  {
+    label: 'Import new Slippi games automatically',
+    default: false,
+    id: 'autoImportSlippi',
+    type: 'checkbox',
+    category: 'project',
+    description:
+      'Games you play go into the open project by themselves, a few seconds after each one ends.',
+    tooltip:
+      'Clipper looks in the folder the Slippi Launcher saves replays to (and its monthly folders) every few seconds and imports each game once it has finished. Only games played after you turn this on, or while Clipper was closed since then. Games already in the project are not added twice.',
   },
   {
     label: 'Enable Filter Branching',
