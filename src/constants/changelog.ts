@@ -22,6 +22,19 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '3.0.3',
+    date: '2026-11-18',
+    summary: 'A fix for importing new Slippi games automatically.',
+    groups: [
+      {
+        heading: 'Fixes',
+        items: [
+          'Import new Slippi games automatically could miss a game that was already being played when another game was imported. It now picks up every game when it ends.',
+        ],
+      },
+    ],
+  },
+  {
     version: '3.0.2',
     date: '2026-11-18',
     summary:

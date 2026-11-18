@@ -38,10 +38,18 @@ export function isFinishedSlp(file: string): boolean {
   }
 }
 
-/** What one scan remembers for the next: files already taken or passed over, by path. */
-export type ScanState = { done: Set<string> }
+/**
+ * What one scan remembers for the next: files already taken or passed over, by path, and the folders that held a game
+ * still being played. Those are always looked in again: a folder's modified time moves when a file is created in it
+ * (NTFS, ext4), not when one is written to, so a game that was already being played when `since` moved past the
+ * folder's time would otherwise never be seen when it ends.
+ */
+export type ScanState = { done: Set<string>; watching: Set<string> }
 
-export const newScanState = (): ScanState => ({ done: new Set() })
+export const newScanState = (): ScanState => ({
+  done: new Set(),
+  watching: new Set(),
+})
 
 /** A game still unfinished after this long is taken anyway (a crash can leave the length at 0). */
 export const ABANDONED_MS = 10 * 60_000
@@ -61,6 +69,7 @@ export function findNewReplays(
 ): { ready: { file: string; mtimeMs: number }[]; waitingSince: number | null } {
   const ready: { file: string; mtimeMs: number }[] = []
   let waitingSince: number | null = null
+  const stillWatching = new Set<string>()
   const look = (folder: string, depth: number) => {
     let entries: fs.Dirent[]
     try {
@@ -72,11 +81,13 @@ export function findNewReplays(
       const p = path.join(folder, e.name)
       if (e.isDirectory()) {
         if (depth > 0) continue
-        // A folder nothing was added to since `since` holds nothing new.
-        try {
-          if (fs.statSync(p).mtimeMs <= since) continue
-        } catch {
-          continue
+        // A folder nothing was added to since `since` holds nothing new (unless a game in it was still being played).
+        if (!state.watching.has(p)) {
+          try {
+            if (fs.statSync(p).mtimeMs <= since) continue
+          } catch {
+            continue
+          }
         }
         look(p, depth + 1)
         continue
@@ -97,6 +108,7 @@ export function findNewReplays(
       if (age < SETTLE_MS || (!isFinishedSlp(p) && age < ABANDONED_MS)) {
         waitingSince =
           waitingSince === null ? mtimeMs : Math.min(waitingSince, mtimeMs)
+        stillWatching.add(folder)
         continue
       }
       state.done.add(p)
@@ -104,6 +116,7 @@ export function findNewReplays(
     }
   }
   look(dir, 0)
+  state.watching = stillWatching
   ready.sort((a, b) => a.mtimeMs - b.mtimeMs)
   return { ready, waitingSince }
 }

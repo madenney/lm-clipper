@@ -90,6 +90,27 @@ describe('findNewReplays', () => {
     expect(findNewReplays(dir, T - 50_000, newScanState(), T).ready).toEqual([])
   })
 
+  it('still finds a game in a monthly folder whose time is older than `since` once it ends (folder times move on create, not write)', () => {
+    const state = newScanState()
+    const live = slp(path.join(dir, '2026-11', 'Game_live.slp'), 0, T - 5000)
+    const folder = path.dirname(live)
+    fs.utimesSync(folder, (T - 60_000) / 1000, (T - 60_000) / 1000) // created a while ago
+    // Seen once while it is played (the folder was new then).
+    expect(findNewReplays(dir, T - 70_000, state, T).waitingSince).toBe(
+      T - 5000,
+    )
+    // `since` has since moved past the folder's time (another game was imported); the game then ends.
+    slp(live, 900, T + 2000)
+    fs.utimesSync(folder, (T - 60_000) / 1000, (T - 60_000) / 1000)
+    expect(
+      findNewReplays(dir, T - 50_000, state, T + 10_000).ready.map(
+        (r) => r.file,
+      ),
+    ).toEqual([live])
+    // Once nothing in it is being played, the folder is skipped by its time again.
+    expect(findNewReplays(dir, T - 50_000, state, T + 20_000).ready).toEqual([])
+  })
+
   it('answers nothing for a folder that is not there', () => {
     expect(
       findNewReplays(path.join(dir, 'nope'), 0, newScanState(), T),
