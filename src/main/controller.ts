@@ -46,7 +46,7 @@ import { defaultLibraryFolder } from './dataLocations'
 import { approveOnce } from './customCodeApproval'
 import { logMain } from './logger'
 
-import { initTelemetry, reportStartupTelemetry } from './telemetry'
+import { initTelemetry, reportStartupTelemetry, track } from './telemetry'
 import { migrateConfigTypes } from './configStore'
 import { startOwnerTools } from '../owner/main'
 
@@ -335,7 +335,11 @@ export default class Controller implements ControllerCore {
       saveConfig: () => this.saveConfig(),
       projectPath: () => this.archive?.path ?? null,
       slippiDir: () => slippiReplayDir(),
-      importFiles: (files) => this.importManager.enqueueImport(files),
+      importFiles: (files) => {
+        // Anonymous usage: auto-import brought in new games (how many, never which).
+        track('feature_used', { feature: 'auto_import', games: files.length })
+        this.importManager.enqueueImport(files)
+      },
       log: (message) => this.consoleManager.pushConsoleLog('info', message),
     })
     this.slippiAutoImport.start()

@@ -11,7 +11,8 @@ import { config as defaultConfig } from '../../constants/defaults'
 import { setFFMPEGPathOverride } from '../slpToVideo'
 import { closeDbAsync, libraryCall } from '../dbAsync'
 import { logMain } from '../logger'
-import { applyUsageConsent, releaseHeldTelemetry } from '../telemetry'
+import { applyUsageConsent, releaseHeldTelemetry, track } from '../telemetry'
+import { settingChange } from '../usageEvents'
 import { TELEMETRY_CONFIG_KEYS } from '../../constants/telemetryEvents'
 import {
   migrateConfigTypes,
@@ -177,6 +178,10 @@ export async function updateConfig(
   if (payload.key === 'ffmpegPath') {
     setFFMPEGPathOverride(payload.value as string)
   }
+  // Anonymous usage: a switch, choice or number in Settings changed (usageEvents.settingChange: never a
+  // folder, a file or text). Sent after the change, so turning usage data off is not reported here.
+  const change = settingChange(payload.key, payload.value)
+  if (change) track('setting_changed', change)
   ctx.saveConfig()
   return reply(event, 'updateConfig', requestId)
 }

@@ -22,6 +22,26 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '3.0.4',
+    date: '2026-11-20',
+    summary: 'A safety update: Clipper now needs an up-to-date Slippi Playback Dolphin.',
+    groups: [
+      {
+        heading: 'Safety',
+        items: [
+          'Clipper no longer plays or records with a Slippi Playback Dolphin older than 3.5.2. Older versions could run harmful code hidden in a replay file. If yours is older, open the Slippi Launcher: it updates Dolphin by itself.',
+          'Invisible and right-to-left characters in player names are left out of video file names, so a name cannot disguise a file.',
+        ],
+      },
+      {
+        heading: 'Changes',
+        items: [
+          'The usage-stats notice has a clear OK button.',
+        ],
+      },
+    ],
+  },
+  {
     version: '3.0.3',
     date: '2026-11-18',
     summary: 'A fix for importing new Slippi games automatically.',

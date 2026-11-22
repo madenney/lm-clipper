@@ -12,6 +12,13 @@ jest.mock('../main/util', () => ({
   getFFMPEGPath: () => 'ffmpeg',
   getAssetPath: (...p: string[]) => `/assets/${p.join('/')}`,
 }))
+// The fake Dolphin here has no --version: the gate has its own tests (dolphinVersion.test.ts).
+const mockVersionProblem = jest.fn(
+  async (_p: string): Promise<string | null> => null,
+)
+jest.mock('../main/dolphinVersion', () => ({
+  dolphinVersionProblem: (p: string) => mockVersionProblem(p),
+}))
 jest.mock('../main/overlayRenderer', () => ({ renderOverlayPng: jest.fn() }))
 jest.mock('../main/logger', () => ({
   logMain: jest.fn(),
@@ -231,6 +238,15 @@ it('stops the run on a full disk instead of retrying every clip', async () => {
   const { job } = run({ clips: 10 })
   await expect(job.promise).rejects.toThrow(/Stopped: disk full on /)
   expect(mockRecord).toHaveBeenCalledTimes(1)
+})
+
+it('a playback Dolphin older than 3.5.2 stops the run before anything is recorded', async () => {
+  mockVersionProblem.mockResolvedValueOnce(
+    'Your Slippi Playback Dolphin is 3.4.0.',
+  )
+  const { job } = run({})
+  await expect(job.promise).rejects.toThrow(/3\.4\.0/)
+  expect(mockRecord).not.toHaveBeenCalled()
 })
 
 describe('missing Dolphin or ISO', () => {

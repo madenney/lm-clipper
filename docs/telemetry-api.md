@@ -121,6 +121,18 @@ Field notes for the server:
 | `ai_prompt_copied` | "Copy AI Prompt" clicked in the code editor   | `mode`                       |
 | `usage_opt_out`    | The user switched usage data **off**          | Last event the install sends |
 | `usage_opt_in`     | The user switched usage data back **on**      | None                         |
+| `render_finished`  | A recording run ended (done, stopped or failed) | One per run                |
+| `video_tools_run`  | Video Tools finished, was cancelled or failed | One per job                  |
+| `setting_changed`  | A switch, choice or number in Settings changed | None                        |
+| `feature_used`     | Play a clip, record one clip, an auto-import batch | None                    |
+| `app_quit`         | The app is closing                            | One per session              |
+
+The last five were added on 2026-11-18 for Clipper 3.0.4 and later (installed 3.0.x copies never send them). They
+exist so the app's real use can be studied later: which settings people choose, how runs end and why they fail.
+Their payloads follow the same rule as the rest: **no paths, file names, typed text, player names or error
+messages**. Settings are reported only for Settings' checkboxes, dropdowns and number fields
+(`src/main/usageEvents.ts`, `settingChange`), and an error only as one short kind (`errorKind`). The website
+keeps exactly the fields below and clamps every number (`apps/website/src/utils/appUsageData.ts`).
 
 ### Consent events
 
@@ -180,6 +192,35 @@ these events are represented at all.
 
 // usage_opt_out / usage_opt_in
 "data": {}                              // envelope only — no payload
+
+// render_finished (one per recording run, after the last video_created)
+"data": {
+  "renderId": "9f3a1c0b7e2d5a48",       // the same id as the run's video_created checkpoints
+  "outcome": "done",                    // "done" | "stopped" (the user) | "failed"
+  "clips": 40, "failedClips": 2,        // clips made, clips that failed every attempt
+  "planned": 42,                        // clips the run set out to make
+  "wallSec": 1260,                      // how long the run took
+  "errorKind": "disk_full",             // only when failed: disk_full | permission | iso | dolphin |
+                                        // ffmpeg | missing_file | timeout | network | other
+  "settings": {                         // what it ran with (choices, switches, numbers only)
+    "resolution": "1080p", "recordingFormat": "fast_lossless", "widescreen": true,
+    "includeGameEnding": false, "concatenate": true, "numCPUs": 4,
+    "overlay": true, "overlayPosition": "bottom-left", "overlayFontSize": 24, "customFont": false
+  }
+}
+
+// video_tools_run
+"data": { "mode": "combine", "videos": 12, "compress": false, "outcome": "done", "wallSec": 41 }
+                                        // outcome: done | cancelled | failed (+ errorKind)
+
+// setting_changed
+"data": { "key": "includeGameEnding", "value": true }
+
+// feature_used
+"data": { "feature": "auto_import", "games": 3 }   // play_clip | record_clip | auto_import (games: how many)
+
+// app_quit
+"data": { "minutes": 95 }               // how long this session was open
 ```
 
 ### Checkpointing `video_created`

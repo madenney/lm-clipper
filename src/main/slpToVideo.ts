@@ -29,6 +29,7 @@ import {
   type ProfileOptions,
   type RunnerWarning,
 } from 'slippi-dolphin-runner'
+import { dolphinVersionProblem } from './dolphinVersion'
 import { SlippiGame } from '../lib/slippiGame'
 import { readLastFrame } from '../lib/lastFrame'
 import { playableSlp } from './slpCache'
@@ -527,7 +528,10 @@ const sanitizeSegment = (segment: string): string => {
   // creates an alternate data stream "Clip" and the video is invisible
   // (launch review WIN-14).
   let s = segment
-    .replace(/[<>:"|?*\x00-\x1f]/g, '_') // eslint-disable-line no-control-regex
+    .replace(/[<>:"|?*\x00-\x1f\x7f]/g, '_') // eslint-disable-line no-control-regex
+    // Invisible and direction-changing characters (a name in a replay can carry them): "Fox\u202Eexe.mp4" would
+    // show as "Fox4pm.exe" (2026-11-19, docs/upload-security.md).
+    .replace(/[\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]/g, '')
     .replace(/[. ]+$/, '')
   if (WINDOWS_RESERVED.test(s)) s = `_${s}`
   return s || '_'
@@ -546,8 +550,12 @@ export const resolveFilenamePattern = (
   replay: ReplayInterface,
   sourceRules?: OverlaySourceRule[],
 ): string => {
-  const unsafeChars = /[<>:"/\\|?*\x00-\x1f]/g // eslint-disable-line no-control-regex
-  const sanitize = (s: string) => s.replace(unsafeChars, '_').trim()
+  const unsafeChars = /[<>:"/\\|?*\x00-\x1f\x7f]/g // eslint-disable-line no-control-regex
+  const sanitize = (s: string) =>
+    s
+      .replace(unsafeChars, '_')
+      .replace(/[\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]/g, '')
+      .trim()
 
   // Shared token values (raw), sanitised here for filesystem safety. The
   // pattern's own '/' separators are preserved to allow folder structure.
@@ -2207,6 +2215,9 @@ const slpToVideo = (
             )
           throw err
         })
+        // Never record with a Dolphin that runs a replay's Gecko codes unsafely (dolphinVersion.ts).
+        const tooOld = await dolphinVersionProblem(config.dolphinPath)
+        if (tooOld) throw new RecordingStoppedError(tooOld)
         const iso = await checkIso(config.ssbmIsoPath)
         if (iso.fatal) throw new RecordingStoppedError(iso.fatal)
         isoHint = iso.hint

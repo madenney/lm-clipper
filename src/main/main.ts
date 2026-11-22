@@ -21,7 +21,7 @@ import Controller from './controller'
 import { runWorkflow } from './workflow'
 import { runAutorunDownload, runAutorunFullDbInfo } from './autorunDownload'
 import { logMain } from './logger'
-import { flushTelemetry } from './telemetry'
+import { flushTelemetry, track } from './telemetry'
 import { shortUpdateError } from './updaterUtils'
 import {
   registerTimedHandlers,
@@ -597,7 +597,8 @@ app.on('before-quit', (event) => {
   const cleanup = shutdownCleanupAsync().then(() => {
     cleanlyClosed = true
   })
-  // A usage ping fired just before quitting gets a moment to finish.
+  // How long this session was open (app_quit), then a moment for the pings on the wire to finish.
+  track('app_quit', { minutes: Math.round(process.uptime() / 60) })
   const pings = flushTelemetry()
   // Watchdog: never let quit hang on a stuck worker.
   const timeout = new Promise((resolve) => {

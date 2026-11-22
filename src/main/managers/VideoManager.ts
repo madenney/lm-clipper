@@ -15,6 +15,8 @@ import { stages } from '../../constants/stages'
 import { GAME_START_FRAME } from '../../constants/frames'
 import { gameEndFrame } from '../../lib/lastFrame'
 import { track } from '../telemetry'
+import { errorKind, renderSettings } from '../usageEvents'
+import { dolphinVersionProblem } from '../dolphinVersion'
 import {
   ArchiveInterface,
   ClipInterface,
@@ -409,6 +411,8 @@ export default class VideoManager {
 
     const CHECKPOINT_CLIPS = 50
     const renderId = crypto.randomBytes(8).toString('hex')
+    const renderStartedAt = Date.now()
+    let encodedTotal = 0
     let pendingClips = 0
     let pendingFootageSec = 0
     const flushUsage = (final: boolean) => {
@@ -421,6 +425,7 @@ export default class VideoManager {
     }
     const onClipEncoded = (replay: ReplayInterface) => {
       pendingClips += 1
+      encodedTotal += 1
       pendingFootageSec += Math.max(0, replay.endFrame - replay.startFrame) / 60
       if (pendingClips >= CHECKPOINT_CLIPS) flushUsage(false)
       if (manifest) {
@@ -492,10 +497,12 @@ export default class VideoManager {
       (note: string) => this.consoleManager.pushConsoleNote(note),
     )
     let stopped = false
+    let failure: unknown = null
     try {
       await this.activeVideoJob.promise
     } catch (err) {
       stopped = true
+      if (!this.videoStopRequested) failure = err
       logMain('generateVideo: error', err)
       if (!this.videoStopRequested) {
         // A real ffmpeg/Dolphin failure, not a user Stop/Cancel — surface it
@@ -519,6 +526,22 @@ export default class VideoManager {
       // path — clean finish, Stop/Cancel, or ffmpeg error — so a partial render
       // still reports what it produced. Only a hard process kill loses this.
       flushUsage(true)
+      // One summary per run (render_finished): how it ended, how many clips made it and how many failed, how
+      // long it took, and the recording settings it ran with (usageEvents.renderSettings: no paths or text).
+      track('render_finished', {
+        renderId,
+        outcome: failure
+          ? 'failed'
+          : this.videoStopRequested
+            ? 'stopped'
+            : 'done',
+        clips: encodedTotal,
+        failedClips: failedCount,
+        planned: replays.length,
+        wallSec: Math.round((Date.now() - renderStartedAt) / 1000),
+        ...(failure ? { errorKind: errorKind(failure) } : {}),
+        settings: renderSettings(videoConfig as Record<string, unknown>),
+      })
       // Final manifest flush — record the concatenated file if one was produced,
       // then force the last write so on-disk state is accurate at completion.
       if (manifest) {
@@ -828,6 +851,19 @@ export default class VideoManager {
     const job = new AbortController()
     this.videoToolsJob = job
     const letSleep = holdAwake('video tools')
+    const toolsStartedAt = Date.now()
+    const reportTools = (
+      outcome: 'done' | 'cancelled' | 'failed',
+      err?: unknown,
+    ) =>
+      track('video_tools_run', {
+        mode: plan.mode,
+        videos: files.length,
+        compress,
+        outcome,
+        wallSec: Math.round((Date.now() - toolsStartedAt) / 1000),
+        ...(outcome === 'failed' ? { errorKind: errorKind(err) } : {}),
+      })
     try {
       const res = await concatClips(
         files,
@@ -850,6 +886,10 @@ export default class VideoManager {
         ok: res.ok,
         cancelled: res.cancelled === true,
       })
+      reportTools(
+        res.ok ? 'done' : res.cancelled ? 'cancelled' : 'failed',
+        res.ok ? undefined : res.error,
+      )
       return reply(
         event,
         'videoToolsRun',
@@ -859,6 +899,7 @@ export default class VideoManager {
           : { ok: false, error: res.error, cancelled: res.cancelled === true },
       )
     } catch (err) {
+      reportTools('failed', err)
       return fail((err as Error)?.message || 'The video could not be made.')
     } finally {
       this.videoToolsJob = null
@@ -913,6 +954,7 @@ export default class VideoManager {
       )
     // A preview on screen gives way to the recording (they share Dolphin).
     this.activePlayback?.abort()
+    track('feature_used', { feature: 'record_clip' })
     this.recordingBusy = true
     const letSleep = holdAwake('recording')
     try {
@@ -1123,6 +1165,15 @@ export default class VideoManager {
       return
     }
 
+    const tooOld = await dolphinVersionProblem(
+      path.resolve(resolveDolphinExecutable(dolphinPath)),
+    )
+    if (tooOld) {
+      reportError?.(`Error: ${tooOld}`)
+      logMain('playClipAsync: Dolphin refused (version)', { dolphinPath })
+      return
+    }
+
     if (!payload.path) {
       reportError?.('Error: No replay path provided.')
       return
@@ -1236,6 +1287,7 @@ export default class VideoManager {
       this.mainWindow.webContents.send('videoMsg', 'No clip selected.')
       return reply(event, 'playClip', requestId)
     }
+    track('feature_used', { feature: 'play_clip' })
 
     this.playbackAborted = false
     this.mainWindow.webContents.send('playbackStarted')
@@ -1270,6 +1322,11 @@ export default class VideoManager {
     const status = dolphinStatus({ dolphinPath, isoPath })
     if (status) {
       send(`Error: ${status}`)
+      return
+    }
+    const tooOld = await dolphinVersionProblem(dolphinPath)
+    if (tooOld) {
+      send(`Error: ${tooOld}`)
       return
     }
 

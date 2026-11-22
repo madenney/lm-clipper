@@ -1,4 +1,4 @@
-import { CSSProperties, useEffect, useRef } from 'react'
+import { CSSProperties, useEffect, useRef, useState } from 'react'
 import { openSettings } from '../lib/openSettings'
 
 type Props = {
@@ -44,14 +44,24 @@ const linkStyle: CSSProperties = {
   textUnderlineOffset: 3,
 }
 
-const okStyle: CSSProperties = {
-  ...linkStyle,
+// OK is the main action, so it is a real button that lights up on hover and keyboard focus; "Turn off"
+// and "Privacy" stay as plain links beside it, as visible as before (the owner's choice, 2026-11-19: make
+// OK clearer, never hide the opt-out).
+const okStyle = (lit: boolean): CSSProperties => ({
+  padding: '3px 14px',
+  borderRadius: 6,
+  border: `1px solid ${lit ? '#8fb8ff' : '#5a5a5a'}`,
+  background: lit ? '#3d6fd8' : '#2c2c2c',
   color: '#fff',
+  font: 'inherit',
   fontWeight: 600,
-}
+  cursor: 'pointer',
+  transition: 'background 120ms ease, border-color 120ms ease',
+})
 
 // Dismissal is persisted via the `consentNoticeSeen` config flag.
 export default function ConsentNotice({ onDismiss }: Props) {
+  const [okLit, setOkLit] = useState(false)
   // The line has been on screen: that counts as shown even when it goes away
   // because a project opened. Main holds the first-launch usage pings until
   // this is recorded (launch review PRIV-1).
@@ -82,7 +92,15 @@ export default function ConsentNotice({ onDismiss }: Props) {
       >
         Privacy
       </button>
-      <button type="button" style={okStyle} onClick={onDismiss}>
+      <button
+        type="button"
+        style={okStyle(okLit)}
+        onClick={onDismiss}
+        onMouseEnter={() => setOkLit(true)}
+        onMouseLeave={() => setOkLit(false)}
+        onFocus={() => setOkLit(true)}
+        onBlur={() => setOkLit(false)}
+      >
         OK
       </button>
     </div>

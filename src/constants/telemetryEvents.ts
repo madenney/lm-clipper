@@ -11,6 +11,12 @@ export const TELEMETRY_EVENTS = [
   'ai_prompt_copied', // the "Copy AI Prompt" button in the custom-code editor
   'usage_opt_out', // the user just turned this off — the last event we send
   'usage_opt_in', // the user turned it back on
+  // Added 2026-11-18 (Clipper 3.0.4+; older installs never send them):
+  'render_finished', // a recording run ended: outcome, clips, time taken, settings used, error kind
+  'video_tools_run', // Video Tools made a video: combine / compress, outcome, time taken
+  'setting_changed', // a switch, choice or number in Settings changed (never paths or text)
+  'feature_used', // a feature was used: play_clip, record_clip, auto_import
+  'app_quit', // the app was closed: minutes it was open
 ] as const
 
 export type TelemetryEvent = (typeof TELEMETRY_EVENTS)[number]
