@@ -24,7 +24,8 @@ export const CHANGELOG: ChangelogEntry[] = [
   {
     version: '3.0.4',
     date: '2026-11-20',
-    summary: 'A safety update: Clipper now needs an up-to-date Slippi Playback Dolphin.',
+    summary:
+      'A safety update: Clipper now needs an up-to-date Slippi Playback Dolphin.',
     groups: [
       {
         heading: 'Safety',
@@ -35,9 +36,7 @@ export const CHANGELOG: ChangelogEntry[] = [
       },
       {
         heading: 'Changes',
-        items: [
-          'The usage-stats notice has a clear OK button.',
-        ],
+        items: ['The usage-stats notice has a clear OK button.'],
       },
     ],
   },

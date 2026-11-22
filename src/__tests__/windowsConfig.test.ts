@@ -279,8 +279,12 @@ describe('output file names (WIN-14)', () => {
   })
 
   it('invisible and direction-changing characters are dropped (a replay name can carry them)', () => {
-    expect(resolveFilenamePattern('Fox\u202Egpj.exe', replay)).toBe('Foxgpj.exe')
-    expect(resolveFilenamePattern('a\u200bb\ufeffc\u2066d\u007f', replay)).toBe('abcd_')
+    expect(resolveFilenamePattern('Fox\u202Egpj.exe', replay)).toBe(
+      'Foxgpj.exe',
+    )
+    expect(resolveFilenamePattern('a\u200bb\ufeffc\u2066d\u007f', replay)).toBe(
+      'abcd_',
+    )
     expect(resolveFilenamePattern('../../{index}', replay)).not.toMatch(/\.\./)
   })
 
